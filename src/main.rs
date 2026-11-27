@@ -10,24 +10,11 @@ mod build_info;
 #[cfg(feature = "desktop")]
 mod copy;
 #[cfg(feature = "desktop")]
-mod custom_emoji;
+mod desktop;
 #[cfg(all(feature = "desktop", target_os = "linux"))]
 mod desktop_entry;
 #[cfg(feature = "desktop")]
-mod discord_emoji_names;
-#[cfg(feature = "desktop")]
 mod drop;
-#[cfg(feature = "desktop")]
-mod emoji;
-#[cfg(feature = "desktop")]
-mod emoji_font;
-#[cfg(feature = "desktop")]
-mod emoji_font_tables;
-#[cfg(feature = "desktop")]
-#[cfg(feature = "desktop")]
-mod emoji_text;
-#[cfg(feature = "desktop")]
-mod graphics;
 #[cfg(feature = "desktop")]
 mod icon;
 #[cfg(feature = "desktop")]
@@ -40,16 +27,17 @@ mod notify;
 mod paste;
 #[cfg(feature = "desktop")]
 mod protocol;
+
+/// The window's app ID on Linux, and the name of its desktop entry and
+/// icon; keybinds' portal session goes by it too.
+#[cfg(feature = "desktop")]
+pub const APP_ID: &str = "io.github.yapfast.Yapfast";
 #[cfg(feature = "desktop")]
 mod tray;
 #[cfg(feature = "desktop")]
-mod twemoji;
-#[cfg(feature = "desktop")]
-mod ui;
-#[cfg(feature = "desktop")]
 mod update;
-#[cfg(feature = "desktop")]
-mod zoom;
+#[cfg(all(windows, feature = "desktop"))]
+mod window_place;
 
 use anyhow::{Context, Result, bail};
 use yapfast_core::{cli, logging, runtime::BackgroundRuntime};
@@ -86,10 +74,27 @@ fn main() -> Result<()> {
         return yapfast_core::stream_worker::run();
     }
     let mut arguments: Vec<_> = std::env::args().skip(1).collect();
+    // `yapfast theme check | install | new | export`: a theme's tools, with
+    // no window.
+    #[cfg(feature = "desktop")]
+    if arguments
+        .first()
+        .is_some_and(|argument| argument == "theme")
+    {
+        // A Windows build has no console of its own, so a theme maker in
+        // PowerShell or cmd would see nothing: join the one it was run from
+        // first, as a window start does for its log.
+        #[cfg(all(windows, feature = "desktop"))]
+        let _ = has_console();
+        logging::init_to_stderr();
+        std::process::exit(yapfast_iced::theme_cli::run(&arguments[1..]));
+    }
     // First, so nothing a desktop handed over with the link is read as an option.
     let handed = handed_link(&mut arguments);
     let renderer = renderer_argument(&mut arguments)?;
     let background = flag_argument(&mut arguments, "--background");
+    let default_theme = flag_argument(&mut arguments, "--default-theme");
+    let theme_dev = theme_dev_argument(&mut arguments)?;
     let mut links: Vec<String> = handed.clone().ok().flatten().into_iter().collect();
     if !arguments
         .first()
@@ -134,6 +139,8 @@ fn main() -> Result<()> {
     let start = Start {
         renderer,
         background,
+        default_theme,
+        theme_dev,
         arguments: &arguments,
         open_link,
     };
@@ -185,9 +192,7 @@ fn main() -> Result<()> {
             Ok(())
         }
         [argument] if argument == "--help" || argument == "-h" => {
-            println!(
-                "Usage: yapfast [--preview] [--data-dir PATH] [--renderer gpu|software] [--background] [LINK]\n       yapfast [--smoke-test | --version | --help | --release-discord-links]\n       yapfast --call-experiment [--resume PATH]\n       yapfast [--voice-demo | --audio-devices]\n       yapfast session login --homeserver URL --user USER --password-stdin [--data-dir PATH]\n       yapfast session status [--data-dir PATH]\n       yapfast session recover --key-stdin [--data-dir PATH]\n       yapfast session logout [--data-dir PATH]\n\nWithout arguments, opens native Slint chat and restores a saved session.\n--renderer selects Skia Software or Skia GPU for this start, over the setting.\nIf Skia GPU fails to start, Yapfast restarts with Skia Software.\n--background starts in the system tray with a saved session, as starting at sign-in does.\nLINK opens a Discord server, channel, message, profile or invite link in Yapfast.\n--release-discord-links gives discord:// links back to the app that had them, as uninstalling does.\n--preview opens local sample conversations without connecting to Matrix.\n--smoke-test checks the linked stack without signing in or opening audio devices.\n--version prints which build this is: its version, whether it is a stable release, a nightly or a development build, and its commit.\n--call-experiment creates disposable local accounts and checks encrypted synthetic audio. Start scripts/test-stack up first.\n--voice-demo creates two local accounts and a server with encrypted text and voice channels.\n--audio-devices lists native audio devices and cameras without recording.\nSession commands support password sign-in. Secrets are read from stdin."
-            );
+            println!("{}", help());
             Ok(())
         }
         _ => bail!("unknown argument; run yapfast --help"),
@@ -223,52 +228,102 @@ fn data_directory(arguments: &[String]) -> Option<std::path::PathBuf> {
     }
 }
 
+/// What `--help` prints: the commands, and what a start without them opens
+/// in this build's window.
+fn help() -> String {
+    let window = if cfg!(feature = "desktop") {
+        "Without arguments, opens Yapfast's window and restores a saved session.\n\
+         --renderer selects tiny-skia (software) or wgpu (gpu) for this start, over the setting.\n\
+         If wgpu fails to start, Yapfast restarts with tiny-skia.\n\
+         --background starts in the system tray with a saved session.\n\
+         LINK opens a Discord server, channel, message, profile or invite link in Yapfast.\n\
+         --release-discord-links gives discord:// links back to the app that had them, as uninstalling does.\n"
+    } else {
+        "This build has no window; only the commands below that need none run.\n"
+    };
+    let links = if cfg!(feature = "desktop") {
+        " | --release-discord-links"
+    } else {
+        ""
+    };
+    format!(
+        "Usage: yapfast [--preview] [--data-dir PATH] [--renderer gpu|software] [--background] [--default-theme] [--theme-dev FOLDER] [LINK]\n\
+         \x20      yapfast [--smoke-test | --version | --help{links}]\n\
+         \x20      yapfast --call-experiment [--resume PATH]\n\
+         \x20      yapfast [--voice-demo | --audio-devices]\n\
+         \x20      yapfast theme check FOLDER [--marketplace]\n\
+         \x20      yapfast theme install FOLDER [--data-dir PATH]\n\
+         \x20      yapfast theme new NAME [--light] [--from THEME] [--author NAME]\n\
+         \x20      yapfast theme export CUSTOM-THEME FOLDER\n\
+         \x20      yapfast session login --homeserver URL --user USER --password-stdin [--data-dir PATH]\n\
+         \x20      yapfast session status [--data-dir PATH]\n\
+         \x20      yapfast session recover --key-stdin [--data-dir PATH]\n\
+         \x20      yapfast session logout [--data-dir PATH]\n\
+         \n\
+         {window}\
+         --theme-dev FOLDER shows the theme in FOLDER and shows it again each time a file in it is saved.\n\
+         --default-theme starts in the default look, keeping the theme chosen; Ctrl+Shift+T turns a theme off while Yapfast runs.\n\
+         --preview opens local sample conversations without connecting to Matrix.\n\
+         --smoke-test checks the linked stack without signing in or opening audio devices.\n\
+         --version prints which build this is: its version, whether it is a stable release, a nightly or a development build, and its commit.\n\
+         --call-experiment creates disposable local accounts and checks encrypted synthetic audio. Start scripts/test-stack up first.\n\
+         --voice-demo creates two local accounts and a server with encrypted text and voice channels.\n\
+         --audio-devices lists native audio devices and cameras without recording.\n\
+         theme check FOLDER [--marketplace] runs an install's checks on a theme's folder, and with --marketplace a listing's.\n\
+         theme install FOLDER [--data-dir FOLDER] installs a checked local theme.\n\
+         theme new NAME [--light] [--from THEME] [--author NAME] [--id ID] [--dir FOLDER] [--data-dir FOLDER] makes a theme's folder from the template or another theme.\n\
+         theme export THEME FOLDER [--author NAME] [--data-dir FOLDER] writes one of your own themes as a package. See docs/themes.md.\n\
+         Session commands support password sign-in. Secrets are read from stdin."
+    )
+}
+
 /// Set only for a process that replaces a failed GPU start.
 #[cfg(feature = "desktop")]
 const GPU_FALLBACK_REASON: &str = "YAPFAST_GPU_FALLBACK_REASON";
 
 /// How Yapfast starts its window, besides its folder and the preview.
-#[cfg_attr(not(feature = "desktop"), allow(dead_code))]
+#[cfg_attr(
+    not(feature = "desktop"),
+    allow(dead_code, reason = "only the window uses it")
+)]
 struct Start<'a> {
     renderer: Option<&'static str>,
     background: bool,
-    /// What a restart starts with: the arguments without `--renderer`,
-    /// `--background` or a link.
+    /// `--default-theme`: this start shows the default look, keeping the
+    /// theme chosen.
+    default_theme: bool,
+    /// `--theme-dev FOLDER`: a theme maker's folder, shown and shown again
+    /// as it's saved.
+    theme_dev: Option<std::path::PathBuf>,
+    /// The arguments left once `--renderer`, `--background`, the theme
+    /// flags and a link are taken out; a restart starts with
+    /// [`Start::restart_arguments`].
     arguments: &'a [String],
     /// A link handed to this start, as one word.
     open_link: Option<String>,
 }
 
-#[cfg(feature = "desktop")]
-fn launch(
-    runtime: BackgroundRuntime,
-    root: std::path::PathBuf,
-    preview: bool,
-    start: Start<'_>,
-) -> Result<()> {
-    let renderer = start.renderer.map(|renderer| match renderer {
-        "gpu" => graphics::Renderer::Gpu,
-        _ => graphics::Renderer::Software,
-    });
-    let fallback = std::env::var(GPU_FALLBACK_REASON).ok();
-    #[cfg(feature = "discord")]
-    yapfast_core::keep_discord_files(&root);
-    match ui::run(
-        runtime,
-        root,
-        preview,
-        renderer,
-        fallback,
-        start.background,
-        start.open_link.clone(),
-    )? {
-        ui::Exit::Closed => Ok(()),
-        // The GPU failed before anything opened the link: the next start does.
-        ui::Exit::UseSoftware(reason) => {
-            relaunch(start.arguments, Some(&reason), start.open_link.as_deref())
+impl Start<'_> {
+    /// What a restart starts with: the arguments, and `--default-theme` and
+    /// `--theme-dev FOLDER` again, so a renderer fallback or a restart from
+    /// Settings neither brings back the theme this start escaped nor stops
+    /// watching the theme maker's folder. `--renderer`, `--background` and
+    /// a link stay out: a restart follows the setting and shows the window.
+    #[cfg_attr(
+        not(feature = "desktop"),
+        allow(dead_code, reason = "only the desktop window restarts the application")
+    )]
+    fn restart_arguments(&self) -> Vec<String> {
+        let mut arguments = Vec::new();
+        if self.default_theme {
+            arguments.push("--default-theme".to_owned());
         }
-        ui::Exit::Restart => relaunch(start.arguments, None, None),
-        ui::Exit::Update(prepared) => finish_update(prepared, start.arguments),
+        if let Some(folder) = &self.theme_dev {
+            arguments.push("--theme-dev".to_owned());
+            arguments.push(folder.to_string_lossy().into_owned());
+        }
+        arguments.extend(self.arguments.iter().cloned());
+        arguments
     }
 }
 
@@ -295,8 +350,8 @@ fn finish_update(prepared: update::install::Prepared, arguments: &[String]) -> R
 
 /// The window system allows one renderer per process, so a failed GPU start,
 /// or a changed renderer setting, continues in a new process after this one
-/// released its session and runtime. `arguments` no longer hold `--renderer`,
-/// so a restart follows the setting, nor `--background`: the window shows.
+/// released its session and runtime. `arguments` are
+/// [`Start::restart_arguments`].
 #[cfg(feature = "desktop")]
 fn relaunch(arguments: &[String], gpu_failure: Option<&str>, link: Option<&str>) -> Result<()> {
     let program = std::env::current_exe().context("could not find Yapfast to restart it")?;
@@ -336,6 +391,95 @@ fn relaunch_program(
         command.spawn().context("could not restart Yapfast")?;
         std::process::exit(0);
     }
+}
+
+/// Opens the window (docs/client/window.md) with the desktop around it
+/// (`desktop`): one Yapfast for each data folder, the desktop entry,
+/// starting at sign-in and Discord's links kept up to date.
+#[cfg(feature = "desktop")]
+fn launch(
+    runtime: BackgroundRuntime,
+    root: std::path::PathBuf,
+    preview: bool,
+    start: Start<'_>,
+) -> Result<()> {
+    let instance = if preview {
+        instance::Instance::default()
+    } else {
+        match instance::claim(
+            &root,
+            !multiple_windows(&root),
+            start.background,
+            start.open_link.clone(),
+        ) {
+            instance::Start::Run(instance) => instance,
+            instance::Start::Handed => return Ok(()),
+        }
+    };
+    // Before the window maps, as the desktop looks up its icon then.
+    #[cfg(target_os = "linux")]
+    if !preview {
+        desktop_entry::install();
+    }
+    if !preview {
+        if protocol::SUPPORTED {
+            protocol::refresh(&root);
+        }
+        autostart::refresh();
+    }
+    yapfast_core::keep_discord_files(&root);
+    let runtime = std::sync::Arc::new(runtime);
+    let shell = desktop::Shell::new(runtime.clone(), preview, instance);
+    let ran = yapfast_iced::run(
+        runtime,
+        root,
+        yapfast_iced::Options {
+            preview,
+            renderer: start.renderer.map(|renderer| renderer == "gpu"),
+            gpu_failure: std::env::var(GPU_FALLBACK_REASON).ok(),
+            background: start.background,
+            default_theme: start.default_theme,
+            theme_dev: start.theme_dev.clone(),
+            open_link: start.open_link.clone(),
+            desktop: shell.clone(),
+            build: {
+                let build = build_info::current();
+                yapfast_iced::Build {
+                    headline: build.headline(),
+                    channel: build.channel().label().to_owned(),
+                    details: build.details(),
+                    tone: build.channel().tone(),
+                    summary: build.summary(),
+                    version: build.version().to_owned(),
+                }
+            },
+        },
+    );
+    shell.closed();
+    let restart = start.restart_arguments();
+    match ran? {
+        yapfast_iced::Exit::Closed => Ok(()),
+        yapfast_iced::Exit::Update => match shell.take_prepared() {
+            Some(prepared) => finish_update(prepared, &restart),
+            None => Ok(()),
+        },
+        // The GPU failed before anything opened the link: the next start does.
+        yapfast_iced::Exit::UseSoftware(reason) => {
+            relaunch(&restart, Some(&reason), start.open_link.as_deref())
+        }
+        yapfast_iced::Exit::Restart => relaunch(&restart, None, None),
+    }
+}
+
+/// Whether Settings → Advanced allows more than one Yapfast on a folder, as
+/// `layout.json` keeps it.
+#[cfg(feature = "desktop")]
+fn multiple_windows(root: &std::path::Path) -> bool {
+    std::fs::read(root.join("layout.json"))
+        .ok()
+        .and_then(|bytes| serde_json::from_slice::<serde_json::Value>(&bytes).ok())
+        .and_then(|layout| layout.get("multiple_windows")?.as_bool())
+        .unwrap_or(false)
 }
 
 #[cfg(not(feature = "desktop"))]
@@ -393,13 +537,33 @@ fn link_arguments(arguments: &mut Vec<String>) -> Vec<String> {
 
 /// A link as one word, when it names a place this Yapfast can open.
 fn written_link(link: &str) -> Option<String> {
-    #[cfg(all(feature = "desktop", feature = "discord"))]
+    #[cfg(feature = "desktop")]
     return yapfast_core::discord::discord_link(link);
-    #[cfg(not(all(feature = "desktop", feature = "discord")))]
+    #[cfg(not(feature = "desktop"))]
     {
         let _ = link;
         None
     }
+}
+
+/// `--theme-dev FOLDER`, taken out of `arguments`.
+fn theme_dev_argument(arguments: &mut Vec<String>) -> Result<Option<std::path::PathBuf>> {
+    let Some(index) = arguments
+        .iter()
+        .position(|argument| argument == "--theme-dev")
+    else {
+        return Ok(None);
+    };
+    // An option after it is a forgotten folder, not a folder named `--…`.
+    let Some(folder) = arguments
+        .get(index + 1)
+        .filter(|folder| !folder.starts_with("--"))
+        .cloned()
+    else {
+        bail!("--theme-dev needs the folder of a theme");
+    };
+    arguments.drain(index..index + 2);
+    Ok(Some(folder.into()))
 }
 
 /// The renderer `--renderer` asks for; without it, the setting decides.
@@ -425,6 +589,47 @@ fn renderer_argument(arguments: &mut Vec<String>) -> Result<Option<&'static str>
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_restart_keeps_the_theme_flags_and_drops_the_one_start_ones() {
+        let arguments = strings(&["--preview", "--data-dir", "folder"]);
+        let start = Start {
+            renderer: Some("software"),
+            background: true,
+            default_theme: true,
+            theme_dev: Some("my theme".into()),
+            arguments: &arguments,
+            open_link: Some("https://discord.com/channels/1/2".into()),
+        };
+        let restart = start.restart_arguments();
+        assert_eq!(
+            restart,
+            [
+                "--default-theme",
+                "--theme-dev",
+                "my theme",
+                "--preview",
+                "--data-dir",
+                "folder"
+            ]
+        );
+        // What the restart reads back is what this start had.
+        let mut read = restart;
+        assert!(flag_argument(&mut read, "--default-theme"));
+        assert_eq!(
+            theme_dev_argument(&mut read).unwrap(),
+            Some("my theme".into())
+        );
+        assert_eq!(read, arguments);
+    }
+
+    #[test]
+    fn theme_dev_wants_a_folder_not_the_next_option() {
+        let mut arguments = strings(&["--theme-dev", "--preview"]);
+        assert!(theme_dev_argument(&mut arguments).is_err());
+        let mut arguments = strings(&["--theme-dev"]);
+        assert!(theme_dev_argument(&mut arguments).is_err());
+    }
 
     fn strings(arguments: &[&str]) -> Vec<String> {
         arguments
@@ -475,7 +680,7 @@ mod tests {
         assert_eq!(arguments, ["session", "status"]);
     }
 
-    #[cfg(all(feature = "desktop", feature = "discord"))]
+    #[cfg(feature = "desktop")]
     #[test]
     fn a_discord_web_link_is_taken_out_and_written_as_one_word() {
         let mut arguments = strings(&["https://discord.com/channels/10/11?a b"]);

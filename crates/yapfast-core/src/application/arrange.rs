@@ -107,7 +107,7 @@ impl Application {
 
     /// [`Self::draggable`], by the channel's or category's id in `server`.
     #[cfg(feature = "discord")]
-    fn drags(&self, server: &MarkedServer, kinds: &Kinds, id: &str) -> bool {
+    fn drags(&self, server: &MarkedServer, kinds: &Kinds<'_>, id: &str) -> bool {
         if !self.state.discord_online
             || server.follows_only()
             || server.marks.notifications.of(id).pinned()
@@ -129,7 +129,7 @@ impl Application {
     fn lands(
         &self,
         server: &MarkedServer,
-        kinds: &Kinds,
+        kinds: &Kinds<'_>,
         shown: &[String],
         dragged: usize,
         onto: usize,
@@ -156,7 +156,13 @@ impl Application {
     /// goes in, or in the server outside any, and able to see a category it
     /// moves into.
     #[cfg(feature = "discord")]
-    fn may_land(&self, server: &MarkedServer, kinds: &Kinds, id: &str, landing: &Landing) -> bool {
+    fn may_land(
+        &self,
+        server: &MarkedServer,
+        kinds: &Kinds<'_>,
+        id: &str,
+        landing: &Landing,
+    ) -> bool {
         let Some(&(kind, parent)) = kinds.get(id) else {
             return false;
         };
@@ -202,6 +208,13 @@ impl Application {
     /// says, as dropping it there in the channel list does. A channel moving
     /// into a category whose permissions it could take asks first, as
     /// Discord's client does; see [`MoveSync`].
+    #[cfg_attr(
+        not(feature = "discord"),
+        allow(
+            clippy::needless_pass_by_ref_mut,
+            reason = "builds with Discord change it"
+        )
+    )]
     pub(super) fn move_channel(&mut self, room: String, landing: Landing) -> Vec<Effect> {
         #[cfg(feature = "discord")]
         if self.discord_place(&room).is_some_and(|(server, id, _)| {

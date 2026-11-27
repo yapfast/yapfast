@@ -1,0 +1,745 @@
+//! The sidebar's rows as the core's lists make them, with no window in
+//! them: each room's row, the headings, links and drop spaces between,
+//! and the server's top.
+
+use std::{
+    collections::{BTreeSet, HashMap, HashSet},
+    sync::Arc,
+};
+
+use yapfast_core::{
+    application::{AppState, Application, DmScreen, ListedCategory, MenuChoice, Navigation},
+    chat::{ChatRoom, MarkKind, Permission, Presence, VoicePerson},
+    discord,
+    network::Network,
+};
+
+use crate::{
+    controls::count_badge,
+    looks::Status,
+    pictures::{GroupIcon, Icon, room_group_icon},
+};
+
+use super::{DM_ROW, GAP, HEADING, PERSON, ROW, link_height};
+
+/// A conversation's row.
+#[derive(Clone, Debug, PartialEq)]
+pub struct Room {
+    pub id: String,
+    pub name: String,
+    pub icon: Icon,
+    pub selected: bool,
+    pub unread: bool,
+    pub badge: String,
+    /// A forum's unread posts, as its row counts them (empty for none).
+    pub posts: String,
+    pub muted: bool,
+    pub locked: bool,
+    pub voice: bool,
+    /// A DM, with its picture, its person's presence and the line under it.
+    pub direct: bool,
+    pub avatar: Option<String>,
+    pub group_icon: Option<GroupIcon>,
+    pub presence: Option<Presence>,
+    pub status: Status,
+    /// A DM's person's looks: the decoration round the avatar, the
+    /// nameplate's still and palette, the name's style, the server tag's
+    /// letters and badge; Discord's own account; and a DM nobody has
+    /// written in yet, which offers to wave, by its person.
+    pub decoration: Option<Arc<str>>,
+    pub nameplate: Option<(Arc<str>, Option<u32>)>,
+    pub style: Option<crate::looks::NameLook>,
+    pub tag: Option<(Arc<str>, Option<Arc<str>>)>,
+    pub official: bool,
+    pub wave: Option<String>,
+    /// The server voice channel a one-to-one DM's person is in: its room
+    /// id, its name and its server's.
+    pub voice_spot: Option<(String, String, String)>,
+    /// A DM with a call going on, and a DM pinned to the top.
+    pub call: bool,
+    pub pinned: bool,
+    /// A DM someone else is typing in, whose avatar shows Discord's typing
+    /// dots in place of its status dot.
+    pub typing: bool,
+    /// A thread under its channel, and whether another of its follows.
+    pub thread: bool,
+    pub thread_continues: bool,
+    /// A parent whose first visible thread follows it.
+    pub has_threads: bool,
+    /// Who is in a voice channel, and since when (Unix seconds).
+    pub people: Vec<VoicePerson>,
+    pub started: Option<u64>,
+    /// A voice channel with a chat of its own, which a button opens.
+    pub chat: bool,
+    /// A Discord DM's close button on its row, by its label: Close DM, or
+    /// Leave Group for a group.
+    pub close: Option<&'static str>,
+}
+
+impl Room {
+    /// The row's own height, without the people under it.
+    pub(super) fn row_height(&self, theme: &crate::theme::Theme) -> f32 {
+        // A theme's channel rows size channels; a DM keeps its own row.
+        if self.direct {
+            return DM_ROW;
+        }
+        theme.spacing().channel_row_height.unwrap_or(ROW)
+    }
+}
+
+/// A row of the list.
+#[derive(Clone, Debug, PartialEq)]
+pub enum SideRow {
+    /// Friends and Requests, at the top of the DMs.
+    Screens {
+        friends: bool,
+        requests: bool,
+        badge: String,
+    },
+    /// "Direct Messages", with its buttons.
+    DmHeading,
+    /// Browse Channels, at the top of a Community server's list.
+    Browse {
+        open: bool,
+    },
+    /// "PINNED CHANNELS" over a server's pinned channels, and the line after
+    /// them.
+    Pinned,
+    PinnedEnd,
+    /// A category's heading: its name, what it folds by, whether it's folded.
+    Heading {
+        name: String,
+        fold: String,
+        collapsed: bool,
+    },
+    Room(Box<Room>),
+    /// What the list says when it has no rows.
+    Empty(&'static str),
+}
+
+impl SideRow {
+    pub fn key(&self) -> String {
+        match self {
+            SideRow::Screens { .. } => "screens".into(),
+            SideRow::DmHeading => "dm-heading".into(),
+            SideRow::Browse { .. } => "browse".into(),
+            SideRow::Pinned => "pinned".into(),
+            SideRow::PinnedEnd => "pinned-end".into(),
+            SideRow::Heading { fold, .. } => format!("heading:{fold}"),
+            SideRow::Room(room) => room.id.clone(),
+            SideRow::Empty(_) => "empty".into(),
+        }
+    }
+
+    /// The row's height, its gap after included.
+    pub fn height(&self, theme: &crate::theme::Theme, gap: f32) -> f32 {
+        // As Slint, a heading sits 2 px over its first row whatever the
+        // list's gap.
+        let gap = if matches!(self, SideRow::Heading { .. }) {
+            GAP
+        } else {
+            gap
+        };
+        gap + match self {
+            SideRow::Screens { .. } => 9.0 + link_height(true) + GAP + link_height(true) + 6.0,
+            SideRow::DmHeading => 40.0,
+            SideRow::Browse { .. } => 6.0 + link_height(false) + 6.0,
+            SideRow::Pinned => 36.0,
+            SideRow::PinnedEnd => 9.0,
+            SideRow::Heading { .. } => theme.spacing().channel_heading_height.unwrap_or(HEADING),
+            SideRow::Room(room) => {
+                room.row_height(theme)
+                    + if room.people.is_empty() {
+                        0.0
+                    } else {
+                        GAP + room.people.len() as f32 * PERSON + 4.0
+                    }
+            }
+            SideRow::Empty(_) => 40.0,
+        }
+    }
+}
+
+/// The sidebar's header: the server's name and badge, or the DMs' search;
+/// and over a server's channels, its banner, boost goal and events row.
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct SideHeader {
+    /// The open server, by id; none on the DM home.
+    pub server: Option<String>,
+    pub name: String,
+    pub community: bool,
+    /// Verified or partnered: Discord's green badge before its name.
+    pub verified: bool,
+    /// Its Boost level, the number in the badge before its name.
+    pub tier: Option<u8>,
+    /// Its banner's address, which the header sits over.
+    pub banner: Option<String>,
+    /// This account may invite people to it, from the header's button.
+    pub invite: bool,
+    /// How many boosts it has, while its owner shows the progress bar.
+    pub boosts: Option<u32>,
+    /// How many scheduled events it has, while the events row shows: while
+    /// it has some, or this account may schedule one, as Discord's.
+    pub events: Option<usize>,
+    /// The name opens the server's menu, as Discord's does: a Discord
+    /// server's, outside the preview (as Slint decides). Otherwise it's
+    /// a plain title.
+    pub menu: bool,
+}
+
+/// The header, from the core's state.
+pub fn side_header(app: &Application) -> SideHeader {
+    let state = &app.state;
+    match &state.navigation {
+        Navigation::Server(id) => state
+            .servers
+            .iter()
+            .find(|server| &server.id == id)
+            .map_or_else(SideHeader::default, |server| SideHeader {
+                server: Some(server.id.clone()),
+                name: server.name.clone(),
+                community: server.community,
+                verified: server.verified,
+                tier: server.premium_tier,
+                banner: server.banner.clone(),
+                invite: app.header_choices(id).contains(&MenuChoice::Invite),
+                boosts: server.boosts,
+                events: (!server.events.is_empty() || app.may(id, Permission::CreateEvents))
+                    .then_some(server.events.len()),
+                menu: server.discord && !state.preview,
+            }),
+        Navigation::Favorites => SideHeader {
+            server: Some("@favorites".into()),
+            name: "Favorites".into(),
+            ..Default::default()
+        },
+        Navigation::DirectMessages => SideHeader::default(),
+    }
+}
+
+/// A conversation's icon, as the sidebar shows it: a lock for one this
+/// account may not read, else its kind's, marked private or age-restricted.
+pub fn room_icon(room: &ChatRoom) -> Icon {
+    if room.locked {
+        return Icon::Lock;
+    }
+    if room.direct {
+        return Icon::Dm;
+    }
+    if room.parent.is_some() {
+        return Icon::Thread;
+    }
+    let (plain, private, warning) = match room.mark.kind {
+        MarkKind::Rules => return Icon::Rules,
+        MarkKind::Stage => (Icon::Stage, Icon::StageLock, Icon::Stage),
+        _ if room.voice => (Icon::Voice, Icon::VoiceLock, Icon::VoiceWarning),
+        MarkKind::Media => (Icon::Media, Icon::MediaLock, Icon::MediaWarning),
+        _ if room.forum => (Icon::Forum, Icon::ForumLock, Icon::ForumWarning),
+        MarkKind::Announcement => (
+            Icon::Announcement,
+            Icon::AnnouncementLock,
+            Icon::AnnouncementWarning,
+        ),
+        MarkKind::Plain => (Icon::Hash, Icon::HashLock, Icon::HashWarning),
+    };
+    if room.mark.age_restricted {
+        warning
+    } else if room.mark.private {
+        private
+    } else {
+        plain
+    }
+}
+
+/// The list's rows, from the core's state: on the DM home Friends and
+/// Requests, the heading and the DMs (pinned first), message requests and
+/// spam left to their screen; in a server its pinned channels under their
+/// heading, then each category's heading and channels, folded as
+/// `collapsed` says, a channel's threads after it. `filter` keeps the
+/// conversations whose names hold it.
+pub fn sidebar(
+    state: &AppState,
+    categories: &[ListedCategory],
+    collapsed: &HashMap<String, BTreeSet<String>>,
+    filter: &str,
+    dark: bool,
+) -> Vec<SideRow> {
+    sidebar_in(
+        state,
+        &state.navigation,
+        categories,
+        collapsed,
+        filter,
+        dark,
+    )
+}
+
+/// [`sidebar`]'s rows for `navigation`, which a server tree lists while
+/// another place is open: the open one's rows are [`sidebar`]'s.
+pub fn sidebar_in(
+    state: &AppState,
+    navigation: &Navigation,
+    categories: &[ListedCategory],
+    collapsed: &HashMap<String, BTreeSet<String>>,
+    filter: &str,
+    dark: bool,
+) -> Vec<SideRow> {
+    if *navigation == Navigation::Favorites {
+        return favorite_rows(state, collapsed.get("@favorites"), filter, dark);
+    }
+
+    let direct = *navigation == Navigation::DirectMessages;
+    let query = filter.to_lowercase();
+    // Who is in a voice channel of a server this account is in, as the DM
+    // list marks them.
+    let spots = if direct {
+        crate::people::voice_spots(state)
+    } else {
+        HashMap::new()
+    };
+    let mut listed: Vec<&ChatRoom> = state
+        .rooms_in(navigation)
+        .filter(|room| room.name.to_lowercase().contains(&query))
+        .collect();
+    // A forum's row counts its posts that are unread, and its badge the
+    // mentions in them, as Discord's does. Only the row: the server's badge
+    // counts each post already.
+    let mut posts: HashMap<&str, (u64, u64)> = HashMap::new();
+    for room in state.scoped_rooms() {
+        if let Some(parent) = room.parent.as_deref()
+            && (room.unread > 0 || room.mentions > 0)
+        {
+            let (unread, mentions) = posts.entry(parent).or_default();
+            *unread += u64::from(room.unread > 0);
+            *mentions += room.mentions;
+        }
+    }
+    let mut rows = Vec::new();
+    if direct {
+        if state.discord_linked && !state.preview {
+            rows.push(SideRow::Screens {
+                friends: state.dm_screen == Some(DmScreen::Friends),
+                requests: state.dm_screen == Some(DmScreen::Requests),
+                badge: count_badge(crate::friends::waiting(state) as u64),
+            });
+        }
+        if !state.preview {
+            rows.push(SideRow::DmHeading);
+        }
+        listed.retain(|room| {
+            !room.request && room.category != discord::REQUESTS && room.category != discord::SPAM
+        });
+        // Pinned DMs come first, in the order they were pinned.
+        listed.sort_by_key(|room| {
+            state
+                .pinned
+                .iter()
+                .position(|id| *id == room.id)
+                .unwrap_or(usize::MAX)
+        });
+    }
+    let server = match navigation {
+        Navigation::Server(id) => state.servers.iter().find(|server| &server.id == id),
+        Navigation::DirectMessages | Navigation::Favorites => None,
+    };
+    // Browse Channels browses the open server.
+    if server.is_some_and(|server| server.community)
+        && state.discord_online
+        && *navigation == state.navigation
+    {
+        rows.push(SideRow::Browse {
+            open: state.browse.is_some(),
+        });
+    }
+    // A Discord server's pinned channels come first, each with its
+    // threads, under a heading of their own, and leave their categories.
+    let pinned = server.map_or(&[][..], |server| server.pinned.as_slice());
+    let pinned_at = |room: &ChatRoom| {
+        pinned
+            .iter()
+            .position(|id| *id == room.id || room.parent.as_ref() == Some(id))
+    };
+    let mut in_pinned = 0;
+    if !pinned.is_empty() {
+        listed.sort_by_key(|room| pinned_at(room).unwrap_or(usize::MAX));
+        in_pinned = listed
+            .iter()
+            .take_while(|room| pinned_at(room).is_some())
+            .count();
+    }
+    let folded = server
+        .and_then(|server| collapsed.get(&server.id))
+        .filter(|_| query.is_empty());
+    let is_folded = |by: &str| folded.is_some_and(|folded| folded.contains(by));
+    let voice_room = state
+        .voice
+        .active()
+        .then_some(state.voice.room.as_deref())
+        .flatten();
+    // Categories with no channel show as their heading alone, where
+    // Discord's order puts them among the others.
+    let empty_heading = |category: &ListedCategory| SideRow::Heading {
+        name: category.name.clone(),
+        fold: category.id.clone(),
+        collapsed: is_folded(&category.id),
+    };
+    let mut next_category = 0;
+    let mut category: Option<(Option<&str>, &str)> = None;
+    let (mut listed_text, mut listed_voice) = (false, false);
+    // Whether the category the rows now come under is folded.
+    let mut under_fold = false;
+    let mut previous_parent = None;
+    for (index, room) in listed.iter().enumerate() {
+        if !direct && index == 0 && in_pinned > 0 {
+            rows.push(SideRow::Pinned);
+        }
+        if !direct && index == in_pinned && in_pinned > 0 {
+            rows.push(SideRow::PinnedEnd);
+        }
+        if !direct && index >= in_pinned {
+            let heading = if room.capabilities.categories {
+                let this = (room.category_id.as_deref(), room.category.as_str());
+                (category.replace(this) != Some(this) && !room.category.is_empty()).then(|| {
+                    let by = room.category_id.as_deref().unwrap_or(&room.category);
+                    (room.category.clone(), by.to_owned())
+                })
+            } else if room.voice && !listed_voice {
+                listed_voice = true;
+                Some(("VOICE CHANNELS".to_owned(), "VOICE CHANNELS".to_owned()))
+            } else if !room.voice && !listed_text {
+                listed_text = true;
+                Some(("TEXT CHANNELS".to_owned(), "TEXT CHANNELS".to_owned()))
+            } else {
+                None
+            };
+            if let Some((name, by)) = heading {
+                if query.is_empty()
+                    && let Some(at) = categories[next_category..]
+                        .iter()
+                        .position(|known| known.id == by)
+                {
+                    rows.extend(
+                        categories[next_category..next_category + at]
+                            .iter()
+                            .filter(|category| category.empty)
+                            .map(empty_heading),
+                    );
+                    next_category += at + 1;
+                }
+                under_fold = is_folded(&by);
+                rows.push(SideRow::Heading {
+                    name,
+                    fold: by,
+                    collapsed: under_fold,
+                });
+            }
+        }
+        let selected = state.selected.as_ref() == Some(&room.id);
+        let unread = room.unread > 0;
+        // Under a folded category only the open channel, unread ones and
+        // voice channels with people in them stay, as in Discord.
+        if !direct
+            && index >= in_pinned
+            && under_fold
+            && !(selected
+                || unread
+                || !room.people.is_empty()
+                || voice_room == Some(room.id.as_str()))
+        {
+            continue;
+        }
+        // Join consecutive visible rows only when they belong to the same tree.
+        if let Some(parent) = room.parent.as_deref()
+            && let Some(SideRow::Room(previous)) = rows.last_mut()
+        {
+            previous.thread_continues = previous_parent == Some(parent);
+            previous.has_threads = previous.id == parent;
+        }
+        previous_parent = room.parent.as_deref();
+        rows.push(SideRow::Room(Box::new(room_row(
+            state, room, dark, &posts, &spots,
+        ))));
+    }
+    if !direct && query.is_empty() {
+        rows.extend(
+            categories[next_category.min(categories.len())..]
+                .iter()
+                .filter(|category| category.empty)
+                .map(empty_heading),
+        );
+    }
+    if !rows
+        .iter()
+        .any(|row| matches!(row, SideRow::Room(_) | SideRow::Heading { .. }))
+    {
+        let empty = if state.rooms_in(navigation).next().is_some() {
+            "No matching conversations."
+        } else if direct {
+            "No direct messages yet. Existing DMs appear here after syncing."
+        } else {
+            "No channels in this server that you can see."
+        };
+        rows.push(SideRow::Empty(empty));
+    }
+    rows
+}
+
+fn room_row(
+    state: &AppState,
+    room: &ChatRoom,
+    dark: bool,
+    posts: &HashMap<&str, (u64, u64)>,
+    spots: &HashMap<&str, (&str, &str, &str)>,
+) -> Room {
+    let cosmetics = state.cosmetics;
+    let selected = state.selected.as_ref() == Some(&room.id);
+    let unread = room.unread > 0;
+    let status = if room.direct && room.network == Network::Discord {
+        if room.person.is_none() {
+            Status::words(format!("{} members", room.members))
+        } else {
+            Status::activity(&room.activities, room.activity.as_deref())
+        }
+    } else {
+        Status::default()
+    };
+    Room {
+        id: room.id.clone(),
+        name: room.name.clone(),
+        icon: room_icon(room),
+        selected,
+        unread,
+        badge: count_badge(
+            room.mentions
+                + posts
+                    .get(room.id.as_str())
+                    .filter(|_| room.forum)
+                    .map_or(0, |&(_, mentions)| mentions),
+        ),
+        posts: posts
+            .get(room.id.as_str())
+            .filter(|_| room.forum)
+            .map_or_else(String::new, |&(unread, _)| count_badge(unread)),
+        muted: room.muted && !room.voice,
+        locked: room.locked || room.join_locked,
+        voice: room.voice,
+        direct: room.direct,
+        avatar: room.avatar.clone(),
+        group_icon: room_group_icon(room),
+        // Discord sends the presence of friends and of those sharing a
+        // server; anyone else in a one-to-one DM shows offline.
+        presence: if room.person.is_some() && room.network == Network::Discord {
+            room.presence.or(Some(Presence::Offline))
+        } else {
+            room.presence
+        },
+        status,
+        decoration: cosmetics
+            .decoration(room.decoration.as_deref())
+            .map(Arc::from),
+        nameplate: room
+            .nameplate
+            .as_ref()
+            .filter(|_| !state.hide_nameplates && room.direct)
+            .map(|plate| {
+                let palette = plate.colors.map(|colors| colors[usize::from(!dark)]);
+                (plate.picture.clone(), palette)
+            }),
+        style: room
+            .direct
+            .then(|| {
+                crate::looks::name_look(
+                    cosmetics.style(room.style.as_deref()),
+                    &room.name,
+                    false,
+                    dark,
+                )
+            })
+            .flatten(),
+        tag: cosmetics
+            .tag(room.tag.as_ref())
+            .map(|tag| (tag.text.clone(), tag.badge.clone())),
+        official: room.official,
+        wave: (room.direct && room.empty && !room.request)
+            .then(|| room.person.clone())
+            .flatten(),
+        voice_spot: room
+            .person
+            .as_deref()
+            .filter(|_| room.network == Network::Discord)
+            .and_then(|person| spots.get(person))
+            .map(|(room, channel, server)| {
+                (
+                    (*room).to_owned(),
+                    (*channel).to_owned(),
+                    (*server).to_owned(),
+                )
+            }),
+        call: room.direct && !room.people.is_empty(),
+        pinned: room.direct && state.pinned.contains(&room.id),
+        typing: room.direct && state.typing_dms.contains(&room.id),
+        thread: room.parent.is_some(),
+        thread_continues: false,
+        has_threads: false,
+        people: if room.voice && !room.direct {
+            // The channel this account is connected to lists the call's
+            // participants while the server lists no one there yet, as
+            // Slint's (the preview's "You").
+            if room.people.is_empty()
+                && state.voice.active()
+                && state.voice.room.as_deref() == Some(room.id.as_str())
+            {
+                state
+                    .voice
+                    .participants
+                    .iter()
+                    .map(|person| yapfast_core::chat::VoicePerson {
+                        id: person.person.clone(),
+                        name: person.user.clone(),
+                        avatar: person.avatar.clone(),
+                        muted: person.muted,
+                        deafened: person.deafened,
+                        server_muted: person.server_muted,
+                        speaking_blocked: person.speaking_blocked,
+                        server_deafened: person.server_deafened,
+                        streaming: person.streaming,
+                        video: person.video.is_some(),
+                        elsewhere: false,
+                        ..Default::default()
+                    })
+                    .collect()
+            } else {
+                room.people.clone()
+            }
+        } else {
+            Vec::new()
+        },
+        started: room.voice_started.filter(|_| room.voice && !room.direct),
+        chat: !room.direct && room.voice_chat(),
+        close: (room.direct && room.network == Network::Discord).then_some(
+            if room.person.is_some() {
+                "Close DM"
+            } else {
+                "Leave Group"
+            },
+        ),
+    }
+}
+fn favorite_rows(
+    state: &AppState,
+    folded: Option<&BTreeSet<String>>,
+    filter: &str,
+    dark: bool,
+) -> Vec<SideRow> {
+    let query = filter.to_lowercase();
+    let references: HashSet<&str> = state
+        .channel_favorites
+        .iter()
+        .filter(|entry| entry.reference)
+        .map(|entry| entry.id.as_str())
+        .collect();
+    let mut rooms: HashMap<&str, &ChatRoom> = HashMap::new();
+    let mut posts = HashMap::new();
+    for room in &state.rooms {
+        if let Some((_, id)) = discord::parse_room(&room.id)
+            && references.contains(id)
+        {
+            rooms.insert(id, room.as_ref());
+        }
+        if let Some(parent) = room.parent.as_deref()
+            && discord::parse_room(parent).is_some_and(|(_, id)| references.contains(id))
+            && (room.unread > 0 || room.mentions > 0)
+        {
+            let counts = posts.entry(parent).or_insert((0_u64, 0_u64));
+            counts.0 += u64::from(room.unread > 0);
+            counts.1 += room.mentions;
+        }
+    }
+    let spots = crate::people::voice_spots(state);
+    let categories: BTreeSet<&str> = state
+        .channel_favorites
+        .iter()
+        .filter(|entry| entry.category)
+        .map(|entry| entry.id.as_str())
+        .collect();
+    // As Discord's client lists them: the channels in no category first, then
+    // each category in its order; in each, voice channels after the rest.
+    let mut children: HashMap<&str, Vec<_>> = HashMap::new();
+    let mut roots = Vec::new();
+    let mut headings = Vec::new();
+    for entry in &state.channel_favorites {
+        if entry.category {
+            headings.push(entry);
+        } else if entry.reference && categories.contains(entry.parent.as_str()) {
+            children
+                .entry(entry.parent.as_str())
+                .or_default()
+                .push(entry);
+        } else {
+            roots.push(entry);
+        }
+    }
+    let voice = |entry: &yapfast_core::application::ChannelFavorite| {
+        rooms
+            .get(entry.id.as_str())
+            .is_some_and(|room| room.voice && !room.direct)
+    };
+    roots.sort_by_key(|entry| (voice(entry), entry.position, &entry.id));
+    headings.sort_by_key(|entry| (entry.position, &entry.id));
+    for group in children.values_mut() {
+        group.sort_by_key(|entry| (voice(entry), entry.position, &entry.id));
+    }
+    let make_row = |entry: &yapfast_core::application::ChannelFavorite, collapsed: bool| {
+        if !entry.reference {
+            return None;
+        }
+        let room = rooms
+            .get(entry.id.as_str())
+            .copied()
+            .filter(|room| !room.locked && !room.request)?;
+        // Discord's client names a one-to-one DM by its person, whatever
+        // its nickname in Favorites.
+        let name = if entry.name.is_empty() || (room.direct && room.person.is_some()) {
+            &room.name
+        } else {
+            &entry.name
+        };
+        if !name.to_lowercase().contains(&query) {
+            return None;
+        }
+        if collapsed
+            && state.selected.as_ref() != Some(&room.id)
+            && room.unread == 0
+            && room.people.is_empty()
+        {
+            return None;
+        }
+        let mut row = room_row(state, room, dark, &posts, &spots);
+        row.name.clone_from(name);
+        row.close = None;
+        Some(SideRow::Room(Box::new(row)))
+    };
+    let mut rows: Vec<SideRow> = roots
+        .into_iter()
+        .filter_map(|entry| make_row(entry, false))
+        .collect();
+    for entry in headings {
+        // Local toggles override the saved fold without rewriting categories.
+        let collapsed = query.is_empty()
+            && (entry.collapsed ^ folded.is_some_and(|set| set.contains(&entry.id)));
+        rows.push(SideRow::Heading {
+            name: entry.name.clone(),
+            fold: entry.id.clone(),
+            collapsed,
+        });
+        if let Some(group) = children.get(entry.id.as_str()) {
+            rows.extend(group.iter().filter_map(|entry| make_row(entry, collapsed)));
+        }
+    }
+    if rows.is_empty() {
+        rows.push(SideRow::Empty(
+            "No Favorites yet. Right-click a Discord channel or DM to add one.",
+        ));
+    }
+    rows
+}

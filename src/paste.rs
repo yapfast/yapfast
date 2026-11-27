@@ -81,7 +81,10 @@ fn read_arboard() -> Clipboard {
 }
 
 /// Pixels as a PNG file to attach.
-#[cfg_attr(target_os = "linux", allow(dead_code))]
+#[cfg_attr(
+    target_os = "linux",
+    allow(dead_code, reason = "Linux pastes pictures as they come")
+)]
 fn png(pixels: &image::RgbaImage) -> Clipboard {
     let mut png = std::io::Cursor::new(Vec::new());
     match pixels.write_to(&mut png, image::ImageFormat::Png) {
@@ -219,8 +222,10 @@ mod x11 {
             return Ok(Clipboard::Other);
         };
         let offered: Vec<Atom> = offered
-            .chunks_exact(4)
-            .map(|atom| u32::from_ne_bytes(atom.try_into().unwrap()))
+            .as_chunks::<4>()
+            .0
+            .iter()
+            .map(|atom| u32::from_ne_bytes(*atom))
             .collect();
         if offered.contains(&uri_list)
             && let Some(list) = reader.get(uri_list)?
@@ -533,7 +538,10 @@ mod windows {
 /// their unused fourth byte, as Chromium's do, which image's decoder would
 /// drop, so they're read here. A bitmap whose alpha is zero throughout is
 /// opaque.
-#[cfg_attr(not(windows), allow(dead_code))]
+#[cfg_attr(
+    not(windows),
+    allow(dead_code, reason = "only Windows' clipboard holds bitmaps")
+)]
 fn bitmap(dib: &[u8]) -> Option<image::RgbaImage> {
     const BI_RGB: u32 = 0;
     let u32_at = |at: usize| Some(u32::from_le_bytes(dib.get(at..at + 4)?.try_into().ok()?));
@@ -558,7 +566,12 @@ fn bitmap(dib: &[u8]) -> Option<image::RgbaImage> {
             Box::new(data.chunks_exact(stride))
         };
         for (out, row) in rows_out.zip(rows_in) {
-            for (out, pixel) in out.chunks_exact_mut(4).zip(row.chunks_exact(4)) {
+            for (out, pixel) in out
+                .as_chunks_mut::<4>()
+                .0
+                .iter_mut()
+                .zip(row.as_chunks::<4>().0)
+            {
                 out.copy_from_slice(&[pixel[2], pixel[1], pixel[0], pixel[3]]);
             }
         }
@@ -578,7 +591,10 @@ fn bitmap(dib: &[u8]) -> Option<image::RgbaImage> {
 }
 
 /// The existing local files a `text/uri-list` names.
-#[cfg_attr(not(target_os = "linux"), allow(dead_code))]
+#[cfg_attr(
+    not(target_os = "linux"),
+    allow(dead_code, reason = "the Linux clipboard supplies text/uri-list")
+)]
 pub fn files(list: &str) -> Vec<PathBuf> {
     list.lines()
         .map(str::trim)

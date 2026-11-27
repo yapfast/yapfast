@@ -195,20 +195,21 @@ impl Application {
     ) -> Vec<Effect> {
         let fetch = Network::of(&room) == Network::Discord && !self.state.preview;
         let user = profile.id.clone();
-        self.state.profile = Some(ProfileView {
+        self.state.profile = Some(Arc::new(ProfileView {
             profile,
             large,
             loading: fetch,
             kept: false,
             note: None,
             ..Default::default()
-        });
+        }));
         if fetch {
             vec![Effect::Backend(Command::Discord(DiscordCommand::Profile {
                 room,
                 user,
                 effect: self.state.cosmetics.effects,
                 frame: self.state.cosmetics.frames,
+                badges: self.state.cosmetics.badges,
             }))]
         } else {
             vec![]
@@ -252,7 +253,7 @@ impl Application {
 
     /// Asks for the account's own profile, which its card draws from: the
     /// main one, outside any server.
-    pub(super) fn load_own_profile(&mut self) -> Vec<Effect> {
+    pub(super) fn load_own_profile(&self) -> Vec<Effect> {
         let Some(user) = self
             .state
             .discord_user
@@ -267,6 +268,7 @@ impl Application {
             user,
             effect: false,
             frame: false,
+            badges: self.state.cosmetics.badges,
         }))]
     }
 
@@ -279,10 +281,37 @@ impl Application {
         }
     }
 
+    /// Gives the profiles on screen of `user` their presence in the server
+    /// they're from, which comes apart from the profile.
+    pub(super) fn show_profile_presence(
+        &mut self,
+        user: &str,
+        presence: crate::chat::Presence,
+        activity: Option<String>,
+        activities: crate::chat::Activities,
+    ) {
+        for view in [&mut self.state.profile, &mut self.state.panel_profile]
+            .into_iter()
+            .filter_map(Option::as_mut)
+            .filter(|view| view.profile.id == user)
+            .map(Arc::make_mut)
+        {
+            view.profile.presence = Some(presence);
+            view.profile.activity.clone_from(&activity);
+            view.profile.activities = activities.clone();
+        }
+    }
+
     /// A tab of the full profile opened: it asks Discord once for what it
     /// shows, and only for the full profile, never for a card.
     pub(super) fn open_profile_tab(&mut self, tab: ProfileTab) -> Vec<Effect> {
-        let Some(view) = self.state.profile.as_mut().filter(|view| view.large) else {
+        let Some(view) = self
+            .state
+            .profile
+            .as_mut()
+            .filter(|view| view.large)
+            .map(Arc::make_mut)
+        else {
             return vec![];
         };
         match tab {
@@ -297,7 +326,13 @@ impl Application {
     /// that failed is asked for again when the tab or the profile comes back.
     fn ask_open_tabs(&mut self) -> Vec<Effect> {
         let preview = self.state.preview;
-        let Some(view) = self.state.profile.as_mut().filter(|view| view.large) else {
+        let Some(view) = self
+            .state
+            .profile
+            .as_mut()
+            .filter(|view| view.large)
+            .map(Arc::make_mut)
+        else {
             return vec![];
         };
         let mut effects = vec![];
@@ -342,7 +377,7 @@ impl Application {
 
     /// A wishlist came, for the full profile if it's the one it asked for.
     pub(super) fn profile_wishlist_loaded(&mut self, id: &str, wishlist: &Wishlist) {
-        if let Some(view) = self.state.profile.as_mut()
+        if let Some(view) = self.state.profile.as_mut().map(Arc::make_mut)
             && view
                 .profile
                 .wishlist_place
@@ -360,6 +395,7 @@ impl Application {
             .profile
             .as_mut()
             .filter(|view| view.profile.id == user)
+            .map(Arc::make_mut)
         {
             view.profile.recent = recent;
             view.profile.recent_came = true;
@@ -367,13 +403,19 @@ impl Application {
     }
 
     pub(super) fn profile_board_named(&mut self, user: &str, widgets: Vec<ProfileWidget>) {
+        self.state.profile_editor_changed();
         let editor = self
             .state
             .profile_editor
             .as_mut()
             .and_then(|editor| editor.profile.as_mut())
             .map(|profile| &mut profile.fallback);
-        let view = self.state.profile.as_mut().map(|view| &mut view.profile);
+        let view = self
+            .state
+            .profile
+            .as_mut()
+            .filter(|view| view.profile.id == user && view.profile.board_asked)
+            .map(|view| &mut Arc::make_mut(view).profile);
         for profile in [view, editor]
             .into_iter()
             .flatten()
@@ -391,6 +433,7 @@ impl Application {
             .into_iter()
             .filter_map(Option::as_mut)
             .filter(|view| view.profile.id == user && !view.loading)
+            .map(Arc::make_mut)
         {
             view.profile.badges.clone_from(&badges);
         }
@@ -406,6 +449,7 @@ impl Application {
             .into_iter()
             .filter_map(Option::as_mut)
             .filter(|view| view.profile.id == user && !view.loading)
+            .map(Arc::make_mut)
         {
             view.profile.frame = frame.clone();
         }
@@ -421,7 +465,8 @@ impl Application {
         for view in [&mut self.state.profile, &mut self.state.panel_profile]
             .into_iter()
             .flatten()
-            .filter(|view| view.profile.id == user)
+            .filter(|view| view.profile.id == user && view.profile.note != note)
+            .map(Arc::make_mut)
         {
             view.profile.note.clone_from(&note);
         }
@@ -437,6 +482,7 @@ impl Application {
             .into_iter()
             .filter_map(Option::as_mut)
             .filter(move |view| view.profile.id == user && view.loading)
+            .map(Arc::make_mut)
     }
 }
 
@@ -516,5 +562,129 @@ pub(super) fn dm_profile(room: &ChatRoom, person: String) -> Profile {
         activities: room.activities.clone(),
         id: person,
         ..Default::default()
+    }
+}
+
+/// How many activities' Rich Presence button addresses are kept, one a
+/// person: those of the cards looked at lately. Discord's client sets no
+/// such bound; this is Yapfast's own.
+const ACTIVITY_LINKS: usize = 16;
+
+/// The addresses Discord gave for people's Rich Presence buttons, one
+/// activity a person, the newest last and at most [`ACTIVITY_LINKS`], so a
+/// second click asks no more. Discord's client keeps them by person
+/// (`getActivityMetadata(userId)`) and forgets them on every change of that
+/// person's presence; here each is kept with its activity's session and
+/// application, and one of another activity is asked again. They go when
+/// the account does.
+#[derive(Default)]
+pub(super) struct ActivityLinks(std::collections::VecDeque<Kept>);
+
+/// One person's activity's button addresses.
+struct Kept {
+    user: String,
+    session: String,
+    /// Its application's id, `0` without one, as Discord's client asks.
+    application: String,
+    links: Links,
+}
+
+enum Links {
+    /// Discord is asked; its answer opens this button's.
+    Asked(usize),
+    /// Each button's address, in their order.
+    Came(Vec<Option<String>>),
+}
+
+impl Application {
+    /// A Rich Presence button clicked. Its address is found as Discord's
+    /// client finds it: in the presence's own metadata, else in what Discord
+    /// gave for the person's activity, else asked of Discord, only on a
+    /// click. Found, it asks before it opens; without one for the button,
+    /// nothing happens, as in Discord's.
+    pub(super) fn open_activity_button(&mut self, press: ActivityButtonPress) -> Vec<Effect> {
+        if press.metadata {
+            return press.url.map(Effect::AskToOpen).into_iter().collect();
+        }
+        // Discord's client can't ask without the activity's session either.
+        let Some(session) = press.session else {
+            return vec![];
+        };
+        let application = press.application.unwrap_or_else(|| "0".to_owned());
+        let links = &mut self.activity_links.0;
+        if let Some(at) = links.iter().position(|kept| kept.user == press.user) {
+            let kept = &links[at];
+            if kept.session == session && kept.application == application {
+                return match &kept.links {
+                    Links::Came(urls) => urls
+                        .get(press.index)
+                        .cloned()
+                        .flatten()
+                        .map(Effect::AskToOpen)
+                        .into_iter()
+                        .collect(),
+                    // Its answer is on its way, and opens the first click's.
+                    Links::Asked(_) => vec![],
+                };
+            }
+            // Another activity's, which Discord's client would have
+            // forgotten as the presence changed.
+            links.remove(at);
+        }
+        if links.len() == ACTIVITY_LINKS {
+            links.pop_front();
+        }
+        links.push_back(Kept {
+            user: press.user.clone(),
+            session: session.clone(),
+            application: application.clone(),
+            links: Links::Asked(press.index),
+        });
+        vec![Effect::Backend(Command::Discord(
+            DiscordCommand::ActivityLinks {
+                user: press.user,
+                session,
+                application,
+            },
+        ))]
+    }
+
+    /// Discord's answer for an activity's buttons: kept, and the button
+    /// clicked opens, once asked. One for an activity no longer kept, as
+    /// the person's changed since, does nothing. A failure is asked again
+    /// on the next click.
+    pub(super) fn activity_links_came(
+        &mut self,
+        user: &str,
+        session: &str,
+        application: &str,
+        result: Result<Vec<Option<String>>, String>,
+    ) -> Vec<Effect> {
+        let links = &mut self.activity_links.0;
+        let Some(at) = links.iter().position(|kept| {
+            kept.user == user && kept.session == session && kept.application == application
+        }) else {
+            return vec![];
+        };
+        let Links::Asked(index) = links[at].links else {
+            return vec![];
+        };
+        match result {
+            Ok(urls) => {
+                let url = urls.get(index).cloned().flatten();
+                links[at].links = Links::Came(urls);
+                url.map(Effect::AskToOpen).into_iter().collect()
+            }
+            Err(error) => {
+                links.remove(at);
+                self.state.notice = Some(format!("Couldn't open the button's link: {error}"));
+                vec![]
+            }
+        }
+    }
+
+    /// Another account, or none: what Discord gave the last one goes.
+    pub(super) fn forget_activity_links(&mut self) {
+        self.activity_links = ActivityLinks::default();
     }
 }

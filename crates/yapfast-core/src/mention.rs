@@ -2,6 +2,7 @@
 //! being typed, who or what it may mean, and the message text that mentions
 //! them on its network.
 
+use std::fmt::Write as _;
 use std::ops::Range;
 
 /// Someone or something a message can mention.
@@ -138,10 +139,11 @@ pub fn linked(markdown: &str, mentions: &[Mentioned], link_color: u32) -> String
             _ => crate::links::escape_markdown(&mention.text),
         };
         let color = mention.color.unwrap_or(link_color) & 0xff_ffff;
-        out.push_str(&format!(
+        let _ = write!(
+            out,
             "<font color=\"#{color:06x}\">[{text}](<{}>)</font>",
             link(&mention.target)
-        ));
+        );
         last = at + mention.text.len();
     }
     out.push_str(&escaped[last..]);

@@ -97,13 +97,17 @@ pub struct Style {
 
 impl Style {
     /// Reads `display_name_styles`: `{font_id, effect_id, colors}`, the
-    /// colours as integers.
+    /// colours as integers. With no effect or no colours it's still the
+    /// font, which Discord's client draws in the row's own colour.
     pub fn parse(style: &Value) -> Option<Self> {
         let font = u8::try_from(style["font_id"].as_u64()?).ok()?;
-        let effect = u8::try_from(style["effect_id"].as_u64()?).ok()?;
+        let effect = match style["effect_id"].as_u64() {
+            Some(effect) => u8::try_from(effect).ok()?,
+            None => 1,
+        };
         let mut colors = [0; 5];
         let mut len = 0;
-        for color in style["colors"].as_array()?.iter().take(5) {
+        for color in style["colors"].as_array().into_iter().flatten().take(5) {
             colors[len] = u32::try_from(color.as_u64()?).ok()? & 0xff_ff_ff;
             len += 1;
         }
@@ -148,6 +152,23 @@ pub fn picture(sku: u64) -> String {
 
 #[cfg(test)]
 mod tests {
+
+    /// A style with no colours or no effect still has its font, which
+    /// Discord's client draws in the row's own colour.
+    #[test]
+    fn a_style_without_colours_keeps_its_font() {
+        use serde_json::json;
+        let none = Style::parse(&json!({"font_id": 12, "effect_id": 1, "colors": null})).unwrap();
+        assert_eq!((none.font, none.colors().len()), (12, 0));
+        let bare = Style::parse(&json!({"font_id": 3})).unwrap();
+        assert_eq!((bare.font, bare.effect), (3, 1));
+        assert_eq!(
+            Style::parse(&json!({"effect_id": 1})),
+            None,
+            "no font, no style"
+        );
+    }
+
     use serde_json::json;
 
     use super::*;

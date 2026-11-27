@@ -14,12 +14,12 @@ concurrency:
 
 jobs:
   version:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-26.04
     outputs:
       version: ${{ steps.version.outputs.version }}
       commit: ${{ steps.version.outputs.commit }}
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v7
         with:
           ref: main
       - id: version
@@ -33,17 +33,15 @@ jobs:
 
   linux:
     needs: version
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-26.04
     steps:
-      # The runner's preinstalled SDKs leave too little room for the build.
       - name: Free disk space
         run: sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache/CodeQL
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v7
         with:
           ref: ${{ needs.version.outputs.commit }}
-          # Nix refuses a shallow Git repository as a flake.
           fetch-depth: 0
-      - uses: cachix/install-nix-action@v31
+      - uses: cachix/install-nix-action@382a9ed9481c7c1f94f68b72ef105b3417c73877 # v32.1.0
         with:
           github_access_token: ${{ github.token }}
       - run: scripts/set-version "${{ needs.version.outputs.version }}"
@@ -54,7 +52,7 @@ jobs:
       - run: scripts/build-appimage
       # The AppImage's binary as an Arch package, in an Arch container.
       - run: scripts/package-arch
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: linux
           path: |
@@ -65,35 +63,57 @@ jobs:
 
   windows:
     needs: version
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-26.04
     steps:
       - name: Free disk space
         run: sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache/CodeQL
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v7
         with:
           ref: ${{ needs.version.outputs.commit }}
-      - uses: cachix/install-nix-action@v31
+      - uses: cachix/install-nix-action@382a9ed9481c7c1f94f68b72ef105b3417c73877 # v32.1.0
         with:
           github_access_token: ${{ github.token }}
-      # Skia built for Windows, and the MSVC CRT and SDK it was built against,
-      # which nix/prepare-windows-skia.py checks before reusing it.
-      - uses: actions/cache@v4
+      # The MSVC CRT and Windows SDK cargo-xwin downloads.
+      - uses: actions/cache@v6
+        with:
+          path: ~/.cache/cargo-xwin
+          key: windows-xwin-${{ hashFiles('nix/flake.lock') }}
+      - uses: kunobi-ninja/kache-action@061011817fd04b0e460f79d6bb3c115b1fc8f029 # v1
+        with:
+          version: 2.3.0
+          cache-dir: ${{ runner.temp }}/kache
+          max-size: 6GiB
+          github-cache: false
+          pr-comment: false
+      - id: restore
+        uses: actions/cache/restore@v6
         with:
           path: |
-            ~/.cache/cargo-xwin
-            .local/windows/skia-static-production/build.json
-            .local/windows/skia-static-production/prepared
-          key: windows-skia-${{ hashFiles('nix/flake.lock', 'nix/prepare-windows-skia.py', 'nix/prepare-skia-native.py', 'nix/skia-windows-builder/**') }}
-      # The compiled dependencies. Before scripts/set-version, which changes
-      # Cargo.lock, so the key changes only with the dependencies.
-      - uses: Swatinem/rust-cache@v2
-        with:
-          cache-on-failure: true
+            ${{ runner.temp }}/kache
+            ~/.cargo/registry/index
+            ~/.cargo/registry/cache
+            ~/.cargo/git/db
+          key: kache-nightly-windows-${{ hashFiles('rust-toolchain.toml', 'nix/flake.lock') }}-${{ github.run_id }}
+          restore-keys: kache-nightly-windows-${{ hashFiles('rust-toolchain.toml', 'nix/flake.lock') }}-
       - run: scripts/set-version "${{ needs.version.outputs.version }}"
       # Wine doesn't start on the runner (kernel32.dll, c0000135), so Inno
       # Setup can't make the installer there.
       - run: nix develop path:./nix#windows --command scripts/build-windows discord --no-installer
-      - uses: actions/upload-artifact@v4
+      - name: Trim and stop Kache
+        if: ${{ !cancelled() && github.ref == 'refs/heads/main' }}
+        run: |
+          kache gc
+          kache daemon stop || true
+      - uses: actions/cache/save@v6
+        if: ${{ !cancelled() && github.ref == 'refs/heads/main' }}
+        with:
+          path: |
+            ${{ runner.temp }}/kache
+            ~/.cargo/registry/index
+            ~/.cargo/registry/cache
+            ~/.cargo/git/db
+          key: ${{ steps.restore.outputs.cache-primary-key }}
+      - uses: actions/upload-artifact@v7
         with:
           name: windows
           path: target/dist/discord/Yapfast-*
@@ -102,7 +122,7 @@ jobs:
 
   release:
     needs: [version, linux, windows]
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-26.04
     # Holds the nightly signing key, and gives it only to runs from main.
     environment: nightly
     permissions:
@@ -113,15 +133,14 @@ jobs:
       VERSION: ${{ needs.version.outputs.version }}
       COMMIT: ${{ needs.version.outputs.commit }}
     steps:
-      # Only for the notes' jq program and the public key.
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v7
         with:
           ref: ${{ needs.version.outputs.commit }}
           sparse-checkout: |
             .github
             packaging/keys
       - run: sudo apt-get install -y --no-install-recommends minisign
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v8
         with:
           path: dist
       - name: Publish

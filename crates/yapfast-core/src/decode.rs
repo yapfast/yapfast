@@ -99,20 +99,23 @@ impl Decoder {
     /// A decoder on `threads` threads; each keeps frames of its own.
     pub fn with_threads(codec: Codec, threads: u32) -> Result<Self> {
         let threads = threads.max(1) as c_uint;
-        // SAFETY: plain values; null means the codec couldn't start.
+        // Null means the codec couldn't start.
         let (raw, decode, free): (_, DecodeFn, FreeFn) = match codec {
             Codec::Vp8 => (
+                // SAFETY: plain values.
                 unsafe { yapfast_decoder_new(0, threads) },
                 yapfast_decoder_decode,
                 yapfast_decoder_free,
             ),
             Codec::H264 => (
+                // SAFETY: plain values.
                 unsafe { yapfast_decoder_new(1, threads) },
                 yapfast_decoder_decode,
                 yapfast_decoder_free,
             ),
             #[cfg(hevcdec)]
             Codec::H265 => (
+                // SAFETY: plain values.
                 unsafe { yapfast_hevc_new(threads) },
                 yapfast_hevc_decode,
                 yapfast_hevc_free,
@@ -121,6 +124,7 @@ impl Decoder {
             #[cfg(not(hevcdec))]
             Codec::H265 => bail!("this build of Yapfast can't decode H265"),
             Codec::Av1 => (
+                // SAFETY: plain values.
                 unsafe { yapfast_av1_new(threads) },
                 yapfast_av1_decode,
                 yapfast_av1_free,
@@ -139,6 +143,15 @@ impl Decoder {
 
     pub fn codec(&self) -> Codec {
         self.codec
+    }
+
+    /// The library that decodes, as the Stream tab names it.
+    pub fn engine(&self) -> &'static str {
+        match self.codec {
+            Codec::Vp8 => "libvpx",
+            Codec::H264 | Codec::H265 => "FFmpeg",
+            Codec::Av1 => "dav1d",
+        }
     }
 
     /// Decodes a whole frame. None while the decoder holds it back.
@@ -253,9 +266,13 @@ mod tests {
         assert_eq!((picture.width, picture.height), (320, 180), "{codec:?}");
         let mut rgba = vec![0; 320 * 180 * 4];
         picture.to_rgba(&mut rgba);
-        assert!(rgba.chunks_exact(4).all(|pixel| pixel[3] == 255));
-        let colours: std::collections::HashSet<_> =
-            rgba.chunks_exact(4).map(|pixel| pixel[0] / 32).collect();
+        assert!(rgba.as_chunks::<4>().0.iter().all(|pixel| pixel[3] == 255));
+        let colours: std::collections::HashSet<_> = rgba
+            .as_chunks::<4>()
+            .0
+            .iter()
+            .map(|pixel| pixel[0] / 32)
+            .collect();
         assert!(
             colours.len() > 3,
             "{codec:?} decoded to a picture, not a flat colour"

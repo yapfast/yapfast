@@ -4,7 +4,7 @@
 //! choices as its menu in the rail, in the order Discord's dropdown has.
 
 use super::*;
-use crate::chat::{ChannelKind, ChannelSettings, Permission};
+use crate::chat::{ChannelKind, ChannelSettings, Permission, ServerNotifications};
 
 /// A Discord category as the channel list heads its channels with it.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -17,7 +17,7 @@ pub struct ListedCategory {
 }
 
 /// The server menu's choices its header's dropdown lists, in its order.
-const HEADER: [MenuChoice; 9] = [
+const HEADER: [MenuChoice; 10] = [
     MenuChoice::Invite,
     MenuChoice::ServerSettings,
     MenuChoice::CreateChannel,
@@ -27,6 +27,7 @@ const HEADER: [MenuChoice; 9] = [
     MenuChoice::ShowAllChannels,
     MenuChoice::HideMuted,
     MenuChoice::LeaveServer,
+    MenuChoice::CopyId,
 ];
 
 /// Asks before leaving a Discord server or group DM.
@@ -124,6 +125,9 @@ impl Application {
         if self.discord_server(id) {
             return self.discord_server_choices(id, &listed);
         }
+        if self.state.is_folder(id) {
+            return self.folder_choices(id, listed);
+        }
         if self.state.is_category(id) {
             return self.category_choices(id, &listed);
         }
@@ -215,6 +219,40 @@ impl Application {
         }
         choices.extend([MenuChoice::CopyLink, MenuChoice::CopyId]);
         choices
+    }
+
+    /// A rail folder's menu: marking it read, as Discord's does, then the
+    /// notifications of all its servers at once, while Discord is connected
+    /// and knows each one's. Unmute shows once every one of them is muted.
+    fn folder_choices(&self, id: &str, mut listed: Vec<MenuChoice>) -> Vec<MenuChoice> {
+        let notifications: Option<Vec<_>> = self
+            .folder_notifications(id)
+            .map(|(_, notifications)| notifications)
+            .collect();
+        if let (true, Some(all)) = (self.state.discord_online, notifications)
+            && !all.is_empty()
+        {
+            listed.push(if all.iter().all(|known| known.own.muted) {
+                MenuChoice::UnmuteFolder
+            } else {
+                MenuChoice::MuteFolder
+            });
+            listed.push(MenuChoice::FolderNotifications);
+        }
+        listed
+    }
+
+    /// How each Discord server of a rail folder notifies this account, by
+    /// its server id, in the rail's order; none for one Yapfast doesn't
+    /// know the settings of.
+    pub fn folder_notifications<'a>(
+        &'a self,
+        folder: &'a str,
+    ) -> impl Iterator<Item = (&'a str, Option<ServerNotifications>)> + 'a {
+        self.state
+            .folder_servers(folder)
+            .filter(|server| server.discord)
+            .map(|server| (server.id.as_str(), self.server_notifications(&server.id)))
     }
 
     /// Whether this account may leave a Discord server: any but one it
@@ -328,9 +366,7 @@ impl Application {
             .iter()
             .any(|room| room.id == id && room.parent.is_some())
         {
-            if self.state.discord_online
-                && let Some(joined) = self.thread_joined(id)
-            {
+            if let Some(joined) = self.thread_followed(id) {
                 let at = usize::from(choices.first() == Some(&MenuChoice::MarkRead));
                 choices.insert(
                     at,
@@ -406,6 +442,9 @@ impl Application {
         if self.manages(id) {
             managing.push(MenuChoice::DeleteChannel);
         }
+        // Taking it off Favorites goes after managing it, before its id, as
+        // in Discord's channel menus.
+        managing.extend(choices.extract_if(.., |choice| *choice == MenuChoice::RemoveFavorite));
         let at = choices
             .iter()
             .position(|choice| *choice == MenuChoice::CopyId)
@@ -437,8 +476,12 @@ impl Application {
         }
     }
 
-    fn thread_joined(&self, room: &str) -> Option<bool> {
-        self.thread_state(room).map(|(joined, _)| joined)
+    /// Whether this account follows a Discord thread, by its room id, where
+    /// it may join or leave it now: nothing while Discord is away.
+    pub fn thread_followed(&self, room: &str) -> Option<bool> {
+        self.thread_state(room)
+            .map(|(joined, _)| joined)
+            .filter(|_| self.state.discord_online)
     }
 
     /// What a Discord thread header's More menu offers, by its room id, as
@@ -453,7 +496,7 @@ impl Application {
     /// stops listing, once Discord confirms it; one left stays open, as in
     /// Discord's client.
     pub(super) fn join_thread(
-        &mut self,
+        &self,
         room: String,
         join: bool,
         location: &'static str,
@@ -511,7 +554,7 @@ impl Application {
     /// shows only those this account follows, or to remove it, from its
     /// menu: its override's flags, as Discord's client writes them. The
     /// list changes when Discord confirms it.
-    pub(super) fn follow_channel(&mut self, room: String, follow: bool) -> Vec<Effect> {
+    pub(super) fn follow_channel(&self, room: String, follow: bool) -> Vec<Effect> {
         let choice = if follow {
             MenuChoice::AddToChannelList
         } else {
@@ -535,7 +578,7 @@ impl Application {
     /// Show All Channels off with nothing followed follows every channel
     /// this account sees, as Discord's client does, so the list doesn't
     /// empty. The list changes when Discord confirms it.
-    pub(super) fn show_all_channels(&mut self, server: String, show: bool) -> Vec<Effect> {
+    pub(super) fn show_all_channels(&self, server: String, show: bool) -> Vec<Effect> {
         if !self
             .menu_choices(&server)
             .contains(&MenuChoice::ShowAllChannels)
@@ -589,7 +632,7 @@ impl Application {
     /// list, or to unpin it, from its menu: its override's flags with the
     /// pin set or cleared, as Discord's client writes them. The list
     /// changes when Discord confirms it.
-    pub(super) fn pin_channel(&mut self, room: String, pin: bool) -> Vec<Effect> {
+    pub(super) fn pin_channel(&self, room: String, pin: bool) -> Vec<Effect> {
         let choice = if pin {
             MenuChoice::PinChannel
         } else {
@@ -802,7 +845,7 @@ impl Application {
     }
 
     /// Sends someone an invite to a server their menu's submenu lists.
-    pub(super) fn invite_to_server(&mut self, user: String, server: String) -> Vec<Effect> {
+    pub(super) fn invite_to_server(&self, user: String, server: String) -> Vec<Effect> {
         #[cfg(feature = "discord")]
         if self
             .invite_servers(&user)
@@ -914,10 +957,21 @@ impl Application {
         } else {
             MenuChoice::CreateChannel
         };
-        if !self.menu_choices(&place).contains(&choice) {
+        // A category's "+" makes a channel in it, as Discord's does; its
+        // menu doesn't offer it.
+        let in_category = kind != ChannelKind::Category && self.state.is_category(&place);
+        let allowed = if in_category {
+            self.may_create_channel(&place)
+        } else {
+            self.menu_choices(&place).contains(&choice)
+        };
+        if !allowed {
             return vec![];
         }
-        let parent = self.category_of(&place);
+        // In the category it's in, or the category itself.
+        let parent = self
+            .category_of(&place)
+            .or_else(|| in_category.then(|| place.clone()));
         let name = parent
             .as_deref()
             .and_then(|category| {
@@ -1028,7 +1082,9 @@ impl Application {
             _ => dialog.kind,
         };
         let mut settings = settings;
-        settings.name = settings.name.trim().to_owned();
+        settings.name.truncate(settings.name.trim_end().len());
+        let leading = settings.name.len() - settings.name.trim_start().len();
+        settings.name.drain(..leading);
         // Discord's text channel names are lower case, with dashes for spaces.
         if kind == ChannelKind::Text {
             settings.name = settings
