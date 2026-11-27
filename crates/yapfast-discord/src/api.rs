@@ -1,5 +1,6 @@
 //! Discord's HTTP API, called the way the web client calls it.
 
+use std::fmt::Write as _;
 use std::sync::RwLock;
 
 use anyhow::{Context, Result, anyhow, bail};
@@ -11,7 +12,7 @@ use crate::{
     captcha::Captcha,
     client,
     limits::{self, Limits, Refusals, Stopped},
-    mfa, scheduled_event,
+    mfa, scheduled_event, search,
 };
 
 const API: &str = "https://discord.com/api/v9";
@@ -82,6 +83,9 @@ const SUPPRESS_NOTIFICATIONS: u64 = 1 << 12;
 const FORWARD: u64 = 1;
 /// The most messages one history request returns.
 pub const PAGE: usize = 50;
+/// The most mentions one request to the Mentions inbox returns: Discord's
+/// whole page, up to which Yapfast keeps them.
+pub const MENTIONS_PAGE: usize = 100;
 
 /// How many archived threads a page of a channel's list of threads holds,
 /// as Discord's client asks for them.
@@ -97,6 +101,14 @@ pub const BANS_PAGE: usize = 1000;
 pub enum MembersSearch {
     Found(Value),
     Indexing(f64),
+}
+
+/// What a search of messages gave: Discord's page, or its answer that it's
+/// still indexing, with the whole seconds its `Retry-After` asks to wait.
+#[derive(Debug)]
+pub enum Searched {
+    Page(Value),
+    Indexing(Option<u64>),
 }
 
 /// How many audit log entries Audit Log fetches at a time, as Discord's
@@ -161,6 +173,18 @@ pub fn upload_limit(premium_type: u8, premium_tier: Option<u8>) -> u64 {
     own.max(boosted)
 }
 
+/// The longest message this account may send or edit to, in characters, by
+/// its Nitro, as [`crate::service::Account::premium_type`]: 4,000 with
+/// Nitro (2) alone, whose perks are the only ones in Discord's client with
+/// `INCREASED_MESSAGE_LENGTH`; 2,000 without, or with Nitro Classic (1) or
+/// Nitro Basic (3).
+pub fn message_limit(premium_type: u8) -> usize {
+    match premium_type {
+        2 => 4000,
+        _ => 2000,
+    }
+}
+
 /// Discord answered a download with this error status.
 #[derive(Debug)]
 pub struct Refused(pub StatusCode);
@@ -183,6 +207,28 @@ impl Refused {
     pub fn gone(&self) -> bool {
         matches!(self.0, StatusCode::NOT_FOUND | StatusCode::GONE)
     }
+}
+
+/// Part of a file from [`Api::download_part`], its bytes as they arrive.
+pub struct FilePart<S> {
+    /// Where its bytes start in the file: 0 when the server sent the whole
+    /// file in place of the part asked for.
+    pub start: u64,
+    /// The whole file's size, when the server says.
+    pub size: Option<u64>,
+    pub chunks: S,
+}
+
+/// A `Content-Range` header's first byte and the file's whole size, when it
+/// gives one: `bytes 100-199/1000` or `bytes 100-199/*`.
+fn content_range(value: &str) -> Option<(u64, Option<u64>)> {
+    let (range, size) = value.strip_prefix("bytes ")?.split_once('/')?;
+    let start = range.split_once('-')?.0.trim().parse().ok()?;
+    let size = match size.trim() {
+        "*" => None,
+        size => Some(size.parse().ok()?),
+    };
+    Some((start, size))
 }
 
 /// A download larger than it was allowed to be.
@@ -386,10 +432,12 @@ impl Api {
 
     /// Asks with `token` from now on: Discord refreshed the login to it.
     pub fn relogin(&self, token: &str) {
-        *self
-            .token
-            .write()
-            .unwrap_or_else(|poisoned| poisoned.into_inner()) = token.to_owned();
+        token.clone_into(
+            &mut self
+                .token
+                .write()
+                .unwrap_or_else(|poisoned| poisoned.into_inner()),
+        );
     }
 
     /// Trades a remote login's ticket for the login, encrypted with the key
@@ -471,7 +519,7 @@ impl Api {
 
     /// The application a game's Rich Presence names, for its name, as the
     /// desktop client asks when a game connects.
-    #[cfg(target_os = "linux")]
+    #[cfg(any(target_os = "linux", windows))]
     pub(crate) async fn rpc_application(&self, id: &str) -> Result<Value> {
         let path = format!("/oauth2/applications/{id}/rpc");
         self.json(self.request(Method::GET, &path)).await
@@ -479,7 +527,7 @@ impl Api {
 
     /// Discord's media proxy's names for images a game's Rich Presence gives
     /// by address, as the desktop client asks for them.
-    #[cfg(target_os = "linux")]
+    #[cfg(any(target_os = "linux", windows))]
     pub(crate) async fn rpc_external_assets(&self, id: &str, urls: &[&str]) -> Result<Value> {
         let path = format!("/applications/{id}/external-assets");
         self.json(with_json(
@@ -490,7 +538,7 @@ impl Api {
     }
 
     /// The images an application uploaded, by name, for its Rich Presence.
-    #[cfg(target_os = "linux")]
+    #[cfg(any(target_os = "linux", windows))]
     pub(crate) async fn rpc_assets(&self, id: &str) -> Result<Value> {
         let path = format!("/oauth2/applications/{id}/assets");
         self.json(self.request(Method::GET, &path)).await
@@ -499,12 +547,25 @@ impl Api {
     /// Up to [`PAGE`] messages of a channel, newest first, as [`Span`] says.
     pub async fn messages(&self, channel: &str, span: Span<'_>) -> Result<Vec<Value>> {
         let mut path = format!("/channels/{channel}/messages?limit={PAGE}");
-        match span {
-            Span::Latest => {}
-            Span::Before(id) => path.push_str(&format!("&before={id}")),
-            Span::After(id) => path.push_str(&format!("&after={id}")),
-            Span::Around(id) => path.push_str(&format!("&around={id}")),
+        let from = match span {
+            Span::Latest => None,
+            Span::Before(id) => Some(("before", id)),
+            Span::After(id) => Some(("after", id)),
+            Span::Around(id) => Some(("around", id)),
+        };
+        if let Some((side, id)) = from {
+            let _ = write!(path, "&{side}={id}");
         }
+        match self.json(self.request(Method::GET, &path)).await? {
+            Value::Array(messages) => Ok(messages),
+            _ => bail!("could not understand Discord's answer"),
+        }
+    }
+
+    /// A channel's newest `limit` messages, newest first, as a glance at it
+    /// takes them: no read acknowledgement goes with them.
+    pub async fn newest(&self, channel: &str, limit: usize) -> Result<Vec<Value>> {
+        let path = format!("/channels/{channel}/messages?limit={limit}");
         match self.json(self.request(Method::GET, &path)).await? {
             Value::Array(messages) => Ok(messages),
             _ => bail!("could not understand Discord's answer"),
@@ -653,7 +714,7 @@ impl Api {
             "/users/{user}/profile?with_mutual_guilds=true&with_mutual_friends=true&with_mutual_friends_count=false"
         );
         if let Some(guild) = guild {
-            path.push_str(&format!("&guild_id={guild}"));
+            let _ = write!(path, "&guild_id={guild}");
         }
         self.json(self.request(Method::GET, &path)).await
     }
@@ -664,7 +725,7 @@ impl Api {
         let mut path =
             "/content-inventory/users/@me?for_game_profile=false&feature=inbox".to_owned();
         if let Some(token) = refresh_token {
-            path.push_str(&format!("&refresh_token={}", encode(token)));
+            let _ = write!(path, "&refresh_token={}", encode(token));
         }
         self.json(self.request(Method::GET, &path)).await
     }
@@ -674,6 +735,35 @@ impl Api {
     pub async fn badges(&self, user: &str) -> Result<Value> {
         self.json(self.request(Method::GET, &format!("/users/{user}/badges")))
             .await
+    }
+
+    /// What someone's activity carries beyond their presence, by its
+    /// session and application (`0` for none, as Discord's client sends),
+    /// as the client asks for it when a Rich Presence button whose address
+    /// the presence didn't carry is clicked: `{button_urls}`, or none when
+    /// Discord answers 204, having none.
+    pub async fn activity_metadata(
+        &self,
+        user: &str,
+        session: &str,
+        application: &str,
+    ) -> Result<Option<Value>> {
+        let path = format!(
+            "/users/{user}/sessions/{}/activities/{}/metadata",
+            encode(session),
+            encode(application)
+        );
+        let response = self.execute(self.request(Method::GET, &path)).await?;
+        if response.status() == StatusCode::NO_CONTENT {
+            return Ok(None);
+        }
+        let body = response
+            .bytes()
+            .await
+            .context("could not read Discord's answer")?;
+        serde_json::from_slice(&body)
+            .map(Some)
+            .context("could not understand Discord's answer")
     }
 
     /// A shop product, such as the profile effect of a SKU, as the client
@@ -919,7 +1009,7 @@ impl Api {
             encode(emoji)
         );
         if let Some(after) = after {
-            path.push_str(&format!("&after={after}"));
+            let _ = write!(path, "&after={after}");
         }
         match self.json(self.request(Method::GET, &path)).await? {
             Value::Array(users) => Ok(users),
@@ -956,7 +1046,7 @@ impl Api {
         let mut path =
             format!("/channels/{channel}/polls/{message}/answers/{answer}?limit={limit}");
         if let Some(after) = after {
-            path.push_str(&format!("&after={after}"));
+            let _ = write!(path, "&after={after}");
         }
         match self.json(self.request(Method::GET, &path)).await? {
             Value::Object(mut answer) => match answer.remove("users") {
@@ -1025,29 +1115,79 @@ impl Api {
         }
     }
 
-    /// Discord's answer to a search of messages, the newest first, from the
+    /// This account's recent mentions, the newest first: the messages that
+    /// called on it in the past week, up to [`MENTIONS_PAGE`]; Discord's
+    /// Mentions inbox. `everyone` counts @everyone and @here mentions,
+    /// `roles` role mentions, and a `guild` keeps to that server's. See
+    /// "List Recent Mentions" in <https://docs.discord.food/resources/user>;
+    /// Discord's client sends `roles` and `everyone` every time, and
+    /// `guild_id` only for one server.
+    pub async fn recent_mentions(
+        &self,
+        everyone: bool,
+        roles: bool,
+        guild: Option<&str>,
+    ) -> Result<Vec<Value>> {
+        let mut path =
+            format!("/users/@me/mentions?limit={MENTIONS_PAGE}&roles={roles}&everyone={everyone}");
+        if let Some(guild) = guild {
+            let _ = write!(path, "&guild_id={guild}");
+        }
+        match self.json(self.request(Method::GET, &path)).await? {
+            Value::Array(items) => Ok(items),
+            _ => bail!("could not understand Discord's answer"),
+        }
+    }
+
+    /// Discord's answer to a search of messages in `sort`'s order, from the
     /// `offset`th; see [`crate::service::Found`]. With a server, it searches
     /// the server, in the channels `params` names with `channel_id`, or all
     /// of them; without one, the DM `channel`. `params` are the rest of the
     /// query string, such as `content`, `author_id` and `has`, each name
-    /// repeated for several values, as Discord's client sends them.
+    /// repeated for several values, as Discord's client sends them. After
+    /// Discord answered that it's still indexing, `attempts` counts the
+    /// answers so far, which the client sends again with each try.
     pub async fn search(
         &self,
         guild: Option<&str>,
         channel: &str,
         params: &[(&str, String)],
+        sort: search::Sort,
         offset: u32,
-    ) -> Result<Value> {
+        attempts: u32,
+    ) -> Result<Searched> {
         let mut query = String::new();
-        for (name, value) in params {
-            query.push_str(&format!("{name}={}&", encode(value)));
+        for (name, value) in params.iter().chain(&sort.params()) {
+            let _ = write!(query, "{name}={}&", encode(value));
         }
-        query.push_str(&format!("offset={offset}"));
+        let _ = write!(query, "offset={offset}");
+        if attempts > 0 {
+            let _ = write!(query, "&attempts={attempts}");
+        }
         let path = match guild {
             Some(guild) => format!("/guilds/{guild}/messages/search?{query}"),
             None => format!("/channels/{channel}/messages/search?{query}"),
         };
-        self.json(self.request(Method::GET, &path)).await
+        let response = self.execute(self.request(Method::GET, &path)).await?;
+        if response.status() == StatusCode::ACCEPTED {
+            // The client reads whole seconds from the header, as parseInt.
+            let seconds = response
+                .headers()
+                .get(header::RETRY_AFTER)
+                .and_then(|value| value.to_str().ok())
+                .and_then(|value| {
+                    let digits = value.trim().split('.').next()?;
+                    digits.parse::<u64>().ok()
+                });
+            return Ok(Searched::Indexing(seconds));
+        }
+        let body = response
+            .bytes()
+            .await
+            .context("could not read Discord's answer")?;
+        let page =
+            serde_json::from_slice(&body).context("could not understand Discord's answer")?;
+        Ok(Searched::Page(page))
     }
 
     /// Discord's answer to a search of a channel's threads, as its client's
@@ -1226,7 +1366,10 @@ impl Api {
         let answer = self
             .json(self.request(Method::GET, "/users/@me/settings-proto/1"))
             .await?;
-        Ok(answer["settings"].as_str().unwrap_or_default().to_owned())
+        answer["settings"]
+            .as_str()
+            .map(str::to_owned)
+            .context("Discord did not return account settings")
     }
 
     /// Replaces the top-level fields `settings`, base64
@@ -1441,8 +1584,8 @@ impl Api {
         Ok(answer["phone"].as_str().unwrap_or_default().to_owned())
     }
 
-    /// A server's profile, as its settings' Server Profile page shows it:
-    /// its name, icon and description, among more.
+    /// A server's profile, as its settings' Server Profile page and a server
+    /// tag's card show it: its name, icon and description, among more.
     pub async fn server_profile(&self, guild: &str) -> Result<Value> {
         let path = format!("/guilds/{guild}/profile");
         self.json(self.request(Method::GET, &path)).await
@@ -1477,7 +1620,7 @@ impl Api {
     pub async fn bans(&self, guild: &str, after: Option<&str>) -> Result<Value> {
         let mut path = format!("/guilds/{guild}/bans?limit={BANS_PAGE}");
         if let Some(after) = after {
-            path.push_str(&format!("&after={after}"));
+            let _ = write!(path, "&after={after}");
         }
         self.json(self.request(Method::GET, &path)).await
     }
@@ -1492,10 +1635,10 @@ impl Api {
     ) -> Result<Value> {
         let mut path = format!("/guilds/{guild}/bans/search?limit=10");
         if let Some(query) = query {
-            path.push_str(&format!("&query={}", encode(query)));
+            let _ = write!(path, "&query={}", encode(query));
         }
         for id in user_ids {
-            path.push_str(&format!("&user_ids={}", encode(id)));
+            let _ = write!(path, "&user_ids={}", encode(id));
         }
         self.json(self.request(Method::GET, &path)).await
     }
@@ -1519,13 +1662,13 @@ impl Api {
     ) -> Result<Value> {
         let mut path = format!("/guilds/{guild}/audit-logs?limit={AUDIT_PAGE}");
         if let Some(before) = before {
-            path.push_str(&format!("&before={}", encode(before)));
+            let _ = write!(path, "&before={}", encode(before));
         }
         if let Some(user) = user {
-            path.push_str(&format!("&user_id={}", encode(user)));
+            let _ = write!(path, "&user_id={}", encode(user));
         }
         if let Some(action) = action {
-            path.push_str(&format!("&action_type={action}"));
+            let _ = write!(path, "&action_type={action}");
         }
         self.json(self.request(Method::GET, &path)).await
     }
@@ -1898,7 +2041,7 @@ impl Api {
             encode(code)
         );
         if let Some(typed) = typed {
-            path.push_str(&format!("&inputValue={}", encode(typed)));
+            let _ = write!(path, "&inputValue={}", encode(typed));
         }
         self.json(self.request(Method::GET, &path)).await
     }
@@ -2203,9 +2346,80 @@ impl Api {
         Ok(size)
     }
 
+    /// Asks Discord's CDN or media proxy for a file's bytes from `from`, up
+    /// to `to` when given, as a browser asks for the part of a video it
+    /// plays: an HTTP Range request. A server that doesn't take ranges sends
+    /// the whole file, which [`FilePart::start`] tells. Refuses a file over
+    /// `limit` bytes.
+    pub async fn download_part(
+        &self,
+        url: &str,
+        from: u64,
+        to: Option<u64>,
+        limit: u64,
+    ) -> Result<
+        FilePart<
+            impl futures_util::Stream<Item = Result<impl std::ops::Deref<Target = [u8]> + Send + use<>>>
+            + Send
+            + Unpin
+            + use<>,
+        >,
+    > {
+        allowed(url)?;
+        let range = match to {
+            Some(to) => format!("bytes={from}-{}", to.saturating_sub(1)),
+            None => format!("bytes={from}-"),
+        };
+        let response = self
+            .send_file(self.http.get(url).header(header::RANGE, range))
+            .await?;
+        let (start, size) = if response.status() == StatusCode::PARTIAL_CONTENT {
+            response
+                .headers()
+                .get(header::CONTENT_RANGE)
+                .and_then(|value| content_range(value.to_str().ok()?))
+                .context("Discord sent part of the file without saying which")?
+        } else {
+            (0, response.content_length())
+        };
+        if size.is_some_and(|size| size > limit) {
+            return Err(TooLarge.into());
+        }
+        let stall = self.stall;
+        let chunks =
+            futures_util::stream::unfold(Some((response, start)), move |state| async move {
+                let (mut response, at) = state?;
+                match tokio::time::timeout(stall, response.chunk()).await {
+                    Err(_) => Some((Err(Stalled.into()), None)),
+                    Ok(Err(error)) => Some((
+                        Err(anyhow::Error::new(error).context("the download stopped")),
+                        None,
+                    )),
+                    Ok(Ok(None)) => None,
+                    Ok(Ok(Some(chunk))) => {
+                        let at = at + chunk.len() as u64;
+                        if at > limit {
+                            return Some((Err(TooLarge.into()), None));
+                        }
+                        Some((Ok(chunk), Some((response, at))))
+                    }
+                }
+            });
+        Ok(FilePart {
+            start,
+            size,
+            chunks: Box::pin(chunks),
+        })
+    }
+
     /// Asks for a file, giving up if Discord doesn't answer within [`STALL`].
     async fn get_file(&self, url: &str) -> Result<Response> {
-        let response = tokio::time::timeout(self.stall, self.http.get(url).send())
+        self.send_file(self.http.get(url)).await
+    }
+
+    /// Sends a request for a file as [`Self::get_file`] does.
+    async fn send_file(&self, request: RequestBuilder) -> Result<Response> {
+        let response = tokio::time::timeout(self.stall, request.send())
             .await
             .map_err(|_| Stalled)?
             .context("could not reach Discord")?;
@@ -2362,6 +2576,9 @@ fn refusal(status: StatusCode, body: &Value) -> anyhow::Error {
         (_, Some(UNKNOWN_INVITE | INVALID_INVITE)) => {
             anyhow!("This invite is invalid or has expired.")
         }
+        (StatusCode::NOT_FOUND, Some(INVALID_REMOTE_AUTH_TICKET)) => {
+            anyhow!("Discord rejected the QR sign-in ticket. Try again with a new code.")
+        }
         (_, Some(BANNED)) => anyhow!("You're banned from this server."),
         (_, Some(TOO_MANY_SERVERS)) => {
             anyhow!("You're in as many servers as Discord allows. Leave one to join another.")
@@ -2472,6 +2689,7 @@ const ALREADY_FRIENDS: u64 = 80007;
 const UNKNOWN_APPLICATION: u64 = 10002;
 const UNKNOWN_INVITE: u64 = 10006;
 const INVALID_INVITE: u64 = 50020;
+const INVALID_REMOTE_AUTH_TICKET: u64 = 20042;
 const BANNED: u64 = 40007;
 const TOO_MANY_SERVERS: u64 = 30001;
 const SERVER_FULL: u64 = 30019;
@@ -2608,7 +2826,7 @@ fn encode(segment: &str) -> String {
         if byte.is_ascii_alphanumeric() || b"-_.~".contains(&byte) {
             encoded.push(byte as char);
         } else {
-            encoded.push_str(&format!("%{byte:02X}"));
+            let _ = write!(encoded, "%{byte:02X}");
         }
     }
     encoded
@@ -2725,6 +2943,15 @@ mod tests {
         assert_eq!(upload_limit(0, Some(2)), 50 * MIB);
         assert_eq!(upload_limit(0, Some(3)), 100 * MIB);
         assert_eq!(upload_limit(2, Some(3)), 500 * MIB, "the larger wins");
+    }
+
+    #[test]
+    fn message_limits_follow_nitro() {
+        use super::message_limit;
+        assert_eq!(message_limit(0), 2000, "without Nitro");
+        assert_eq!(message_limit(3), 2000, "Nitro Basic has no longer messages");
+        assert_eq!(message_limit(1), 2000, "nor has Nitro Classic");
+        assert_eq!(message_limit(2), 4000, "Nitro");
     }
 
     #[test]

@@ -1,5 +1,5 @@
 use super::{open_channel::*, render::*, *};
-use crate::chat::ForwardFailure;
+use crate::chat::{self, ForwardFailure};
 use yapfast_discord::ready::Deletes;
 
 fn message(id: &str, nonce: Option<&str>) -> Message {
@@ -52,6 +52,7 @@ fn answers_discord_commands_while_discord_is_away() {
             user: "2".into(),
             effect: false,
             frame: false,
+            badges: false,
         },
     ] {
         without(Command::Discord(command), why, &events);
@@ -523,6 +524,7 @@ fn messages_render_again_once_what_they_show_changes() {
         names,
         me: "1".into(),
         blocked: vec![].into(),
+        ignored: Default::default(),
         server,
         may_pin: false,
         may_forward: false,
@@ -939,25 +941,6 @@ async fn until<T>(
 
 #[tokio::test(flavor = "multi_thread")]
 #[ignore = "needs testing/fake_discord.ts and YAPFAST_DISCORD_TEST_SERVER"]
-async fn the_sticker_picker_lists_the_servers_own_stickers() {
-    // READY gives each server's own stickers, as Discord's client reads them
-    // there: the picker asks for no server's list.
-    let discord = fake_discord().await;
-    let snapshot = discord.snapshots().borrow().clone();
-    let server = snapshot
-        .servers
-        .iter()
-        .find(|server| server.id == FAKE_GUILD)
-        .expect("the fake's server");
-    assert!(
-        server.stickers.iter().any(|sticker| sticker.name == "Wave"),
-        "the server's own stickers come with it: {:?}",
-        server.stickers
-    );
-}
-
-#[tokio::test(flavor = "multi_thread")]
-#[ignore = "needs testing/fake_discord.ts and YAPFAST_DISCORD_TEST_SERVER"]
 async fn earlier_history_loads_a_page_at_a_time_until_the_first_message() {
     let discord = fake_discord().await;
     let (done, mut finished) = tokio::sync::mpsc::unbounded_channel();
@@ -1149,72 +1132,7 @@ async fn a_channel_reopened_in_step_with_live_events_asks_for_nothing() {
 
 #[tokio::test(flavor = "multi_thread")]
 #[ignore = "needs testing/fake_discord.ts and YAPFAST_DISCORD_TEST_SERVER"]
-async fn a_thread_beside_the_open_channel_shows_its_own_pages() {
-    let discord = fake_discord().await;
-    let (done, mut finished) = tokio::sync::mpsc::unbounded_channel();
-    let (events, mut received) = tokio::sync::mpsc::unbounded_channel();
-    let mut channels = Channels::default();
-    let general = discord::room_id(FAKE_GUILD, FAKE_GENERAL);
-    let plans = discord
-        .snapshots()
-        .borrow()
-        .servers
-        .iter()
-        .flat_map(|server| &server.threads)
-        .find(|thread| thread.name == "Plans")
-        .map(|thread| discord::room_id(FAKE_GUILD, &thread.id))
-        .expect("the fake's Plans thread");
-    command(
-        Command::Open(general.clone()),
-        Ok(&discord),
-        &mut channels,
-        &done,
-        &events,
-    );
-    command(
-        Command::Aside(Some(plans.clone())),
-        Ok(&discord),
-        &mut channels,
-        &done,
-        &events,
-    );
-    // What was kept on disk shows at once; the page Discord sends follows.
-    while received.try_recv().is_ok() {}
-    let authors = until(
-        &discord,
-        &mut channels,
-        &done,
-        &mut finished,
-        &mut received,
-        |event| match event {
-            Event::Timeline { room, messages } if *room == plans => Some(
-                messages
-                    .iter()
-                    .map(|message| message.author.clone())
-                    .collect::<Vec<_>>(),
-            ),
-            _ => None,
-        },
-    )
-    .await;
-    assert!(
-        authors.iter().any(|author| author == "Carol"),
-        "{authors:?}"
-    );
-    assert_eq!(channels.open.as_ref().unwrap().room, general);
-    command(
-        Command::Aside(None),
-        Ok(&discord),
-        &mut channels,
-        &done,
-        &events,
-    );
-    assert!(channels.aside.is_none());
-}
-
-#[tokio::test(flavor = "multi_thread")]
-#[ignore = "needs testing/fake_discord.ts and YAPFAST_DISCORD_TEST_SERVER"]
-async fn a_thread_beside_the_open_channel_plays_its_videos() {
+async fn a_thread_beside_the_open_channel_loads_its_page_and_owns_its_video() {
     use tokio::io::{AsyncReadExt, AsyncWriteExt};
 
     let _ = rustls::crypto::aws_lc_rs::default_provider().install_default();
@@ -1257,9 +1175,9 @@ async fn a_thread_beside_the_open_channel_plays_its_videos() {
     control.read_to_string(&mut answer).await.unwrap();
     assert!(answer.contains("video posted"), "{answer}");
 
-    chat.command(Command::Open(general), &events);
+    chat.command(Command::Open(general.clone()), &events);
     chat.command(Command::Aside(Some(plans.clone())), &events);
-    let (item, index) = until(
+    let (item, index, has_carol) = until(
         &chat.discord,
         &mut chat.channels,
         &chat.done,
@@ -1272,15 +1190,18 @@ async fn a_thread_beside_the_open_channel_plays_its_videos() {
                         .attachments
                         .iter()
                         .position(|attachment| attachment.video)?;
-                    Some((message.item.clone(), index))
+                    let has_carol = messages.iter().any(|message| message.author == "Carol");
+                    Some((message.item.clone(), index, has_carol))
                 })
             }
             _ => None,
         },
     )
     .await;
-    // A test binary can't be the video's worker, which is no matter here: what
-    // this asks is whether the thread's video was found.
+    assert!(has_carol, "the thread page includes Carol's message");
+    assert_eq!(chat.channels.open.as_ref().unwrap().room, general);
+    // Check that the thread owns a playback session. The video player tests
+    // exercise decoding separately.
     chat.command(
         Command::PlayVideo {
             room: plans.clone(),
@@ -1297,18 +1218,21 @@ async fn a_thread_beside_the_open_channel_plays_its_videos() {
             Event::Video(video) => video,
             _ => None,
         })
-        .expect("the video started");
+        .expect("the video state was published");
     assert_eq!(
         (playing.room.as_str(), playing.item.as_str()),
         (plans.as_str(), item.as_str())
     );
-    assert_ne!(
-        playing.error.as_deref(),
-        Some("This video is no longer available.")
+    assert!(playing.error.is_none(), "{:?}", playing.error);
+    assert!(
+        chat.video.is_some(),
+        "the thread owns an active playback session"
     );
 
     // Closing the thread stops its video.
     chat.command(Command::Aside(None), &events);
+    assert!(chat.channels.aside.is_none());
+    assert_eq!(chat.channels.open.as_ref().unwrap().room, general);
     assert!(chat.video.is_none());
     assert!(
         std::iter::from_fn(|| received.try_recv().ok())
@@ -1800,6 +1724,107 @@ async fn a_members_mention_has_no_colour_of_its_own_but_a_roles_has() {
 
 #[tokio::test(flavor = "multi_thread")]
 #[ignore = "needs testing/fake_discord.ts and YAPFAST_DISCORD_TEST_SERVER"]
+async fn peeking_shows_the_newest_messages_and_keeps_nothing() {
+    let discord = fake_discord().await;
+    let (done, mut finished) = tokio::sync::mpsc::unbounded_channel();
+    let (events, mut received) = tokio::sync::mpsc::unbounded_channel();
+    let mut channels = Channels::default();
+    let room = discord::room_id(FAKE_GUILD, FAKE_GENERAL);
+    let peek = |room: &str| {
+        Command::Discord(DiscordCommand::Peek {
+            room: room.to_owned(),
+        })
+    };
+    let peeked = |event: &Event| match event {
+        Event::Peeked { result, .. } => Some(result.clone()),
+        _ => None,
+    };
+    // Not kept: Discord is asked, and nothing of it stays.
+    command(peek(&room), Ok(&discord), &mut channels, &done, &events);
+    let asked = tokio::time::timeout(Duration::from_secs(10), async {
+        loop {
+            let event = received.recv().await.expect("events go on");
+            if let Some(result) = peeked(&event) {
+                return result;
+            }
+        }
+    })
+    .await
+    .expect("timed out waiting for Discord")
+    .unwrap();
+    assert!(!asked.is_empty() && asked.len() <= crate::chat::PEEK_MESSAGES);
+    assert!(
+        asked
+            .windows(2)
+            .all(|pair| pair[0].timestamp <= pair[1].timestamp)
+    );
+    assert!(channels.open.is_none() && channels.recent.is_empty());
+
+    // Opened, then closed: the channel kept follows live events, so its
+    // newest messages answer at once, the same.
+    command(
+        Command::Open(room.clone()),
+        Ok(&discord),
+        &mut channels,
+        &done,
+        &events,
+    );
+    until(
+        &discord,
+        &mut channels,
+        &done,
+        &mut finished,
+        &mut received,
+        |event| {
+            matches!(
+                event,
+                Event::HistoryLoaded {
+                    direction: Direction::Latest,
+                    ..
+                }
+            )
+            .then_some(())
+        },
+    )
+    .await;
+    command(
+        Command::CloseRoom,
+        Ok(&discord),
+        &mut channels,
+        &done,
+        &events,
+    );
+    while received.try_recv().is_ok() {}
+    command(peek(&room), Ok(&discord), &mut channels, &done, &events);
+    let Ok(Event::Peeked {
+        result: Ok(kept), ..
+    }) = received.try_recv()
+    else {
+        panic!("a kept channel answers at once");
+    };
+    assert!(!kept.is_empty() && kept.len() <= crate::chat::PEEK_MESSAGES);
+    assert!(
+        kept.windows(2)
+            .all(|pair| pair[0].timestamp <= pair[1].timestamp)
+    );
+    assert_eq!(channels.recent.len(), 1, "it stays as it was");
+
+    // Only Discord's rooms are peeked at.
+    command(
+        peek("!room:example.org"),
+        Ok(&discord),
+        &mut channels,
+        &done,
+        &events,
+    );
+    assert!(matches!(
+        received.try_recv(),
+        Ok(Event::Peeked { result: Err(_), .. })
+    ));
+}
+
+#[tokio::test(flavor = "multi_thread")]
+#[ignore = "needs testing/fake_discord.ts and YAPFAST_DISCORD_TEST_SERVER"]
 async fn a_server_channels_pins_and_search_show_its_members() {
     let discord = fake_discord().await;
     let (done, _finished) = tokio::sync::mpsc::unbounded_channel();
@@ -1815,6 +1840,16 @@ async fn a_server_channels_pins_and_search_show_its_members() {
         tokio::time::timeout(Duration::from_secs(10), async {
             loop {
                 let event = received.recv().await.expect("events go on");
+                // Discord indexing the server first goes by.
+                if matches!(
+                    event,
+                    Event::Found {
+                        result: Ok(chat::Searched::Indexing { again: true }),
+                        ..
+                    }
+                ) {
+                    continue;
+                }
                 if matches!(event, Event::Pins { .. } | Event::Found { .. }) {
                     return event;
                 }
@@ -1849,11 +1884,16 @@ async fn a_server_channels_pins_and_search_show_its_members() {
         Command::Discord(DiscordCommand::Search {
             place: discord::server_id(FAKE_GUILD),
             query: query.into(),
+            sort: chat::SearchSort::Newest,
             offset: 0,
         })
     };
     let found = |event| match event {
-        Event::Found { result, .. } => result,
+        Event::Found {
+            result: Ok(chat::Searched::Page { total, hits, .. }),
+            ..
+        } => Ok((total, hits)),
+        Event::Found { result, .. } => Err(format!("{result:?}")),
         _ => panic!("expected search results"),
     };
     let (total, hits) = found(run(Some(search("welcome"))).await).unwrap();
@@ -1875,10 +1915,163 @@ async fn a_server_channels_pins_and_search_show_its_members() {
         found(run(Some(search("welcome from:bob in:#general has:link"))).await).unwrap();
     assert_eq!(total, 1, "Bob's welcome carries a link");
     assert!(hits[0].message.body.starts_with("Welcome to **Yapfast**"));
-    let refused = found(run(Some(search("from:nobody"))).await).unwrap_err();
-    assert!(refused.contains("nobody"), "{refused}");
-    let refused = found(run(Some(search("in:nowhere"))).await).unwrap_err();
-    assert!(refused.contains("#nowhere"), "{refused}");
+    // Someone or somewhere unknown is words, as in Discord's box.
+    let (total, _) = found(run(Some(search("from:nobody"))).await).unwrap();
+    assert_eq!(total, 0);
+    let (total, _) = found(run(Some(search("welcome in:nowhere"))).await).unwrap();
+    assert_eq!(total, 0, "no welcome says nowhere");
+}
+
+#[tokio::test(flavor = "multi_thread")]
+#[ignore = "needs testing/fake_discord.ts and YAPFAST_DISCORD_TEST_SERVER"]
+async fn recent_mentions_come_newest_first_with_their_rooms() {
+    use tokio::io::{AsyncReadExt, AsyncWriteExt};
+
+    let discord = fake_discord().await;
+    let (done, _finished) = tokio::sync::mpsc::unbounded_channel();
+    let (events, mut received) = tokio::sync::mpsc::unbounded_channel();
+    let mut channels = Channels::default();
+    // Bob mentions her in #general, as Discord's Mentions inbox would list it.
+    let server = yapfast_discord::client::test_server().unwrap();
+    let address = server.trim_start_matches("http://").trim_end_matches('/');
+    let mut control = tokio::net::TcpStream::connect(address).await.unwrap();
+    control
+        .write_all(
+            format!(
+                "POST /_control/mention HTTP/1.1\r\nHost: {address}\r\n\
+                 Content-Length: 0\r\nConnection: close\r\n\r\n"
+            )
+            .as_bytes(),
+        )
+        .await
+        .unwrap();
+    let mut answer = String::new();
+    control.read_to_string(&mut answer).await.unwrap();
+    assert!(answer.contains("Bob mentioned Alice"), "{answer}");
+
+    self::command(
+        Command::Discord(DiscordCommand::RecentMentions(Default::default())),
+        Ok(&discord),
+        &mut channels,
+        &done,
+        &events,
+    );
+    let mentions = tokio::time::timeout(Duration::from_secs(10), async {
+        loop {
+            if let Event::RecentMentions {
+                result: Ok(mentions),
+                ..
+            } = received.recv().await.expect("events go on")
+            {
+                return mentions;
+            }
+        }
+    })
+    .await
+    .expect("timed out waiting for Discord");
+    assert_eq!(mentions.len(), 1);
+    let (room, message) = &mentions[0];
+    assert_eq!(*room, discord::room_id(FAKE_GUILD, FAKE_GENERAL));
+    assert!(message.body.contains("are you in for co-op tonight?"));
+    assert_eq!(message.author, "Bob");
+    assert_eq!(message.color, Some(0x3498db), "Bob is a Mod");
+    assert_eq!(message.sender, discord::sender_id("1400000000000000002"));
+    // Every way Bob calls on her lists, among them a reply to her message:
+    // a reply that pings her holds no `<@id>` in its text, so the fetch
+    // marks it from its metadata, as the timeline does.
+    let mut control = tokio::net::TcpStream::connect(address).await.unwrap();
+    control
+        .write_all(
+            format!(
+                "POST /_control/mentions HTTP/1.1\r\nHost: {address}\r\n\
+                 Content-Length: 0\r\nConnection: close\r\n\r\n"
+            )
+            .as_bytes(),
+        )
+        .await
+        .unwrap();
+    let mut answer = String::new();
+    control.read_to_string(&mut answer).await.unwrap();
+    assert!(answer.contains("Bob mentioned Alice"), "{answer}");
+    self::command(
+        Command::Discord(DiscordCommand::RecentMentions(Default::default())),
+        Ok(&discord),
+        &mut channels,
+        &done,
+        &events,
+    );
+    let mentions = tokio::time::timeout(Duration::from_secs(10), async {
+        loop {
+            if let Event::RecentMentions {
+                result: Ok(mentions),
+                ..
+            } = received.recv().await.expect("events go on")
+            {
+                return mentions;
+            }
+        }
+    })
+    .await
+    .expect("timed out waiting for Discord");
+    assert_eq!(mentions.len(), 1 + 5);
+    assert!(
+        mentions.iter().any(
+            |(_, message)| message.body.contains("Good idea, bring the big one")
+                && (message.mentions_me || message.replies_to_me)
+        ),
+        "a reply that pings her stays marked"
+    );
+    // Nothing else mentioned her, and what was fetched stays.
+    self::command(
+        Command::Discord(DiscordCommand::RecentMentions(Default::default())),
+        Ok(&discord),
+        &mut channels,
+        &done,
+        &events,
+    );
+    let again = tokio::time::timeout(Duration::from_secs(10), async {
+        loop {
+            if let Event::RecentMentions {
+                result: Ok(mentions),
+                ..
+            } = received.recv().await.expect("events go on")
+            {
+                return mentions;
+            }
+        }
+    })
+    .await
+    .expect("timed out waiting for Discord");
+    assert_eq!(again, mentions);
+    // The filter goes with the request: in this server, without @everyone
+    // and @here, the answer saying what it was for.
+    let query = chat::MentionsQuery {
+        everyone: false,
+        roles: true,
+        server: Some(discord::server_id(FAKE_GUILD)),
+    };
+    self::command(
+        Command::Discord(DiscordCommand::RecentMentions(query.clone())),
+        Ok(&discord),
+        &mut channels,
+        &done,
+        &events,
+    );
+    let (answered, filtered) = tokio::time::timeout(Duration::from_secs(10), async {
+        loop {
+            if let Event::RecentMentions {
+                query,
+                result: Ok(mentions),
+            } = received.recv().await.expect("events go on")
+            {
+                return (query, mentions);
+            }
+        }
+    })
+    .await
+    .expect("timed out waiting for Discord");
+    assert_eq!(answered, query);
+    assert_eq!(filtered.len(), 1 + 3, "the @everyone and @here pings go");
 }
 
 #[tokio::test(flavor = "multi_thread")]
@@ -1933,7 +2126,7 @@ async fn forwards_with_the_message_added_and_refuses_what_cant_go() {
             Ok(Live::Created(message))
                 if message.forwarded && message.content == original.content =>
             {
-                shown.push(message)
+                shown.push(message);
             }
             Ok(Live::Created(message)) if message.content == "look at this" => shown.push(message),
             _ => {}
@@ -1989,6 +2182,56 @@ async fn a_servers_card_shows_how_many_of_its_members_are_online() {
     let preview = answer.expect("what the server's card shows");
     assert_eq!(preview.online, Some(3), "Dave is offline");
     assert!(!preview.discoverable, "the fake lists no DISCOVERABLE");
+}
+
+#[tokio::test(flavor = "multi_thread")]
+#[ignore = "needs testing/fake_discord.ts and YAPFAST_DISCORD_TEST_SERVER"]
+async fn a_server_tags_card_shows_its_servers_profile() {
+    let discord = fake_discord().await;
+    let (done, _finished) = tokio::sync::mpsc::unbounded_channel();
+    let (events, mut received) = tokio::sync::mpsc::unbounded_channel();
+    let mut channels = Channels::default();
+    let server = discord::server_id(FAKE_GUILD);
+    command(
+        Command::Discord(DiscordCommand::TagServer {
+            server: server.clone(),
+        }),
+        Ok(&discord),
+        &mut channels,
+        &done,
+        &events,
+    );
+    let answer = tokio::time::timeout(Duration::from_secs(10), async {
+        loop {
+            if let Event::TagServer {
+                server: asked,
+                result,
+            } = received.recv().await.unwrap()
+                && asked == server
+            {
+                return result;
+            }
+        }
+    })
+    .await
+    .expect("timed out waiting for Discord");
+    let shown = answer
+        .expect("what the tag's card shows")
+        .expect("its profile");
+    assert_eq!(shown.name, "Server");
+    assert!(shown.icon.is_some());
+    assert_eq!(shown.online, Some(1));
+}
+
+#[test]
+fn a_message_too_long_names_the_accounts_own_limit() {
+    use super::too_long;
+    assert!(
+        too_long(yapfast_discord::api::message_limit(0)).ends_with("at most 2,000 characters.")
+    );
+    assert!(
+        too_long(yapfast_discord::api::message_limit(2)).ends_with("at most 4,000 characters.")
+    );
 }
 
 #[tokio::test(flavor = "multi_thread")]

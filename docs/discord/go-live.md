@@ -73,8 +73,8 @@ A camera can be shared too, such as OBS's virtual camera (v4l2loopback on
 Linux, its DirectShow filter on Windows). The share menu lists the cameras
 [the call's camera](voice.md#camera-video) lists, under CAMERAS, after the
 screens and windows; on Wayland, where the portal picks a screen or window, a
-"Screen or window" choice comes first, and switching with no camera listed
-goes straight to the dialog. The worker films the camera through the same
+"Screen or window" choice comes first. The menu stays available while live
+so audio can be changed without opening the portal again. The worker films the camera through the same
 capture module (`camera::Camera::open_at`), asking for the stream's
 resolution and frame rate rather than the call camera's 720p at 30, and
 copies each picture into one buffer it keeps for the next before the encoder
@@ -92,10 +92,24 @@ encryption. Yapfast offers H264, and AV1 then H265 before it where the GPU
 encodes them ([Encoding on the GPU](#encoding-on-the-gpu)), and announces its
 size with op 12, again whenever someone connects. H264 frames come from x264 (`vendor/x264-src`,
 built from source) through `native/h264.c`, with a keyframe at least every 3 s
-and whenever RTCP asks for one; [Choosing the H264
+and whenever RTCP asks for one, at most one a half second: every viewer who
+lost the same packet asks at once, and a keyframe is many times a frame, so a
+run of them at a rate that just dropped would be lost in its turn; [Choosing the H264
 encoder](#choosing-the-h264-encoder) says how it's set up and why. Yapfast also
 has VP8 (`native/vp8.c`, still built and tested); every Go Live sender known to
-work sends H264. H264 goes as whole NAL units or FU-A fragments, H265 as whole
+work sends H264. Each encoded frame owns the buffer it was encoded into
+(`yapfast_discord::pool`): the encoder takes one of three and the frame gives
+it back when it's dropped, so its bytes reach DAVE without another copy. The
+encoder says how big the unit it produced is before it is copied, and the
+buffer grows to hold it, so a picture is never encoded a second time and its
+unit is copied once, straight out of the encoder's own memory: x264's output or
+FFmpeg's packet. Only a frame that came out of FFmpeg as several packets is
+gathered first, into a buffer one frame big, and libvpx's frame always is. The
+buffers start at 512 KiB, or at a frame's own cap where that is smaller, and
+double as a frame needs, up to 2 bytes a pixel and 4 KiB more; three of those
+are 1.5 MiB at rest, where one buffer of the cap took 4 MiB at 1080p before. A
+frame beyond the three allocates its buffer rather than waiting for one. H264
+goes as whole NAL units or FU-A fragments, H265 as whole
 units or FU fragments (RFC 7798), and AV1 in AOM's [RTP payload
 format](https://aomediacodec.github.io/av1-rtp-spec/v1.0.0.html), as
 libwebrtc's packetizer sends it: OBU elements without their size fields,
@@ -114,12 +128,20 @@ frame's packets wait in a queue with when each is due, and go out from a
 branch of their own, so the stream's sound, NACKs and receiver reports are
 handled while a frame goes out, and a report is timed when it comes; the
 next frame is taken once the queue is empty.
-Yapfast keeps the last 2048 video packets, and when a viewer reports
-some lost with a generic NACK (RTCP 205), resends up to 128 of them as
-Discord's client does: on the RTX SSRC with RTX's payload type and numbering,
-the original sequence number before the payload (RFC 4588), and the repaired
-stream id (extension 12) in place of the stream id. An RTCP sender report goes
-out every second.
+Yapfast keeps the last 2048 video packets, none older than two seconds, and
+when a viewer reports some lost with a generic NACK (RTCP 205), resends up to
+128 of them as Discord's client does: on the RTX SSRC with RTX's payload type
+and numbering, the original sequence number before the payload (RFC 4588), and
+the repaired stream id (extension 12) in place of the stream id. A packet two
+viewers lost is named in two blocks of the same report, and resent once. The
+resends wait their turn (`rtp::Resends`) and go out eight at once, then a batch
+a turn of the loop at 2.5 times the target: a NACK names up to 128 packets
+because a burst just left a queue full, and answering it as one burst fills it
+again. A request repeated while its answer is still on its way, half the
+lowest round trip and no more than 100 ms (short of the 300 ms a viewer holds a
+gap for), is the same lost packet, not another, and isn't answered twice. The
+camera in a call still resends at once. An RTCP sender report goes out every
+second.
 
 Before sharing, the share button's menu picks a resolution and a frame rate, as
 Discord's client asks for them: 720p, 1080p or the screen's own size (up to
@@ -128,14 +150,21 @@ doesn't have, has x264 work harder on each frame. Yapfast remembers the choice
 beside the chosen audio devices (`devices.json`), and starts at 1080p30 without
 it. The menu lists every screen, window and camera, and is never taller than
 the window: where they don't all fit, as with many windows open or the window
-short or zoomed, the choices scroll as one above Go Live, which stays in view.
+short or zoomed, they scroll above the settings and Go Live, which stay in
+view. Each setting is one row naming what's chosen, whose choices open beside
+it: Audio, then Resolution and Frame rate in the order of the settings menu of
+Discord's Go Live dialog (`id:"resolution"`, `id:"frame-rate"`).
 Larger screens, and those of another shape, are scaled down to fit. Yapfast
 caps them at the bitrates Discord's client uses: at most 3.5 Mbit/s up to 720p
 and 9 Mbit/s above, the cap op 12 announces, with the frame rate as its
 `max_framerate`. Discord's client allows accounts without Nitro 720p30, but
 trials 1080p30 at 3.5 or 5 Mbit/s for them. The worker converts captured
 frames to I420 with libyuv, scales them with libyuv's filtering scaler, and
-encodes those; the preview is the same picture scaled down to 720p.
+encodes those; the preview is the same picture scaled down to the size the
+window draws it, at most 720p. The window takes preview frames only while
+the preview is on screen, and once one has waited untaken for a quarter of a
+second the worker makes no more until it's taken, so a share hidden behind a
+game costs no preview.
 
 Under the cap, the bitrate follows what the sender's uplink carries
 (`yapfast_discord::congestion`). Sending more than it carries fills its
@@ -165,7 +194,13 @@ it to 85% of what Discord's server received, or of the target when that's
 lower, and it doesn't rise again for 3 s. What the server received comes
 from its receiver reports at least 0.4 s apart: how far the highest
 sequence number it got went, less the packets it counted lost meanwhile, at
-the size of the packets sent lately. While a queue builds that's what the
+the size of the packets sent lately. The server passes on viewers' reports
+about the same video too, counted from further back than its own, so each
+reporting SSRC (up to four, forgotten after 5 s of silence) keeps its own
+count, round trips and queue reports: the rate received is the fastest of
+their counts, a report that hasn't moved past the one it would be measured
+from says nothing, and a viewer's longer round trip is compared with that
+viewer's own lowest, not the server's. While a queue builds that's what the
 uplink carries, however much more went out, so when a calm picture turns
 busy at once and sends far past it, one back-off takes the target under
 it. Without a count, as before the second report, it backs off from what
@@ -174,8 +209,9 @@ went out over the last half second. From
 so it comes back to where the queue built slowly and stays there longer
 before the next back-off; past 115% of it the uplink carries more than it
 did, and the target rises by 8% again. It stays under the server's bandwidth
-estimate (REMB) when that's lower than the cap, and never goes below
-500 kbit/s. Without a measured round trip, as when reports don't echo a
+estimate (REMB) when that's lower than the cap, while the estimate is less
+than 5 s old (one that stops coming no longer holds it down), and never goes
+below 500 kbit/s. Without a measured round trip, as when reports don't echo a
 sender report, the target doesn't rise from where it started. The encoder
 changes its bitrate only when it differs from the target by more than a
 tenth, so a rise reaches it every second step and a fall at once.
@@ -189,18 +225,45 @@ quality 92. The worker reports it as a data URI, and Yapfast uploads it with
 later, up to three times; a newer still replaces an upload not done yet, and
 stopping the share cancels it.
 
-A shared screen carries the sound every other application plays, as Discord's
+The share menu's Audio choices apply before Go Live and immediately
+while sharing, independently of the video source: No audio, All applications,
+or on Windows an application selected by its window title. The latter captures
+the window's owning process and its child processes using WASAPI's include
+process-tree mode. This shares an application's audio, not an individual browser
+tab or one window within the same process. A closed or unsupported window gives
+an audio error and keeps the video running without falling back to all applications.
+Choosing No audio stops and releases capture; choosing another source opens a
+fresh capture on the same stream connection.
+
+Yapfast remembers the choice with the stream's quality (`devices.json`, its
+`audio`), as Discord's client keeps its Share Audio switch with the resolution
+and frame rate (`soundshareEnabled` in its `ApplicationStreamingSettingsStore`).
+A window's id ends with its window, so an application is remembered by its
+program's file name, such as `game.exe` (`audio_io::window_programs`, kept in
+`voice::State::stream_app`). When the share menu lists the windows, before
+going live, a window of that program becomes the choice. While the application
+isn't running, as it may not be after a restart, All applications is shared
+and shown as the choice, and the application stays remembered until another
+choice is made. A window chosen in this run that has closed, with no other
+window of its program open, shows as Unavailable application. A live stream's
+audio changes only when it's chosen.
+
+By default a shared screen carries the sound every other application plays, as Discord's
 client and Vesktop share it; Yapfast's own sound stays out, so viewers never hear
 the call echoed back (`stream_audio`, with `audio_io::others` hearing the
-applications). On Linux, PulseAudio or PipeWire's
+applications). On Windows that means Yapfast's own process tree: another
+Discord client's call is shared, since only its own processes can be left out
+there. On Linux, PulseAudio or PipeWire's
 PulseAudio server monitors each application's playback stream on its own
 (`pa_stream_set_monitor_stream`, as pavucontrol's level meters do), and
 streams from Yapfast's processes are skipped by process id. So are other Discord
 clients' (Discord, Vesktop, Equibop, WebCord, Legcord, ArmCord, by application
 name or program): with one of them in the call too, its sound echoed the call
-back to the people in it. The worker mixes them every 20 ms, waiting until an
-application has 40 ms queued and keeping at most 200 ms of each, and encodes
-Opus at 64 kbit/s, what Discord's client gives a stream's sound. Frames go out
+back to the people in it. A sample a driver hands over that isn't a number
+becomes silence, and a sum over 0.9 of full scale bends towards full scale
+rather than clipping. The worker mixes them every 20 ms, waiting until an
+application has 40 ms queued and keeping the newest 200 ms of each, and
+encodes Opus at 64 kbit/s, what Discord's client gives a stream's sound. Frames go out
 as plain Opus RTP on the stream's audio SSRC, DAVE-encrypted, with sender
 reports, and op 5 marks them as shared sound (speaking flag 2). Nothing is
 sent while no application plays. On Windows, WASAPI's process loopback hears
@@ -209,6 +272,17 @@ update on; it can't leave other Discord clients out. Other systems share
 video only for now, and so does the test pattern. Two ignored tests check the capture against the
 machine's sound server with a quiet tone: another process's is heard, and
 Yapfast's own is not.
+
+On Windows, the opt-in `captures_and_encodes_selected_application_audio_on_windows`
+test plays two quiet tones in separate processes and checks all-app capture,
+isolation of each selected application, reopening capture, and an Opus round
+trip. Run it with working speakers in a desktop session:
+
+```sh
+cargo test -p yapfast-core --features discord captures_and_encodes_selected_application_audio_on_windows -- --ignored --nocapture --test-threads=1
+```
+
+This checks the local Windows capture and codec path, not delivery through Discord.
 
 Each video packet carries the one-byte extensions a Discord client sends: a
 transport-wide sequence number (id 5), playout delay (6), screen content
@@ -258,13 +332,24 @@ are frames while none has come yet, and after one the decoder was too far
 behind to take. The connection asks for a keyframe with a picture loss
 indication, at most every 500 ms. It sends a receiver report every second
 (packets lost, the highest received, and the streamer's last sender report
-echoed). With `YAPFAST_LOG=debug` it logs what it received every 5 s (`stream
+echoed). A packet that comes after the frames went on without it, or a second
+time, is counted received once (the 256 sequence numbers below the highest
+are remembered), so reordering isn't reported as loss the streamer would back
+off for. With `YAPFAST_LOG=debug` it logs what it received every 5 s (`stream
 received`): packets out of order, resent, recovered, given up on, and keyframes
 asked for. The worker decodes with libvpx or with the FFmpeg H264 decoder in
 libwebrtc's archive (`native/decode.c`), AV1 with the dav1d in the same
 archive (`native/av1.c`), a picture out for each frame in, or H265 with the
 HEVC decoder of `vendor/ffmpeg-src`'s FFmpeg (`native/hevc.c`), which
-libwebrtc's lacks, and writes RGBA at up to 1080p into the shared frames.
+libwebrtc's lacks, and writes RGBA at up to 1080p into the shared frames,
+scaled first to the size the window draws the stream at, which the window
+writes into the frames file's header (`Frames::want`): the picture is scaled
+before it's made RGBA, which costs less than the window scaling RGBA each
+time it draws. While the stream isn't on screen the worker still decodes each
+frame, which the ones after it need, but doesn't make it a picture.
+When a mobile sender signals its orientation in RTP, the viewer keeps the
+last signaled orientation for that video source and applies it before display.
+The upright dimensions determine how the picture fits in the shared frame.
 dav1d takes 0.07 of a core for 1080p30 AV1 at 3.6 Mbit/s, against 0.1 for
 H265 at the same bitrate. That FFmpeg is built with
 its x86-64 assembly, without which H265 took over three times the processor
@@ -273,7 +358,15 @@ sharing in another channel joins it first, once asked, and watches once the
 call is connected; Discord drops a watch sent before. The stream's sound, Opus
 on the streamer's audio SSRC, is DAVE-decrypted as audio and played by the
 worker through `audio_io.rs` on the call's speakers (`stream_audio::Player`),
-about 100 ms queued; being deafened silences it, which Yapfast tells the worker
+about 100 ms queued there. Before that a playout (`stream_audio/player.rs`)
+puts the frames in sequence order, starting once 60 ms waits (or 100 ms after a
+lone frame), and plays 20 ms a turn: a missing packet is waited for 60 ms, then
+made up from the next packet's forward error correction or Opus's concealment,
+and after 100 ms missing in a row silence plays until sound comes again. It
+holds at most 200 ms of sound, so a stall or a sender running fast never turns
+into lasting delay: what waited through a stall is dropped, and with frames to
+spare for a second, one quiet frame goes unheard. A packet longer than 20 ms
+plays over as many turns as it takes. Being deafened silences it, which Yapfast tells the worker
 with a `hear` control. Yapfast's workers play as "Yapfast", which sharing
 leaves out, so a stream you watch never reaches one you share. Watching a
 stream from Discord's own client works: H264 with DAVE. Discord's client shows

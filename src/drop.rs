@@ -5,6 +5,13 @@
 use std::path::PathBuf;
 
 /// A drag of files over the window.
+#[cfg_attr(
+    windows,
+    allow(
+        dead_code,
+        reason = "on Windows the window has iced's own drag events and asks only where the pointer is"
+    )
+)]
 pub enum Drag {
     /// Files came over the window.
     Entered,
@@ -35,8 +42,12 @@ enum Source {
 }
 
 impl Pointer {
-    pub fn of(window: &slint::winit_030::winit::window::Window) -> Option<Self> {
-        use slint::winit_030::winit::raw_window_handle::{HasWindowHandle, RawWindowHandle};
+    /// For `window`, whose physical pixels are `scale` of its logical ones.
+    pub fn of(
+        window: &(impl raw_window_handle::HasWindowHandle + ?Sized),
+        scale: f64,
+    ) -> Option<Self> {
+        use raw_window_handle::RawWindowHandle;
         let handle = window.window_handle().ok()?.as_raw();
         let source = match handle {
             #[cfg(target_os = "linux")]
@@ -47,10 +58,7 @@ impl Pointer {
             RawWindowHandle::Win32(handle) => Source::Win32(handle.hwnd.get()),
             _ => return None,
         };
-        Some(Self {
-            source,
-            scale: window.scale_factor(),
-        })
+        Some(Self { source, scale })
     }
 
     #[cfg(target_os = "linux")]
@@ -79,11 +87,13 @@ impl Pointer {
                 use windows_sys::Win32::Graphics::Gdi::ScreenToClient;
                 use windows_sys::Win32::UI::WindowsAndMessaging::GetCursorPos;
                 let mut point = POINT { x: 0, y: 0 };
-                // SAFETY: the point outlives both calls, and a window gone
-                // meanwhile makes ScreenToClient fail rather than misbehave.
-                if unsafe { GetCursorPos(&mut point) } == 0
-                    || unsafe { ScreenToClient(*hwnd as _, &mut point) } == 0
-                {
+                // SAFETY: point is writable for the duration of the call.
+                if unsafe { GetCursorPos(&mut point) } == 0 {
+                    return None;
+                }
+                // SAFETY: point is writable. An invalid window handle makes
+                // ScreenToClient report failure.
+                if unsafe { ScreenToClient(*hwnd as _, &mut point) } == 0 {
                     return None;
                 }
                 (f64::from(point.x), f64::from(point.y))

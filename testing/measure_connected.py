@@ -13,15 +13,15 @@ import argparse
 import hashlib
 import json
 import os
-from pathlib import Path
 import platform
 import runpy
 import signal
 import subprocess
 import tempfile
 import time
+from pathlib import Path
 
-from voice_harness import provision, test_binary
+from voice_harness import LoadParticipants, provision, test_binary
 
 ROOT = Path(__file__).resolve().parent.parent
 INPUT = runpy.run_path(str(ROOT / 'scripts/framework-input'))
@@ -94,44 +94,6 @@ def sample(pid, name, notes):
     return result
 
 
-class Load:
-    def __init__(self, executable, fixture):
-        self.fixture = fixture
-        self.commands = fixture / 'load.commands'
-        self.commands.write_text('')
-        self.log = (fixture / 'load.log').open('ab')
-        self.process = subprocess.Popen([executable, '--exact', 'matrix_voice::tests::load_participants', '--ignored',
-                                         '--nocapture'], cwd=ROOT, stdout=self.log, stderr=self.log,
-                                        env=dict(os.environ, YAPFAST_TEST_VOICE_ROOT=str(fixture),
-                                                 YAPFAST_TEST_EXTRA_ACCOUNTS=str(args.extra)),
-                                        start_new_session=True)
-
-    def send(self, command, expect=None, timeout=240):
-        with self.commands.open('a') as commands:
-            commands.write(command + '\n')
-        if expect:
-            self.wait(expect, timeout)
-
-    def wait(self, status, timeout):
-        deadline = time.monotonic() + timeout
-        while time.monotonic() < deadline:
-            if (self.fixture / 'load.status').exists() and (self.fixture / 'load.status').read_text() == status:
-                return
-            if self.process.poll() is not None:
-                raise RuntimeError('load process exited; see load.log')
-            time.sleep(.2)
-        raise RuntimeError(f'load did not reach {status!r}')
-
-    def stop(self):
-        if self.process.poll() is None:
-            self.send('exit')
-            try:
-                self.process.wait(timeout=60)
-            except subprocess.TimeoutExpired:
-                os.killpg(self.process.pid, signal.SIGKILL)
-        self.log.close()
-
-
 results = []
 load = None
 executable = str(args.load_executable.resolve()) if args.load_executable else test_binary()
@@ -141,7 +103,7 @@ if args.seed:
     subprocess.run([executable, '--exact', 'matrix_chat::tests::fixture_conversation', '--ignored'], check=True, cwd=ROOT,
                    env=dict(os.environ, YAPFAST_TEST_VOICE_ROOT=str(fixture)), capture_output=True)
 try:
-    load = Load(executable, fixture)
+    load = LoadParticipants(executable, fixture, args.extra)
     load.wait('ready', 600)
     for renderer in renderers:
         environment = dict(os.environ, YAPFAST_UI_TEST_SIZE=f'{WIDTH}x{HEIGHT}')

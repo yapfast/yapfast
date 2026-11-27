@@ -13,9 +13,7 @@
 //! open.
 
 use super::*;
-#[cfg(feature = "discord")]
-use crate::chat::Sticker;
-use crate::chat::{Permission, StickerCollection};
+use crate::chat::{Permission, Sticker, StickerCollection};
 
 /// A picture the picker shows, by its address.
 #[derive(Clone, Debug)]
@@ -158,10 +156,14 @@ impl StickerPicker {
             None => false,
         };
         let mut listed = vec![];
-        for (id, name, stickers) in [("favorites", "Favorites", self.favorites.iter())] {
-            if let Some(collection) = ListedCollection::of(id, name, stickers, &search, usable) {
-                listed.push(collection);
-            }
+        if let Some(collection) = ListedCollection::of(
+            "favorites",
+            "Favorites",
+            self.favorites.iter(),
+            &search,
+            usable,
+        ) {
+            listed.push(collection);
         }
         if let Some(collection) = ListedCollection::of(
             "frequent",
@@ -372,6 +374,13 @@ impl Application {
 
     /// Takes the server's stickers as a change gave them, when the picker
     /// lists that server.
+    #[cfg_attr(
+        not(feature = "discord"),
+        allow(
+            clippy::needless_pass_by_ref_mut,
+            reason = "builds with Discord change it"
+        )
+    )]
     pub(super) fn follow_picker_stickers(
         &mut self,
         server: &str,
@@ -510,7 +519,7 @@ impl Application {
         let Some(room) = self.state.selected.clone() else {
             return vec![];
         };
-        if !self.state.can_pick_stickers() {
+        if !self.state.can_pick_stickers() || self.slowmode_holds(&room) {
             return vec![];
         }
         // Frequently Used counts it, by id; the server's list or a pack names
@@ -578,6 +587,9 @@ impl Application {
 
     /// A sticker was sent, or why it couldn't be.
     pub(super) fn sticker_sent(&mut self, room: String, result: Result<(), String>) {
+        if result.is_ok() {
+            self.slowmode_starts(&room);
+        }
         if self.state.selected.as_ref() != Some(&room) {
             return;
         }

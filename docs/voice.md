@@ -9,9 +9,12 @@ opens a menu, as Vesktop's: the input or output device chosen, which a click
 opens into the list of devices in place, the microphone or speaker volume
 (the same as Settings › Voice & video, saved as the slider is let go), and a
 way into the voice settings. The input menu adds the microphone's level, and
-with Discord linked, its noise suppression. Deafen also mutes the microphone;
-undeafening keeps it muted, while unmuting when deafened undeafens too. The
-voice view shows the participants and their mute, deafen and speaking state; a
+with Discord linked, its noise suppression. Deafen also mutes the microphone,
+and undeafening leaves the mute as it was before, as Discord's client does:
+the microphone comes back unless you had muted it yourself. Unmuting when
+deafened undeafens too. A call joined deafened, by the account card's
+toggle out of a call, undeafens to the microphone its other toggle asks for.
+The voice view shows the participants and their mute, deafen and speaking state; a
 deafened person shows crossed-out
 microphone and headphones in the channel list, and only the red crossed-out
 headphones on their tile in the call. MatrixRTC doesn't share deafening, so in
@@ -34,17 +37,32 @@ audio handle, and restarting Yapfast requires joining again. Preview calls are
 simulated, but the preview lists and chooses real devices without remembering
 them.
 
-## Leaving an empty private call
+## Microphone test
 
-When you're the only connected person in a Discord DM or group call, Yapfast
-waits ten minutes and then leaves. Settings › Voice & video → Leave a call when
-you're alone changes the wait from 1 to 120 minutes, or Never keeps the call
-connected. `layout.json` saves the choice as `alone_timeout`, in minutes, with
-zero for Never.
+Settings › Voice & video has Discord's mic test, wherever Discord voice
+runs (`discord_audio::AVAILABLE`), without a call or a linked account:
+Let's check plays the chosen microphone back through the chosen speakers
+until Stop testing, Voice & video is left or Settings close. Choosing
+another microphone or speakers restarts it on them. Wear headphones, or it
+echoes.
 
-Someone else joining cancels the wait; leaving or switching calls cancels it
-too. Closing the window to the tray does not. Server voice channels and Matrix
-calls are unaffected: they stay connected until you leave.
+It plays the microphone as a Discord call's processing leaves it (noise
+suppression and its strength, the room's echo, leveling, the microphone's
+volume) before the gate, so it plays without holding push to talk, and at
+the speakers' volume. The gate's meter (`GateMeter`) runs it: started with
+playback, it sends each processed block to a playback thread through a
+channel four blocks deep, dropping blocks rather than falling behind.
+Tests open no device.
+
+As in Discord's client, a meter of notches lights to the microphone's
+level while it plays, under "Playing back your beautiful voice"; after two
+seconds with nothing at all from the device it says it isn't detecting
+any input from your mic. Before it starts in a call, a note says the call
+will be muted and deafened. Started in a call that isn't deafened, it
+deafens it (and so mutes it), and as it ends it undeafens it and puts its
+mute back as it was. The call undeafened while it plays, or joined
+undeafened, ends it, as Discord's does; the change ends it, not the state,
+since a deafening asked for shows only once the backend says so.
 
 ## Cameras
 
@@ -66,9 +84,9 @@ film that small.
 
 A picture on screen, such as the preview, is a `picture::Feed`: whoever makes
 the frames converts each straight to RGBA at the size it shows, in one of at
-most four Slint pixel buffers the feed reuses, and the window shows that
-buffer without a copy. Off screen, a feed converts nothing and lets go of its
-buffers.
+most four buffers the feed reuses, which the window makes
+(`picture::set_frame_buffers`) and draws straight from. Off screen, a feed
+converts nothing and lets go of its buffers.
 
 In a call that carries video, the camera button in the call's controls turns
 the camera on and off. Each participant whose camera is on has a feed of
@@ -77,20 +95,26 @@ people list beside the channel marks them with a camera. Your own camera shows
 mirrored, as a mirror would. Up to four people take the columns that make
 their tiles largest within both the grid's width and height, so a call
 above a DM's messages shows both people side by side without scrolling;
-more take tiles at least 240px wide, and scroll. A click on a tile shows it
+more fit the grid too, in the columns that make their tiles largest, while
+those tiles stay at least 120px wide, and past that take tiles at least
+240px wide and scroll, so a row is never cut off at the grid's foot with its
+names under the call's controls. A click on a tile shows it
 large, as Discord's focus does, with the others in rows of small tiles
 beneath; a click beside it shows the grid again. The large tile goes full
 screen from its button or a double click, over the whole window, until
-Escape. Rust keeps which tile is large (`tiles::Focus`), by whose it is, so
-it stays as people come and go. The grid tells Rust its columns, tile size,
-scroll and large tile whenever they change (`call-tiles`), so each feed is
-made at its tile's size in physical pixels, and only while the tile is in
-view. A tile scrolled away, or a grid hidden behind settings, makes no
-pictures and keeps no buffers. While the call is off screen, one camera
-shows in the corner (`StreamPip`), made at the corner's size: the large
-tile's, or else, with no stream to show there, the first of someone else's.
-The others make none. Skia draws each frame from Slint's buffer in place
-(`docs/building.md`). Preview, Matrix and Discord calls carry video.
+Escape. The window keeps which tile is large (`Focus` in
+`crates/yapfast-iced/src/call/stage/layout.rs`), by whose it is, so it stays
+as people come and go. Whenever the tiles, their size, the scroll or the
+large tile change, `call::stage::place_videos` tells each feed where its
+tile shows, so each feed is made at its tile's size in physical pixels, and
+only while the tile is in view. A tile scrolled away, or a call whose window
+is closed to the tray, makes no pictures and keeps no buffers. While the
+call is off screen, one camera shows in the corner (`call/corner.rs`), made
+at the corner's size: the large tile's, or else, with no stream to show
+there, the first of someone else's. The others make none. The CPU renderer
+copies or scales each frame from the feed's buffer into the window with
+libyuv, and the GPU uploads it as any picture (`video.rs`; see
+[calls](client/calls.md)). Preview, Matrix and Discord calls carry video.
 
 A camera takes a moment to open, and longer to send its first picture, so it
 opens on a blocking thread (`Camera::start`) while the call goes on. Until
@@ -346,7 +370,7 @@ degraded connection. A joining request has a 35-second deadline. Leave cancels
 a pending join immediately and waits up to ten seconds for membership cleanup;
 normal leaving has the same cleanup deadline. Crash membership expiry uses a
 five-minute sticky lifetime. Ringing DM/group calls and screen sharing are
-later slices. Push-to-talk works as in
+later slices. Push-to-talk and the other [keybinds](keybinds.md) work as in
 Discord calls; see [Discord's microphone](discord/voice.md#push-to-talk). A call goes
 on with the window closed to the [tray](tray.md), whose menu can disconnect it.
 

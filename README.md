@@ -41,7 +41,7 @@ annoyed me enough to write my own in Rust.
 
 Yapfast does the same job (doing nothing) in about 30 MB. There's no browser
 engine anywhere in it or near it: it talks to Discord's API itself and draws its
-own window with [Slint](https://slint.dev) and Skia, like a game would. Your
+own window with [iced](https://iced.rs), like a game would. Your
 servers, DMs, friends, voice and GIFs are all there, and if you know Discord,
 you already know where everything is.
 
@@ -88,6 +88,12 @@ on how many servers and DMs you have.
 
 ## Features
 
+### Favorites
+
+Discord's saved Favorites appear behind the star in the server rail, with their
+categories and order. Right-click a channel, DM or group DM to add or remove it;
+the change syncs to the same Discord account list. See [Favorites](docs/discord/favorites.md).
+
 ### The GIF picker
 
 My favorite part :p Your favorites live on disk as 40 KB clips, so they're
@@ -100,11 +106,12 @@ GOATed GIF loads.
 
 Voice channels and DM calls, with mute, deafen, a volume for each person,
 noise suppression, echo removal, and a voice gate you can tune, or
-push-to-talk on any key you like, held in any app. Go Live, watch other
-people's streams, turn on your camera and play the soundboard. The call
-stays up while you read other channels, busy voice channels say how long
-their call has gone on, and pointing at a Discord voice channel shows who is
-in it, who is live and whose camera is on.
+push-to-talk on any key or combination, held in any app. Keybinds mute,
+deafen or push to mute from any app too ([keybinds](docs/keybinds.md)). Go
+Live, watch other people's streams, turn on your camera and play the
+soundboard. The call stays up while you read other channels, busy voice
+channels say how long their call has gone on, and pointing at a Discord
+voice channel shows who is in it, who is live and whose camera is on.
 
 The noise suppression could be better, though. Know an open source one that
 does a better job? PLEASE tell me.
@@ -134,13 +141,14 @@ change as you type each color.
 ### Games on your profile
 
 The game you play, found among your running programs on Linux, Windows and
-macOS, Steam's and Wine's included, and on Linux the Rich Presence games send,
-with details, elapsed time, images and buttons.
+macOS, Steam's and Wine's included, and on Linux and Windows the Rich Presence
+games send, with details, elapsed time, images and buttons.
 
 **Settings → Game activity** turns sharing on and off as Discord's own setting
-does, and names games Yapfast doesn't know. See
+does, names games Yapfast doesn't know, and lists programs it never shows as a
+game. See
 [game detection](docs/discord/people.md#game-detection) and
-[Rich Presence](docs/discord/people.md#linux-rich-presence).
+[Rich Presence](docs/discord/people.md#rich-presence).
 
 What your linked Spotify account plays shows as "Listening to Spotify" with only
 Yapfast open, from any player, as Discord's own "Display Spotify as your status"
@@ -171,30 +179,36 @@ interested. Folders show up as they do in Discord.
   mute or close a DM from its menu, leave a group DM, and accept or ignore
   message requests.
 - **Messages** you can send, reply to, edit, react to, pin, forward, mark
-  unread, copy a link to and attach files to, with Markdown, embeds, custom emoji, stickers and spoilers. Bots'
-  buttons, dropdown menus and forms work too, radio buttons, checkboxes and
-  file uploads included, and so do apps' slash commands: type `/`, pick one
-  and fill in its options, files and autocomplete included; an app's answer
-  says who used which command. Apps' message and user commands are under Apps
-  in a message's or a person's menu.
-  Discord's own links to servers, channels, messages and profiles open in
+  unread, copy a link to and attach files to, with Markdown, embeds, custom
+  emoji, stickers and spoilers. Voice messages play, with their speed and
+  volume. Bots' buttons, dropdown menus and forms work too, radio buttons,
+  checkboxes and file uploads included, and so do apps' slash commands: type
+  `/`, pick one and fill in its options, files and autocomplete included; an
+  app's answer says who used which command. Apps' message and user commands
+  are under Apps in a message's or a person's menu. Discord's own links to servers, channels, messages and profiles open in
   Yapfast, including one handed to it by the desktop.
 - **Threads**: start one from a message, browse a channel's threads, join or
   leave one, and read it beside its channel.
-- **Bots' buttons, menus and forms**: click a bot's buttons, choose from its
-  menus and fill in the forms it opens.
 - **Search** a whole server with Discord's filters, and browse a channel's pins.
+- **Profiles** as Discord draws them: badges, server tags, avatar decorations,
+  nameplates, name styles, profile effects and frames, what others are doing
+  with their Rich Presence buttons, and the full profile's Board, Wishlist and
+  recent activity. Edit Profile changes your own theme, name style and server
+  tag.
 - **Friends**: requests, adding by username, nicknames, notes, profile cards,
   your status and custom status (custom emoji included). Block and ignore
   people from their menu, block and unblock them from their profile, hide what
-  blocked people write, and unblock them from a list in Settings.
+  blocked people write, and unblock them from a list in Settings. Active Now
+  sits beside the friends list.
+- **Several accounts**: link as many as you like, and switch between them from your
+  account card or manage them in a dialog, as Discord's own apps do.
 - **Notifications** that follow your Discord settings, muting for channels,
-  categories and servers, and unread markers.
+  categories and servers, and unread markers. The inbox lists unread channels
+  and your recent mentions, filtered by ping, jumping to their messages.
 - **Soft sounds** for joining, leaving, muting and messages, in six sets.
 
 ### Not there yet
 
-- Media channels.
 - Activities.
 - Making and changing server folders.
 - A server's form for new members, such as its rules, when you join. Yapfast
@@ -243,8 +257,11 @@ servers just to snoop on your DMs, and no thanks :D).
 - You link your account by scanning a QR code with Discord's phone app, so
   Yapfast never sees your password.
 - The login token stays in your system's credential store, and only ever goes
-  to Discord. Unlinking signs that session out and deletes it.
-- It sends no analytics or crash reports, and doesn't check for updates.
+  to Discord. Unlinking deletes it, and signs out the session the QR code
+  made. A pasted token's session stays, as it's the app you copied it from.
+- It sends no analytics or crash reports. It looks for updates only if you
+  turn on **Check for updates** in **Settings → About**, with one request to
+  GitHub that says nothing about you.
 - Pictures and GIFs load from wherever they're hosted, such as Discord or
   Tenor.
 
@@ -301,6 +318,14 @@ It compiles from source, so give it a few minutes. An older glibc and no Nix?
 Then [build it yourself](#build-it-yourself).
 
 </details>
+
+### Updates
+
+Turn on **Check for updates** in **Settings → About**, and Yapfast tells you
+when a new release is out. The Windows installer's copy and the AppImage can
+then update themselves with **Update and restart**; they install only a
+release signed with Yapfast's key. Update the portable ZIP and the Arch
+package the way you installed them.
 
 ### macOS
 
@@ -382,7 +407,7 @@ Vencord ones could be ported once it does.
 <br>
 
 Serein draws with wgpu, which costs more memory before you've opened a single
-channel. Yapfast draws with Slint, on the processor by default (WAY lighter) or
+channel. Yapfast draws with iced, on the processor by default (WAY lighter) or
 the GPU if you ask. It also does Matrix (from source, for now), DeepFilterNet
 noise suppression on top of RNNoise, voice gates, and the cached GIF picker.
 It's still missing a few things, like media channels and activities.
@@ -404,18 +429,30 @@ UX to my muscle memory, so switching over hurts as little as it can.
 
 ## Build it yourself
 
-Yapfast builds inside a pinned [Nix](https://nixos.org) environment, which
-brings the right Rust, Clang and native libraries. From the project folder:
+On Windows, develop, build and test directly with Cargo. Install Visual
+Studio Build Tools with C++ and a Windows SDK, LLVM/Clang (including
+`clang-cl` and `libclang`) and NASM as described in the
+[native prerequisites](docs/building.md#windows), then run from the project
+folder in Developer PowerShell for VS:
+
+```powershell
+cargo build --locked --profile fast
+cargo run --locked --profile fast -- --preview
+cargo test --locked --profile fast --workspace
+```
+
+On Linux, use the pinned [Nix](https://nixos.org) environment, which brings
+the right Rust, Clang and native libraries. From the project folder:
 
 ```sh
 # Try the UI without an account
-nix develop path:./nix --command cargo run --locked -- --preview
+nix develop path:./nix --command cargo run --locked --profile fast -- --preview
 
-# Run it for real, with Discord and Matrix
-nix develop path:./nix --command cargo run --locked
+# Run it for real: Discord only, like the release
+nix develop path:./nix --command cargo run --locked --profile fast
 
-# Discord only, like the release
-nix develop path:./nix --command cargo run --locked --no-default-features --features desktop,discord
+# With Matrix too
+nix develop path:./nix --command cargo run --locked --profile fast --features matrix
 
 # Windows installer and ZIP, cross-built from Linux, into target/dist
 nix develop path:./nix#windows --command scripts/build-windows
@@ -424,22 +461,22 @@ nix develop path:./nix#windows --command scripts/build-windows
 scripts/check --fast
 ```
 
+The Windows commands use the Rust version pinned in `rust-toolchain.toml`.
+See [Contributing](CONTRIBUTING.md#build-and-test) for the complete checks
+on each system and for running against the fake Discord server.
+
 ### Without Nix
 
 On Linux, `cargo run --locked` works without Nix too, with rustup, which
-installs Rust 1.97.1 from `rust-toolchain.toml`, and the tools and libraries
+installs Rust 1.100 from `rust-toolchain.toml`, and the tools and libraries
 the Arch package builds with, in `packaging/arch/PKGBUILD`. Cargo downloads
-the same libwebrtc and Skia archives the Nix shell pins, except that the
-Nix shell renames one libjpeg table in Skia's (`nix/prepare-skia-native.py`).
-Without that, libwebrtc and Skia both define `jpeg_natural_order`, so
-`build.rs` links such a build with `--allow-multiple-definition`; the two
-tables are the same.
+the same libwebrtc archive the Nix shell pins.
 
 | Read this | For |
 | --- | --- |
 | [Contributing](CONTRIBUTING.md) | What a pull request needs: checks, memory numbers, commit style |
 | [Development](docs/development.md) | Day-to-day work: the preview, local Matrix and LiveKit servers, voice tests |
-| [Architecture](docs/architecture.md) | How `yapfast-core` and the Slint client fit together |
+| [Architecture](docs/architecture.md) | How `yapfast-core` and the window fit together |
 | [Building](docs/building.md) | Toolchain, Cargo features, checks, releases |
 | [Discord](docs/discord/README.md) | What's done, what's next, and the fake server the tests use |
 | [Voice](docs/voice.md) | Calls, devices and audio processing |
@@ -459,11 +496,10 @@ Yapfast speaks to Discord the way its own apps do, as documented by
 [Discord Userdoccers](https://docs.discord.food), a community effort to
 document the user side of Discord's API. Thanks to everyone who writes it <3
 
-It stands on [Slint](https://slint.dev), [Skia](https://skia.org),
-[LiveKit](https://livekit.io) and WebRTC,
+It stands on [iced](https://iced.rs), [LiveKit](https://livekit.io) and WebRTC,
 [matrix-rust-sdk](https://github.com/matrix-org/matrix-rust-sdk) and
 [DeepFilterNet](https://github.com/Rikorose/DeepFilterNet). My patches to
-Slint live in [`vendor/`](vendor), with the rest of the code.
+iced live in [`vendor/`](vendor), with the rest of the code.
 
 <sub>Yapfast isn't affiliated with or endorsed by Discord Inc. Discord is a
 trademark of Discord Inc.</sub>

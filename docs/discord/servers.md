@@ -52,11 +52,14 @@ copying them.
   editor](people.md#editing-ones-server-profile).
 - Roles needs Manage Roles in the server, whatever the channel's overwrites
   say. Its submenu lists the roles this account can give or take, highest
-  first, ticked where they hold it. A role at or above this account's highest,
+  first, ticked where they hold it, and scrolls when it's taller than the
+  window, as Discord's does. A role at or above this account's highest,
   or one an integration manages, shows only while they hold it, greyed, as in
   Discord's. Ticking one is `PUT` or `DELETE
   /guilds/{id}/members/{user}/roles/{role}`; the box changes at once and the
-  menu stays open.
+  menu stays open. Once Discord takes it, the member's known roles change,
+  and the member list with them, without waiting for GUILD_MEMBER_UPDATE,
+  as Discord's client does.
 - Time out needs Moderate Members and outranking them, and isn't offered for
   administrators, whom Discord doesn't let anyone time out. Its dialog offers
   Discord's lengths, 60 seconds to a week, and a reason, then `PATCH
@@ -198,36 +201,29 @@ without the field, even when the link's text says something else, instead
 of the browser. Either looks the invite up first and shows its server,
 icon, and how many members it has and how many are online, or the channel
 when it has fewer than five members and none online, as Discord's invite
-card does; nothing joins until the Join Server click. Discord's docs warn
-that accounts joining many servers in a short time get flagged, so Yapfast
-never joins by itself.
+card does; nothing joins until the Join in Browser click.
 
 - `GET /invites/{code}?with_counts=true&with_expiration=true&with_permissions=true`,
   as Discord's client resolves an invite, with `&inputValue=` and what was
   typed into the dialog when it was. An invite that isn't to a server's
   channel, such as a friend invite, is refused.
-- `POST /invites/{code}` with `{"session_id": ...}`, this gateway session's
-  id from READY, and an `X-Context-Properties` of the location, "Join Guild"
-  from the dialog or "Desktop Invite Modal" from a link, with
-  `location_guild_id`, `location_channel_id` and `location_channel_type`
-  naming the invite's server and channel, as Discord's client sends them.
 
-Discord often asks for a captcha before joining. Yapfast shows it as linking
-does (`application/join.rs`), and the dialog says so and can open it again. The
-server's GUILD_CREATE lists it, and Yapfast opens the invite's channel once
-it's listed. An invite to a server the account is in opens the server
-instead of joining, at once for a link; the dialog says so and its button
-opens it. Discord's refusals come back in the dialog's words: an invalid or
-expired invite (10006, 50020), a ban (40007), too many servers (30001), a
-full server (30019) and paused invites (40069).
+An invite to a server the account is in opens the server instead of
+joining, at once for a link; the dialog says so and its button opens it.
+For any other server, Join in Browser closes the dialog and opens the
+invite's page, `https://discord.gg/{code}`, where Discord's web app joins
+it, with its captcha and the server's form for new members. Accounts were
+signed out of every device after joining in Yapfast, so until Yapfast's
+join request matches Discord's client, Yapfast sends none. Once joined,
+the server's GUILD_CREATE lists it, and Yapfast opens the invite's channel
+when it does; a voice channel's invite opens the channel without joining
+the call. An invalid or expired invite (10006, 50020) shows Discord's
+refusal in the dialog.
 
-When the answer has `show_verification_form`, the server asks new members
-to fill in its form, such as accepting its rules, before they may talk.
-Yapfast doesn't show forms or onboarding questions yet, so the dialog says
-so and opens the channel in Discord's web app, where the form waits. A voice
-channel's invite joins the server and opens the channel without joining the
-call. Discord's client also sends `invite_instance_id` from a message's
-invite card, which Yapfast doesn't show yet, so it leaves that out.
+The in-app join stays in the code, unreached: `POST /invites/{code}` with
+`{"session_id": ...}` and Discord's `X-Context-Properties`, its captcha,
+its refusals, and a server form (`show_verification_form`) sent to
+Discord's web app (`application/join.rs`, `invite.rs`).
 
 ## Event links
 
@@ -291,7 +287,11 @@ from GUILD_CREATE) behind its name when it has one: the header grows by 81px,
 the name and chevron turn white over a gradient at the top, and the line
 under the header goes away. A verified server (`features` has `VERIFIED`)
 shows a green badge with a check after its name instead of the community
-icon; other community servers keep the community icon.
+icon; other community servers keep the community icon. Any other server at
+boost level 1 to 3 (`premium_tier`) shows the level as its number in a
+scallop before the name, as Discord's client does in place of those badges.
+Discord also shows the scallop at level 0 once a server has a boost ("No
+Level"); Yapfast doesn't.
 
 When the owner shows the boost progress bar (`premium_progress_bar_enabled`),
 a 26px pill under the header reads "Boost Goal" and "N/33 Boosts", with a pink
@@ -299,7 +299,9 @@ fill for the share of the goal reached. `N` is `premium_subscription_count`
 from GUILD_CREATE and GUILD_UPDATE. The 33 is what Discord's own client
 showed for a server without boosts; it has no per-level goals here.
 
-Under the header, in a Community server or one with events, a 60px row reads
+Under the header, in a server with events, or one where this account may
+create them (Create Events, or Administrator; Manage Events alone isn't
+enough in Discord's client, and a plain member sees no row), a 58px row reads
 "Events" or "N Events" with a calendar icon, where N
 counts the scheduled events that haven't ended (status 1 scheduled or 2
 active). They come from `guild_scheduled_events` in GUILD_CREATE and are kept
@@ -317,7 +319,18 @@ in 32px semibold, then "This is the beginning of this server." in 14px, all
 centred, measured against Discord to 12px between the text and the date
 divider. In any other channel: a 68px circle with a hash, "Welcome to
 #{name}!" in 32px bold and "This is the start of the #{name} channel." under
-it. DMs and rooms outside Discord keep the one-line text.
+it. A one-to-one Discord DM opens with the other person instead, left aligned:
+their 80px avatar, their name in 32px bold, their handle in 24px, "This is the
+beginning of your direct message history with **name**." in 16px, and a 32px
+row with the first mutual server's icon, the mutual servers' count, a dot and
+the buttons Discord's client shows by how the account stands with them: Add
+Friend and Block for a stranger (Block alone for a bot), Accept Request,
+Ignore Request and Block for one who asked, a disabled Friend Request Sent and
+Block for one asked, Remove Friend and Block for a friend, and only Unblock
+for one blocked. Remove Friend and Block ask first. The
+handle and the mutual servers come from the profile beside the DM, so they
+show once it has loaded and while it is open. Group DMs and rooms outside
+Discord keep the one-line text.
 
 ## A channel's menu
 
@@ -560,7 +573,8 @@ a message's menu, the list of threads' Create button (and its empty
 list's Create Thread), and Create Thread in the composer's + menu, which
 then also holds Upload a File. Each opens Discord's "New Thread" form beside
 the channel, in place of its member list (`application/threads.rs`,
-`NewThreadPanel` in `ui/thread.slint`): Thread Name, up to 100 characters;
+`new_thread_view` in `crates/yapfast-iced/src/thread.rs`): Thread Name, up
+to 100 characters;
 Private Thread, "Only people you invite and moderators can see"; and the
 first message, "Enter a message to start the conversation!", which takes
 the channel composer's draft. From a message the form shows that message,
@@ -597,7 +611,9 @@ own icon, and shows its posts in place of messages, as Discord's client
 does (`application/forum.rs`, `ForumPanel`). A media channel (type 16) has
 a forum's fields and is one here, with its own icon and a forum's list of
 cards, where Discord's client shows a gallery. Its posts are public threads
-whose parent is the forum, so everything above holds for them: posts the
+whose parent is the forum, so everything above holds for them: the forum's row
+counts its unread posts, and a post's messages tag the post's author "OP";
+posts the
 account is in list under the forum in the sidebar, the active ones come
 with THREAD_LIST_SYNC once the server is subscribed (with `threads`, but
 no channel, since a forum has no member list), and archived ones come a

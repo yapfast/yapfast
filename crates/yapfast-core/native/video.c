@@ -1,7 +1,8 @@
 /* Video files: demuxed by FFmpeg's libavformat; pictures decoded by
- * libavcodec (H264), libvpx (VP8, VP9) or dav1d (AV1), and scaled and
- * converted to RGBA by libyuv; sound decoded by libavcodec (AAC, Opus, MP3,
- * Vorbis, FLAC, PCM). All of it is inside Yapfast's libwebrtc archive. The
+ * libavcodec (H264), the separate HEVC shim, libvpx (VP8, VP9) or dav1d
+ * (AV1), and scaled and converted to RGBA by libyuv; sound decoded by
+ * libavcodec (AAC, Opus, MP3, Vorbis, FLAC, PCM). Except HEVC, these are
+ * in Yapfast's libwebrtc archive. The
  * caller supplies the file through two functions, so it can arrive while it
  * plays. Pictures show in 4:2:0, 4:2:2 or 4:4:4 at 8 or 10 bits, or in
  * 4:2:0 at 12, as far as libyuv goes. */
@@ -21,7 +22,9 @@
 #include "vpx/vp8dx.h"
 #include "vpx/vpx_decoder.h"
 
-enum { DECODER_AVCODEC, DECODER_VPX, DECODER_DAV1D };
+#include "video_hevc.h"
+
+enum { DECODER_AVCODEC, DECODER_VPX, DECODER_DAV1D, DECODER_HEVC };
 
 /* The widest or tallest picture Yapfast decodes. A file can claim any size,
  * and each picture would take that much memory. */
@@ -85,6 +88,9 @@ struct yapfast_video {
   int decoder;
   AVCodecContext *context;
   AVFrame *frame;
+#ifdef YAPFAST_FILE_HEVC
+  struct yapfast_file_hevc *hevc;
+#endif
   vpx_codec_ctx_t vpx;
   int vpx_ready;
   vpx_codec_iter_t vpx_iter;
@@ -128,6 +134,10 @@ struct yapfast_video {
   /* The alpha plane scaled to the size asked for. */
   uint8_t *scaled_alpha;
   size_t scaled_alpha_size;
+  /* Orthogonal display matrix, applied after colour conversion. */
+  int xx, xy, yx, yy;
+  uint8_t *oriented;
+  size_t oriented_size;
 };
 
 static int read_packet(void *opaque, uint8_t *buffer, int size) {
@@ -161,6 +171,9 @@ void yapfast_video_free(struct yapfast_video *video) {
   av_packet_free(&video->packet);
   avcodec_free_context(&video->context);
   av_frame_free(&video->frame);
+#ifdef YAPFAST_FILE_HEVC
+  yapfast_file_hevc_free(video->hevc);
+#endif
   if (video->vpx_ready) vpx_codec_destroy(&video->vpx);
   if (video->vpx_alpha_ready) vpx_codec_destroy(&video->vpx_alpha);
   if (video->dav1d) {
@@ -173,12 +186,19 @@ void yapfast_video_free(struct yapfast_video *video) {
   free(video->samples);
   free(video->scaled);
   free(video->scaled_alpha);
+  free(video->oriented);
   free(video);
 }
 
 static int open_decoder(struct yapfast_video *video, const AVCodecParameters *parameters,
                         unsigned threads) {
   switch (parameters->codec_id) {
+#ifdef YAPFAST_FILE_HEVC
+    case AV_CODEC_ID_HEVC:
+      video->decoder = DECODER_HEVC;
+      video->hevc = yapfast_file_hevc_new(threads, parameters->extradata, parameters->extradata_size);
+      return video->hevc ? 0 : FAILED;
+#endif
     case AV_CODEC_ID_H264: {
       const AVCodec *codec = avcodec_find_decoder(parameters->codec_id);
       video->decoder = DECODER_AVCODEC;
@@ -241,6 +261,30 @@ static void open_sound(struct yapfast_video *video) {
  * too, or only the sound of a file that may have no pictures, such as an MP3
  * or an Ogg file. */
 enum { PICTURES_ONLY = 0, WITH_SOUND = 1, SOUND_ONLY = 2 };
+
+/* MP4/MOV camera recordings often store landscape pixels and a portrait
+ * display matrix. Read plain matrix entries rather than mixing FFmpeg ABIs. */
+static void orientation(struct yapfast_video *video, const AVCodecParameters *parameters) {
+  video->xx = video->yy = 1;
+  for (int index = 0; index < parameters->nb_coded_side_data; index++) {
+    const AVPacketSideData *side = &parameters->coded_side_data[index];
+    if (side->type != AV_PKT_DATA_DISPLAYMATRIX || side->size < 9 * sizeof(int32_t)) continue;
+    int32_t matrix[9];
+    memcpy(matrix, side->data, sizeof matrix);
+    /* Only quarter turns and reflections, without perspective. */
+    if (matrix[2] || matrix[5] || matrix[8] != (1 << 30)) return;
+    int a = matrix[0], b = matrix[1], c = matrix[3], d = matrix[4];
+    if (!((a == 0 && d == 0 && (b == 65536 || b == -65536) &&
+           (c == 65536 || c == -65536)) ||
+          (b == 0 && c == 0 && (a == 65536 || a == -65536) &&
+           (d == 65536 || d == -65536)))) return;
+    video->xx = a / 65536;
+    video->xy = c / 65536;
+    video->yx = b / 65536;
+    video->yy = d / 65536;
+    return;
+  }
+}
 
 /* Opens the first video in the file `source`, or returns NULL. With
  * `sound`, its sound comes too, or with SOUND_ONLY, only its sound, which
@@ -316,8 +360,9 @@ struct yapfast_video *yapfast_video_open(void *source, yapfast_read read, yapfas
     }
   }
   video->start = video->format->start_time == AV_NOPTS_VALUE ? 0 : video->format->start_time;
-  info->width = parameters->width;
-  info->height = parameters->height;
+  orientation(video, parameters);
+  info->width = video->xy ? parameters->height : parameters->width;
+  info->height = video->xy ? parameters->width : parameters->height;
   if (video->format->duration != AV_NOPTS_VALUE) {
     info->duration_ms = video->format->duration / (AV_TIME_BASE / 1000);
   } else if (stream->duration != AV_NOPTS_VALUE) {
@@ -365,6 +410,24 @@ static int receive_picture(struct yapfast_video *video, int64_t *time_ms) {
   /* Until a new picture comes, there's none: the last may be freed. */
   *planes = (struct planes){0};
   switch (video->decoder) {
+#ifdef YAPFAST_FILE_HEVC
+    case DECODER_HEVC: {
+      struct yapfast_hevc_frame frame;
+      int received = yapfast_file_hevc_receive(video->hevc, &frame);
+      if (received <= 0) return received;
+      *planes = (struct planes){
+          .width = frame.width, .height = frame.height, .depth = frame.depth,
+          .layout = layout(frame.x_shift, frame.y_shift),
+          .bt709 = bt709(frame.bt709, frame.height), .full_range = frame.full_range,
+      };
+      for (int plane = 0; plane < 3; plane++) {
+        planes->data[plane] = frame.data[plane];
+        planes->stride[plane] = frame.stride[plane];
+      }
+      *time_ms = milliseconds(video, video->stream, frame.timestamp);
+      return 1;
+    }
+#endif
     case DECODER_AVCODEC: {
       AVFrame *frame = video->frame;
       av_frame_unref(frame);
@@ -573,6 +636,9 @@ static int feed(struct yapfast_video *video) {
   } else if (video->read_all) {
     video->sent_all = 1;
     if (video->decoder == DECODER_AVCODEC) avcodec_send_packet(video->context, NULL);
+#ifdef YAPFAST_FILE_HEVC
+    if (video->hevc) return yapfast_file_hevc_send(video->hevc, NULL, 0, 0, 0, 0);
+#endif
     return 0;
   } else {
     int read = demux(video, packet);
@@ -580,6 +646,12 @@ static int feed(struct yapfast_video *video) {
   }
   int result = 0;
   switch (video->decoder) {
+#ifdef YAPFAST_FILE_HEVC
+    case DECODER_HEVC:
+      result = yapfast_file_hevc_send(video->hevc, packet->data, packet->size,
+                                      packet->pts, packet->dts, packet->duration);
+      break;
+#endif
     case DECODER_AVCODEC: {
       int sent = avcodec_send_packet(video->context, packet);
       /* A damaged packet is skipped. */
@@ -709,7 +781,7 @@ static int apply_alpha(struct yapfast_video *video, unsigned char *rgba, int wid
 
 /* Writes the picture yapfast_video_next gave last into `rgba`, `width * 4`
  * bytes a row, scaled to `width` by `height`. */
-int yapfast_video_picture(struct yapfast_video *video, unsigned char *rgba, int width, int height) {
+static int unrotated_picture(struct yapfast_video *video, unsigned char *rgba, int width, int height) {
   const struct planes *planes = &video->planes;
   const uint8_t *y = planes->data[0], *u = planes->data[1], *v = planes->data[2];
   int y_stride = planes->stride[0], u_stride = planes->stride[1], v_stride = planes->stride[2];
@@ -762,6 +834,34 @@ int yapfast_video_picture(struct yapfast_video *video, unsigned char *rgba, int 
              : 0;
 }
 
+/* Scale in the encoded orientation, then transform RGBA (including alpha).
+ * Swapping the reported dimensions as well keeps portrait videos undistorted. */
+int yapfast_video_picture(struct yapfast_video *video, unsigned char *rgba, int width, int height) {
+  if (video->xx == 1 && video->yy == 1) return unrotated_picture(video, rgba, width, height);
+  if (width <= 0 || height <= 0 || width > MAX_SIDE || height > MAX_SIDE) return FAILED;
+  size_t size = (size_t)width * (size_t)height * 4;
+  if (video->oriented_size < size) {
+    uint8_t *grown = realloc(video->oriented, size);
+    if (!grown) return FAILED;
+    video->oriented = grown;
+    video->oriented_size = size;
+  }
+  int source_width = video->xy ? height : width;
+  int source_height = video->xy ? width : height;
+  if (unrotated_picture(video, video->oriented, source_width, source_height) < 0) return FAILED;
+  int offset_x = (video->xx < 0 || video->xy < 0) ? width - 1 : 0;
+  int offset_y = (video->yx < 0 || video->yy < 0) ? height - 1 : 0;
+  for (int y = 0; y < source_height; y++) {
+    for (int x = 0; x < source_width; x++) {
+      int to_x = video->xx * x + video->xy * y + offset_x;
+      int to_y = video->yx * x + video->yy * y + offset_y;
+      memcpy(rgba + ((size_t)to_y * width + to_x) * 4,
+             video->oriented + ((size_t)y * source_width + x) * 4, 4);
+    }
+  }
+  return 0;
+}
+
 /* The sound yapfast_video_next gave last: frames of interleaved floats, one
  * a channel, and their rate and channels. */
 const float *yapfast_video_sound(const struct yapfast_video *video, int *frames, int *rate,
@@ -778,6 +878,9 @@ int yapfast_video_seek(struct yapfast_video *video, int64_t time_ms) {
   int64_t target = video->start + time_ms * (AV_TIME_BASE / 1000);
   if (avformat_seek_file(video->format, -1, INT64_MIN, target, target, 0) < 0) return FAILED;
   if (video->context) avcodec_flush_buffers(video->context);
+#ifdef YAPFAST_FILE_HEVC
+  if (video->hevc) yapfast_file_hevc_flush(video->hevc);
+#endif
   if (video->sound_context) avcodec_flush_buffers(video->sound_context);
   video->vpx_iter = NULL;
   if (video->dav1d) {

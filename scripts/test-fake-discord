@@ -1,18 +1,17 @@
 #!/usr/bin/env bash
-# Runs crates/yapfast-discord/tests/fake_server.rs, fake_interactions.rs and
-# fake_commands.rs,
-# then yapfast-core's ignored
-# discord_text and discord_voice tests, against testing/fake_discord.ts, then
+# Runs crates/yapfast-discord/tests/fake_server/, fake_interactions.rs and
+# fake_commands.rs, then yapfast-core's ignored Discord text, voice and
+# sticker picker tests, against testing/fake_discord.ts, then
 # crates/yapfast-discord/tests/fake_env.rs against it with an environment.
 # Usage: scripts/test-fake-discord [FILTER…], test names or parts of them
-# (`scripts/test-fake-discord forum`), passed to each test binary.
-# Each fake_server.rs test starts a fake of its own, logging to
-# target/fake-discord-TEST.log; `grep -n '^async fn'
-# crates/yapfast-discord/tests/fake_server.rs` lists them. cargo nextest
+# (`scripts/test-fake-discord forum`).
+# Each fake_server test starts a fake of its own, logging to
+# target/fake-discord-TEST.log; `grep -rn '^async fn'
+# crates/yapfast-discord/tests/fake_server` lists them. cargo nextest
 # runs them side by side, eight at a time (.config/nextest.toml); without
 # it, cargo test runs them one after another.
 # For the yapfast-core tests it starts one fake, waits until it answers,
-# runs them with the `fast` profile, then stops it; its log is
+# runs them one at a time with the `fast` profile, then stops it; its log is
 # target/fake-discord.log. Then it does the same for fake_env.rs, against
 # a fake running testing/envs/example.json, whose log is
 # target/fake-discord-env.log.
@@ -61,17 +60,56 @@ start_fake() {
 }
 
 if command -v cargo-nextest >/dev/null; then
-  cargo nextest run --locked --cargo-profile fast -p yapfast-discord --test fake_server \
-    --test fake_interactions --test fake_commands --run-ignored only --no-fail-fast "$@"
-else
-  cargo test --locked --profile fast -p yapfast-discord --test fake_server -- --ignored "$@"
-  cargo test --locked --profile fast -p yapfast-discord --test fake_interactions -- --ignored "$@"
-  cargo test --locked --profile fast -p yapfast-discord --test fake_commands -- --ignored "$@"
+  nextest=(cargo nextest run --locked --cargo-profile fast --run-ignored only --no-fail-fast)
+  no_tests=()
+  if [[ $# -gt 0 ]]; then
+    # A filter can match only the core or example environment tests below.
+    no_tests=(--no-tests=pass)
+  fi
+  "${nextest[@]}" -p yapfast-discord --test fake_server --test fake_interactions --test fake_commands \
+    -E 'not test(=waits_as_detected_game)' "${no_tests[@]}" "$@"
+
+  # The core's tests share a fake. Run them serially across Nextest's processes.
+  start_fake target/fake-discord.log
+  YAPFAST_DISCORD_TEST_SERVER=$server "${nextest[@]}" -p yapfast-core --lib --test-threads 1 \
+    -E 'test(discord_text::tests::) | test(discord_voice::tests::) | test(application::tests::pickers::)' \
+    "${no_tests[@]}" "$@"
+
+  start_fake target/fake-discord-env.log --env testing/envs/example.json
+  YAPFAST_DISCORD_TEST_SERVER=$server "${nextest[@]}" -p yapfast-discord --test fake_env \
+    "${no_tests[@]}" "$@"
+  exit 0
 fi
-# The shared core's Discord side, against a fake of its own.
-start_fake target/fake-discord.log
-YAPFAST_DISCORD_TEST_SERVER=$server \
-  cargo test --locked --profile fast -p yapfast-core -- --ignored discord_text::tests discord_voice::tests "$@"
+
+cargo test --locked --profile fast -p yapfast-discord --test fake_server -- --ignored \
+  --skip waits_as_detected_game "$@"
+cargo test --locked --profile fast -p yapfast-discord --test fake_interactions -- --ignored "$@"
+cargo test --locked --profile fast -p yapfast-discord --test fake_commands -- --ignored "$@"
+# Libtest combines name filters with OR. Match them against the ignored
+# tests in these modules before giving libtest the exact names to run.
+core=(cargo test --locked --profile fast -p yapfast-core --lib)
+listed=$("${core[@]}" -- --ignored --list --format terse \
+  discord_text::tests:: discord_voice::tests:: application::tests::pickers::)
+core_tests=()
+while IFS= read -r line; do
+  line=${line%$'\r'}
+  [[ $line == *': test' ]] || continue
+  name=${line%: test}
+  if [[ $# == 0 ]]; then
+    core_tests+=("$name")
+    continue
+  fi
+  for filter in "$@"; do
+    if [[ $name == *"$filter"* ]]; then
+      core_tests+=("$name")
+      break
+    fi
+  done
+done <<< "$listed"
+if [[ ${#core_tests[@]} -gt 0 ]]; then
+  start_fake target/fake-discord.log
+  YAPFAST_DISCORD_TEST_SERVER=$server "${core[@]}" -- --ignored --test-threads 1 --exact "${core_tests[@]}"
+fi
 # The example environment, in a fake of its own.
 start_fake target/fake-discord-env.log --env testing/envs/example.json
 YAPFAST_DISCORD_TEST_SERVER=$server \

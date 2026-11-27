@@ -1,0 +1,33 @@
+#!/usr/bin/env bash
+# Remakes the signatures the update tests check, after a test changes what it
+# serves: `src/update/testdata/sign`. The keys here are for tests only, kept
+# without a password so this can run; `-f new-keys` makes new ones as well.
+# The real keys are in packaging/keys, see docs/packaging.md.
+set -euo pipefail
+cd "$(dirname "${BASH_SOURCE[0]}")"
+minisign() { nix shell nixpkgs#minisign -c minisign "$@"; }
+if [[ ${1:-} == new-keys ]]; then
+  for key in stable nightly; do
+    minisign -G -f -W -p "$key.pub" -s "$key.key" -c "Yapfast update tests: $key key"
+  done
+fi
+sum() { printf '%s' "$1" | sha256sum | cut -d' ' -f1; }
+# NAME KEY TAG TEXT: TEXT signed with KEY for TAG's release, as NAME.minisig.
+sign() {
+  printf '%s' "$4" > "$1"
+  minisign -S -s "$2.key" -m "$1" -x "$1.minisig" -t "yapfast $3 SHA256SUMS.txt" -c "signature from the $2 test key"
+  rm "$1"
+}
+setup=Yapfast-0.4.1-windows-x64-setup.exe appimage=Yapfast-0.4.1-x86_64.AppImage
+# What install.rs's tests serve as SHA256SUMS.txt.
+sign installer stable v0.4.1 "$(sum $'#!/bin/sh\nexit 0\n')  $setup"$'\n'
+sign mismatched stable v0.4.1 "$(sum 'what was published')  $setup"$'\n'
+sign empty stable v0.4.1 ''
+sign appimage-works stable v0.4.1 "$(sum $'#!/bin/sh\nexit 0\n')  $appimage"$'\n'
+sign appimage-fails stable v0.4.1 "$(sum $'#!/bin/sh\nexit 3\n')  $appimage"$'\n'
+# What signature.rs's tests check.
+sums="$(sum 'release')  $appimage"$'\n'
+printf '%s' "$sums" > sums.txt
+sign stable stable v0.4.1 "$sums"
+sign nightly nightly v0.5.0-nightly.20261114.3 "$sums"
+sign nightly-as-stable nightly v0.4.1 "$sums"

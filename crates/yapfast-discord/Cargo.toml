@@ -2,9 +2,12 @@
 name = "yapfast-discord"
 version = "0.1.0"
 edition = "2024"
-rust-version = "1.97"
+rust-version = "1.100"
 publish = false
 license = "GPL-3.0-or-later"
+
+[lints]
+workspace = true
 
 [lib]
 # No documentation examples run as tests: rustdoc would read the whole

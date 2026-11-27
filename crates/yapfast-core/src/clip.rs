@@ -29,7 +29,7 @@ unsafe extern "C" {
         quality: c_uint,
         threads: c_uint,
     ) -> *mut Raw;
-    #[allow(clippy::too_many_arguments)]
+    #[allow(clippy::too_many_arguments, reason = "the C function's parameters")]
     fn yapfast_clip_encode(
         clip: *mut Raw,
         y: *const c_uchar,
@@ -159,7 +159,7 @@ pub fn thumbnail(picture: &Picture) -> Option<Vec<u8>> {
 
 /// Puts transparent pixels over [`BACKGROUND`].
 fn flatten(rgba: &mut [u8]) {
-    for pixel in rgba.chunks_exact_mut(4) {
+    for pixel in rgba.as_chunks_mut::<4>().0 {
         let alpha = u16::from(pixel[3]);
         if alpha == 255 {
             continue;

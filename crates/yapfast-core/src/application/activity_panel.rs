@@ -87,6 +87,13 @@ impl Application {
     }
 
     #[cfg(not(feature = "discord"))]
+    #[cfg_attr(
+        not(feature = "discord"),
+        allow(
+            clippy::needless_pass_by_ref_mut,
+            reason = "builds with Discord change it"
+        )
+    )]
     pub(super) fn ask_activity(&mut self) -> Vec<Effect> {
         vec![]
     }

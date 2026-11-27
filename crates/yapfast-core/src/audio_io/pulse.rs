@@ -19,9 +19,17 @@ use crate::voice::NAMED;
 /// Real-time priority for Yapfast's audio threads: above every ordinary
 /// thread, and below PipeWire's own, which run at 88 or more. A
 /// microphone's thread runs a step below those that play.
+#[cfg_attr(
+    not(feature = "discord"),
+    allow(dead_code, reason = "only Discord uses it")
+)]
 const REALTIME: i32 = 10;
 
 /// Says how it raised the calling thread, or why it couldn't.
+#[cfg_attr(
+    not(feature = "discord"),
+    allow(dead_code, reason = "only Discord uses it")
+)]
 pub fn raise_priority(priority: super::Priority) -> Result<&'static str, String> {
     let (sched_priority, how) = match priority {
         super::Priority::Playback => (REALTIME, "SCHED_FIFO 10"),
@@ -75,15 +83,15 @@ impl Output {
         .map(Self)
     }
 
-    pub fn write(&mut self, bytes: &[u8]) -> Result<()> {
+    pub fn write(&self, bytes: &[u8]) -> Result<()> {
         self.0.write(bytes).map_err(|error| anyhow!("{error}"))
     }
 
-    pub fn drain(&mut self) -> Result<()> {
+    pub fn drain(&self) -> Result<()> {
         self.0.drain().map_err(|error| anyhow!("{error}"))
     }
 
-    pub fn flush(&mut self) {
+    pub fn flush(&self) {
         let _ = self.0.flush();
     }
 
@@ -121,7 +129,7 @@ impl Input {
         .map(Self)
     }
 
-    pub fn read(&mut self, bytes: &mut [u8]) -> Result<()> {
+    pub fn read(&self, bytes: &mut [u8]) -> Result<()> {
         self.0.read(bytes).map_err(|error| anyhow!("{error}"))
     }
 }
@@ -203,7 +211,10 @@ pub fn endpoint(id: Option<&str>, sink: bool) -> String {
 struct Listed {
     name: String,
     description: String,
-    #[cfg_attr(not(feature = "discord"), allow(dead_code))]
+    #[cfg_attr(
+        not(feature = "discord"),
+        allow(dead_code, reason = "only Discord uses it")
+    )]
     index: u32,
 }
 
@@ -487,7 +498,7 @@ mod others {
                                 tracing::warn!(
                                     error = format!("{error:#}"),
                                     "could not capture an application's sound"
-                                )
+                                );
                             }
                         }
                     }
@@ -495,14 +506,14 @@ mod others {
                 }
             }
         }
-        for input in streams.keys().copied().collect::<Vec<_>>() {
+        while let Some(&input) = streams.keys().next() {
             forget(&mut streams, &heard, input);
         }
         context.borrow_mut().disconnect();
         Ok(())
     }
 
-    fn found_change(info: &SinkInputInfo, skip: fn(&str) -> bool) -> Change {
+    fn found_change(info: &SinkInputInfo<'_>, skip: fn(&str) -> bool) -> Change {
         Change::Found {
             input: info.index,
             sink: info.sink,
@@ -544,8 +555,11 @@ mod others {
         });
         let weak = Rc::downgrade(&stream);
         let into = heard.clone();
-        // For fragments that don't start on a float's alignment.
-        let mut unaligned: Vec<f32> = Vec::new();
+        // One callback's fragments, kept from callback to callback so hearing
+        // them costs no allocation, and handed over once they're discarded:
+        // what hears them mixes, which waits, and the server can't reuse a
+        // fragment still peeked.
+        let mut sound: Vec<f32> = Vec::new();
         stream
             .borrow_mut()
             .set_read_callback(Some(Box::new(move |_| {
@@ -555,22 +569,18 @@ mod others {
                     match peeked {
                         PeekResult::Data(bytes) => {
                             // SAFETY: every bit pattern is a valid f32.
-                            let samples = match unsafe { bytes.align_to::<f32>() } {
-                                ([], samples, []) => samples,
-                                _ => {
-                                    unaligned.clear();
-                                    unaligned.extend(bytes.chunks_exact(4).map(|sample| {
-                                        f32::from_ne_bytes([
-                                            sample[0], sample[1], sample[2], sample[3],
-                                        ])
-                                    }));
-                                    &unaligned
-                                }
-                            };
-                            (into.borrow_mut())(Heard::Samples {
-                                source: input,
-                                samples,
-                            });
+                            match unsafe { bytes.align_to::<f32>() } {
+                                ([], samples, []) => sound.extend_from_slice(samples),
+                                // A fragment that doesn't start on a float's
+                                // alignment is read a sample at a time.
+                                _ => sound.extend(
+                                    bytes
+                                        .as_chunks::<4>()
+                                        .0
+                                        .iter()
+                                        .map(|&sample| f32::from_ne_bytes(sample)),
+                                ),
+                            }
                         }
                         PeekResult::Hole(_) => {}
                         PeekResult::Empty => break,
@@ -578,6 +588,13 @@ mod others {
                     if stream.discard().is_err() {
                         break;
                     }
+                }
+                if !sound.is_empty() {
+                    (into.borrow_mut())(Heard::Samples {
+                        source: input,
+                        samples: &sound,
+                    });
+                    sound.clear();
                 }
             })));
         // About 10 ms at a time.
