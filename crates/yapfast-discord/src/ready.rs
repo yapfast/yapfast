@@ -390,6 +390,9 @@ pub struct Channel {
     /// A stage channel, among the voice channels, where no join sound plays.
     #[serde(default)]
     pub stage: bool,
+    /// The participant limit of a regular voice channel.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub voice_limit: Option<std::num::NonZeroU8>,
     /// A media channel: a forum whose posts lead with pictures and videos.
     #[serde(default)]
     pub media: bool,
@@ -1717,6 +1720,11 @@ fn parse_channel(channel: &Value) -> Option<Channel> {
         overwrites: Arc::new(overwrites(channel)),
         announcement: channel["type"].as_u64() == Some(GUILD_ANNOUNCEMENT),
         stage: channel["type"].as_u64() == Some(GUILD_STAGE_VOICE),
+        voice_limit: channel["user_limit"]
+            .as_u64()
+            .and_then(|limit| u8::try_from(limit).ok())
+            .and_then(std::num::NonZeroU8::new)
+            .filter(|_| !obfuscated && channel["type"].as_u64() == Some(GUILD_VOICE)),
         media: channel["type"].as_u64() == Some(GUILD_MEDIA),
         nsfw: channel["nsfw"].as_bool().unwrap_or(false),
         archive_after: channel["default_auto_archive_duration"]
@@ -2011,14 +2019,14 @@ mod tests {
                 "id": "10",
                 "properties": {"name": "Test", "icon": "abc"},
                 "channels": [
-                    {"id": "12", "name": "Second", "type": 2, "position": 2},
+                    {"id": "12", "name": "Second", "type": 2, "position": 2, "user_limit": 0},
                     {"id": "11", "name": "general", "type": 0, "position": 0},
-                    {"id": "13", "name": "Lounge", "type": 2, "position": 1},
+                    {"id": "13", "name": "Lounge", "type": 2, "position": 1, "user_limit": 4},
                 ],
             }],
         });
         assert_eq!(user_id(&ready), Some("1"));
-        let servers = servers(&ready);
+        let mut servers = servers(&ready);
         assert_eq!(servers[0].name, "Test");
         assert_eq!(
             servers[0].icon.as_deref(),
@@ -2030,6 +2038,12 @@ mod tests {
             .map(|c| c.name.as_str())
             .collect();
         assert_eq!(names, ["Lounge", "Second"]);
+        assert_eq!(servers[0].voice_channels[0].voice_limit.unwrap().get(), 4);
+        assert_eq!(servers[0].voice_channels[1].voice_limit, None);
+        servers[0].put_channel(
+            &json!({"id": "13", "name": "Lounge", "type": 2, "position": 1, "user_limit": 0}),
+        );
+        assert_eq!(servers[0].voice_channels[0].voice_limit, None);
     }
 
     /// A role whose name is a gradient gives its members' names the

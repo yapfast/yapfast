@@ -887,6 +887,47 @@ fn voice_server(app: &mut App) {
     });
 }
 
+/// A capped voice channel's row shows Discord's pill: who is in it against
+/// its limit, zero-padded, kept up as people leave; not on the open channel,
+/// nor where this account may not connect, and a mention badge takes its
+/// place.
+#[test]
+fn a_capped_voice_channel_shows_its_limit_pill() {
+    let (mut app, _folder) = preview();
+    voice_server(&mut app);
+    let set_lounge = |app: &mut App, set: fn(&mut yapfast_core::chat::ChatRoom)| {
+        change(app, |state| {
+            let lounge = state
+                .rooms
+                .iter_mut()
+                .find(|room| room.id == "lounge")
+                .expect("Lounge");
+            set(Arc::make_mut(lounge));
+        });
+    };
+    assert!(!shows(&app, "07"));
+    set_lounge(&mut app, |lounge| {
+        lounge.voice_limit = std::num::NonZeroU8::new(7);
+    });
+    assert!(shows(&app, "02") && shows(&app, "07"));
+    set_lounge(&mut app, |lounge| lounge.people.clear());
+    assert!(shows(&app, "00") && !shows(&app, "02"));
+    set_lounge(&mut app, |lounge| lounge.join_locked = true);
+    assert!(
+        !shows(&app, "07"),
+        "no pill where this account may not connect"
+    );
+    set_lounge(&mut app, |lounge| {
+        lounge.join_locked = false;
+        lounge.mentions = 3;
+    });
+    assert!(!shows(&app, "07"), "a mention badge takes the pill's place");
+    set_lounge(&mut app, |lounge| lounge.mentions = 0);
+    assert!(shows(&app, "07"));
+    change(&mut app, |state| state.selected = Some("lounge".into()));
+    assert!(!shows(&app, "07"), "no pill on the open channel");
+}
+
 /// A voice channel hidden from this account, listed with Show channels you
 /// can't access, shows who is in it under its lock, as other voice channels
 /// do, and a click on it joins nothing.

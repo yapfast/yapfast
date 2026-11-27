@@ -82,6 +82,8 @@ pub struct ChatRoom {
     pub name: String,
     pub direct: bool,
     pub voice: bool,
+    /// Maximum participants in a capped Discord voice channel.
+    pub voice_limit: Option<std::num::NonZeroU8>,
     pub encrypted: bool,
     pub members: u64,
     pub unread: u64,
