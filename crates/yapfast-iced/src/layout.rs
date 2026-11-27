@@ -243,6 +243,7 @@ pub struct Prefs {
     pub date_format: Option<i32>,
     pub text_size: Option<i32>,
     pub chat_text_size: Option<u8>,
+    pub scroll_speed: Option<u16>,
     pub link_previews: Option<bool>,
     pub boost_gems: Option<bool>,
     pub reply_ping: Option<bool>,
@@ -366,7 +367,15 @@ impl Layout {
     }
 }
 
+pub const SCROLL_SPEEDS: [u16; 5] = [50, 100, 150, 200, 300];
+
 impl Prefs {
+    pub fn scroll_speed(&self) -> u16 {
+        self.scroll_speed
+            .filter(|speed| SCROLL_SPEEDS.contains(speed))
+            .unwrap_or(100)
+    }
+
     /// Messages' text size in pixels: the one chosen, at the nearest size
     /// offered, or what older versions' three sizes were (14, 15 and 18).
     pub fn text_px(&self) -> u8 {

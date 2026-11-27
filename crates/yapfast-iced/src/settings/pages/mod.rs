@@ -51,6 +51,7 @@ pub enum Pref {
     KeepTextPx,
     Animate(usize),
     ReducedMotion(bool),
+    ScrollSpeed(usize),
     SyncReducedMotion(bool),
     LinkPreviews(bool),
     CollapseLong(bool),
@@ -178,6 +179,12 @@ impl Settings {
                 if cx.layout.animate_stilled {
                     cx.layout.animate_stilled = false;
                     cx.keep("animate_stilled", false);
+                }
+            }
+            Pref::ScrollSpeed(index) => {
+                if let Some(&speed) = crate::layout::SCROLL_SPEEDS.get(index) {
+                    prefs.scroll_speed = Some(speed);
+                    cx.keep("scroll_speed", speed);
                 }
             }
             Pref::ReducedMotion(on) => accessibility::choose_reduced_motion(cx, on),
