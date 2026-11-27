@@ -253,22 +253,30 @@ impl Application {
                         .any(|person| &person.id == user && person.streaming)
             });
         match self.state.pending_watch.take_if(|_| ready) {
-            Some((_, user)) => self.voice_command(voice::Command::Watch(user)),
+            Some((_, user)) => self.watch(user, false),
             None => vec![],
         }
     }
 
-    /// Watches every stream in the call that isn't being watched.
-    pub(super) fn watch_all_streams(&mut self) -> Vec<Effect> {
-        let unwatched: Vec<String> = self
-            .state
-            .voice
-            .unwatched()
-            .map(|person| person.id.clone())
-            .collect();
-        unwatched
+    /// Watches `user`'s stream as Discord's client does (`STREAM_WATCH`'s
+    /// `allowMultiple`): while none or one other is watched, in place of
+    /// it; `alongside` those watched, or while two or more are, beside
+    /// them.
+    pub(super) fn watch(&mut self, user: String, alongside: bool) -> Vec<Effect> {
+        let watching = &self.state.voice.watching;
+        let mut commands: Vec<voice::Command> = if alongside || watching.len() >= 2 {
+            Vec::new()
+        } else {
+            watching
+                .iter()
+                .filter(|watching| watching.user != user)
+                .map(|watching| voice::Command::StopWatching(watching.user.clone()))
+                .collect()
+        };
+        commands.push(voice::Command::Watch(user));
+        commands
             .into_iter()
-            .flat_map(|user| self.voice_command(voice::Command::Watch(user)))
+            .flat_map(|command| self.voice_command(command))
             .collect()
     }
 

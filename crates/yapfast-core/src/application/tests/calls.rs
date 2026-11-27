@@ -518,55 +518,58 @@ fn preview_and_voice_switching_need_no_backend_and_voice_survives_navigation() {
     assert!(!app.state.voice.active());
 }
 
+/// As Discord's client: watching a stream while one other is watched
+/// takes its place; beside it when asked to, and once two are watched,
+/// every next one goes beside them.
 #[test]
-fn watch_all_watches_every_stream_not_yet_watched() {
+fn a_second_stream_replaces_the_first_unless_watched_alongside() {
     let mut app = connected();
-    let person = |id: &str, local: bool, streaming: bool| voice::Participant {
-        id: id.into(),
-        user: id.into(),
-        person: id.into(),
-        local,
-        muted: false,
-        deafened: false,
-        server_muted: false,
-        speaking_blocked: false,
-        server_deafened: false,
-        speaking: false,
-        connected: true,
-        problem: None,
-        streaming,
-        video: None,
-        avatar: None,
+    let watching = |users: &[&str]| -> Vec<voice::Watching> {
+        users
+            .iter()
+            .map(|&user| voice::Watching {
+                user: user.into(),
+                name: user.into(),
+                opening: false,
+                frames: None,
+                viewers: vec![],
+            })
+            .collect()
     };
+    let commands = |effects: Vec<Effect>| -> Vec<voice::Command> {
+        effects
+            .into_iter()
+            .filter_map(|effect| match effect {
+                Effect::Backend(Command::Voice(command)) => Some(command),
+                _ => None,
+            })
+            .collect()
+    };
+    let watch = |user: &str| Action::Voice(voice::Command::Watch(user.into()));
     app.state.voice = voice::State {
         phase: Phase::Connected,
         room: Some("lounge".into()),
-        participants: vec![
-            person("me", true, true),
-            person("sam", false, true),
-            person("lee", false, false),
-            person("kim", false, true),
-        ],
-        watching: vec![voice::Watching {
-            user: "sam".into(),
-            name: "sam".into(),
-            opening: false,
-            frames: None,
-            viewers: vec![],
-        }],
+        watching: watching(&["sam"]),
         ..Default::default()
     };
-    let unwatched: Vec<_> = app.state.voice.unwatched().map(|p| p.id.clone()).collect();
-    assert_eq!(unwatched, ["kim"], "not this account's own, or Lee's none");
-    let watched: Vec<_> = app
-        .dispatch(Action::WatchAllStreams)
-        .into_iter()
-        .filter_map(|effect| match effect {
-            Effect::Backend(Command::Voice(voice::Command::Watch(user))) => Some(user),
-            _ => None,
-        })
-        .collect();
-    assert_eq!(watched, ["kim"]);
+    assert!(matches!(
+        commands(app.dispatch(watch("kim"))).as_slice(),
+        [voice::Command::StopWatching(sam), voice::Command::Watch(kim)] if sam == "sam" && kim == "kim"
+    ));
+    assert!(matches!(
+        commands(app.dispatch(Action::WatchAlongside("kim".into()))).as_slice(),
+        [voice::Command::Watch(kim)] if kim == "kim"
+    ));
+    app.state.voice.watching = watching(&["sam", "kim"]);
+    assert!(matches!(
+        commands(app.dispatch(watch("lee"))).as_slice(),
+        [voice::Command::Watch(lee)] if lee == "lee"
+    ));
+    app.state.voice.watching = watching(&[]);
+    assert!(matches!(
+        commands(app.dispatch(watch("lee"))).as_slice(),
+        [voice::Command::Watch(lee)] if lee == "lee"
+    ));
 }
 
 #[test]

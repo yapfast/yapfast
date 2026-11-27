@@ -380,15 +380,6 @@ impl Default for State {
 }
 
 impl State {
-    /// Those sharing a screen in the call whose stream isn't being watched.
-    pub fn unwatched(&self) -> impl Iterator<Item = &Participant> {
-        self.participants.iter().filter(|person| {
-            person.streaming
-                && !person.local
-                && !self.watching.iter().any(|stream| stream.user == person.id)
-        })
-    }
-
     pub fn speaking_blocked(&self) -> bool {
         self.participants
             .iter()
