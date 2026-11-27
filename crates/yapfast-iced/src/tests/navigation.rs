@@ -23,6 +23,21 @@ fn a_channel_clicked_in_the_list_opens() {
 }
 
 #[test]
+fn a_short_server_rail_recovers_from_a_stale_viewport() {
+    let (mut app, _folder) = preview();
+    // A newly laid out rail can still carry the old window's scroll offset.
+    app.rail.scroll.offset = 2000.0;
+    assert!(!shows(&app, "CC"));
+    interact(&mut app, |ui| {
+        ui.simulate([iced::Event::Window(iced::window::Event::RedrawRequested(
+            std::time::Instant::now(),
+        ))]);
+    });
+    assert_eq!(app.rail.scroll.offset, 0.0);
+    assert!(shows(&app, "CC"), "the Co-op crew server tile");
+}
+
+#[test]
 fn an_unread_dm_shows_on_the_rail_above_the_servers_and_opens() {
     use crate::rail::{Event, Kind};
     let (mut app, _folder) = preview();

@@ -40,6 +40,10 @@ them.
 A folder opens and closes on a click, its servers on a strip of its
 colour; closed it shows its first four servers' icons, and the speaker
 only for the call this account is in, as Discord's does.
+The icon rail builds rows near the visible area using the height and
+scroll position reported on redraw. The rail reports them even when all
+rows fit, so it can recover a stale viewport when the window reopens or
+a folder closes.
 A right click on a server, a folder or an unread DM opens its menu, the
 one its row in the sidebar opens. A folder's starts with Mark folder as
 read, greyed while none of its servers has anything to read, as Discord's;
