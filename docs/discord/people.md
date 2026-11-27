@@ -1195,7 +1195,10 @@ older images are dropped while keeping both pictures the current activity
 uses. Timestamps in
 seconds become the gateway's milliseconds, and buttons become labels with
 their addresses in the activity's `metadata`. Playing, Listening, Watching
-and Competing activities show. Yapfast copies only the fields it knows, so a
+and Competing activities show. A nonblank `activity.name` of up to 128
+characters overrides the registered name displayed in Rich Presence. Yapfast
+uses the registered name if the override is missing or invalid and takes the
+application ID from the handshake. Yapfast copies only the fields it knows, so a
 game can't replace the custom status or claim another application.
 
 The game that set its activity last shows. When it clears it or

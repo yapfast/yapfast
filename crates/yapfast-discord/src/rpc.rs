@@ -422,7 +422,7 @@ fn asset_lookup(response: &Value) -> Result<Assets> {
 fn normalize(
     input: &Value,
     client: &str,
-    name: &str,
+    registered_name: &str,
     assets: Option<&Assets>,
     addresses: &Assets,
 ) -> Result<Value> {
@@ -432,6 +432,10 @@ fn normalize(
         Some(value) => value.as_u64().context("invalid activity type")?,
     };
     ensure!(matches!(kind, 0 | 2 | 3 | 5), "unsupported activity type");
+    let name = input["name"]
+        .as_str()
+        .filter(|name| name.chars().take(129).count() <= 128 && !name.trim().is_empty())
+        .unwrap_or(registered_name);
     let mut output = json!({"name":name,"type":kind,"application_id":client});
     for key in [
         "state",
@@ -610,21 +614,22 @@ mod tests {
 
     #[test]
     fn converts_sdk_fields_and_uses_the_handshakes_application() {
+        let title = "Resident Evil 2: DualShock Ver.";
         let assets = asset_lookup(&json!([{"name":"cover","id":"1234"}])).unwrap();
         let shown = normalize(
-            &json!({"name":"Spoof","application_id":"999","state":"In game",
+            &json!({"name":title,"application_id":"999","state":"In game",
             "timestamps":{"start":1700000000_u64,"end":1700000123000_u64},
             "assets":{"large_image":"cover","small_image":"5678","large_text":"Hover"},
             "buttons":[{"label":"Website","url":"https://example.com"}],
             "metadata":{"injected":true},"id":"spoof"}),
             "42",
-            "Game",
+            "CheevoPresence",
             Some(&assets),
             &Assets::new(),
         )
         .unwrap();
         assert_eq!(shown["type"], 0);
-        assert_eq!(shown["name"], "Game");
+        assert_eq!(shown["name"], title);
         assert_eq!(shown["application_id"], "42");
         assert_eq!(
             shown["timestamps"],
@@ -638,6 +643,26 @@ mod tests {
             json!({"button_urls":["https://example.com"]})
         );
         assert!(shown.get("id").is_none());
+    }
+
+    #[test]
+    fn falls_back_to_the_registered_name_for_unusable_overrides() {
+        let registered = "Game";
+        let max_length = "é".repeat(128);
+        let assets = Assets::new();
+        for (activity, expected) in [
+            (json!({}), registered),
+            (json!({"name":null}), registered),
+            (json!({"name":42}), registered),
+            (json!({"name":""}), registered),
+            (json!({"name":" \t"}), registered),
+            (json!({"name":"é".repeat(129)}), registered),
+            (json!({"name":"X"}), "X"),
+            (json!({"name":max_length}), max_length.as_str()),
+        ] {
+            let shown = normalize(&activity, "42", registered, None, &assets).unwrap();
+            assert_eq!(shown["name"], expected, "{activity}");
+        }
     }
 
     #[test]
@@ -672,7 +697,7 @@ mod tests {
         )
         .unwrap();
         assert_eq!(shown["type"], 2);
-        assert_eq!(shown["name"], "Liner");
+        assert_eq!(shown["name"], "Artist");
         assert_eq!(shown["details"], "Track");
         assert_eq!(shown["state"], "Artist");
         assert_eq!(shown["status_display_type"], 1);
