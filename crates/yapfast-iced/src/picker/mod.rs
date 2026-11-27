@@ -64,6 +64,8 @@ pub enum Event {
     Pick(usize),
     /// A tile's star.
     Star(usize),
+    /// A sticker's tile right-clicked: its menu opens.
+    Menu(usize),
     /// A section on the rail, by its place.
     Jump(usize),
     /// The pointer came onto a section on the rail, or left it.
@@ -356,7 +358,8 @@ impl Picker {
                 self.sync(cx);
                 Task::none()
             }
-            Event::Widen(_) => Task::none(),
+            // The window's, which opens the menu (`picker_event`).
+            Event::Widen(_) | Event::Menu(_) => Task::none(),
         }
     }
 
@@ -558,6 +561,9 @@ pub fn gifs_key(
 
 /// The picker's: its edge dragged widens it in the room it has.
 pub fn picker_event(app: &mut App, event: Event) -> Task<Message> {
+    if let Event::Menu(index) = event {
+        return stickers::sticker_menu(app, index);
+    }
     let room = picker_room(app);
     let mut cx = cx!(app);
     let Some(picker) = app.win.picker.get_mut() else {

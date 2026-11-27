@@ -241,6 +241,9 @@ pub enum MenuAct {
     NotifyServer(yapfast_core::chat::NotificationChange),
     /// A box of the inbox's Mentions filter, by its row's `key`.
     MentionsFilter,
+    /// A sticker of the picker, by its tile's place in the row's `key`:
+    /// starred among the favourites, or no longer, as its star does.
+    FavoriteSticker,
 }
 
 #[derive(Clone)]
@@ -808,6 +811,10 @@ fn carry_out(app: &mut App, row: &MenuRow, ticked: Option<bool>, stays: bool) ->
                 .dispatch(yapfast_core::application::Action::SearchSort(sort));
             Task::batch([focus, app.sync(), crate::search::to_top()])
         }
+        MenuAct::FavoriteSticker => {
+            let star = crate::picker::Event::Star(row.key.parse().unwrap_or_default());
+            Task::batch([focus, crate::picker::picker_event(app, star)])
+        }
         MenuAct::OpenTextLink => {
             crate::browser::open(&row.key);
             focus
@@ -1015,7 +1022,8 @@ pub fn act(
         | MenuAct::OpenMediaLink
         | MenuAct::CopyTextLink
         | MenuAct::OpenTextLink
-        | MenuAct::BlockGame => focus,
+        | MenuAct::BlockGame
+        | MenuAct::FavoriteSticker => focus,
     }
 }
 

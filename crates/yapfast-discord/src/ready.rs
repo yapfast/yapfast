@@ -1791,6 +1791,12 @@ pub fn sticker_at(id: &str, format: u64, size: u32) -> String {
     }
 }
 
+/// A sticker's picture's address without the size it was asked at, as
+/// Discord's Copy Sticker Image Link gives it.
+pub fn sticker_link(url: &str) -> &str {
+    url.split_once('?').map_or(url, |(address, _)| address)
+}
+
 /// Whether `url` is a Lottie sticker's, as [`sticker`] makes them: the only
 /// pictures that decode as Lottie.
 pub fn lottie_sticker(url: &str) -> bool {
@@ -2009,6 +2015,21 @@ mod tests {
         ] {
             assert!(!lottie_sticker(&url), "{url}");
         }
+    }
+
+    #[test]
+    fn sticker_links_drop_the_size_they_were_asked_at() {
+        assert_eq!(
+            sticker_link(&sticker_at("9", 1, 96)),
+            format!("{}/stickers/9.png", cdn())
+        );
+        assert_eq!(
+            sticker_link(&sticker_at("9", STICKER_GIF, 96)),
+            format!("{}/stickers/9.gif", media())
+        );
+        // A Lottie sticker's has no size to drop.
+        let lottie = sticker_at("9", STICKER_LOTTIE, 96);
+        assert_eq!(sticker_link(&lottie), lottie);
     }
 
     #[test]

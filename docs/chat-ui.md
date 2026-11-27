@@ -320,7 +320,9 @@ errors make it taller than the minimum window. SSO and OAuth are still pending.
   — Frequently Used with a clock's own icon, the open server's, whose icon
   leads its name, then Discord's default packs — and their stickers as 96px
   tiles in the picker's columns under the collection's name, as the emoji's
-  own are. A click sends the sticker as a message of its own. Discord's packs
+  own are. A click sends the sticker as a message of its own. A right click
+  offers Favorite or Unfavorite, and with Developer Mode on Copy Sticker ID
+  and Copy Sticker Image Link, as Discord's picker does. Discord's packs
   and the open server's stickers are anyone's; another server's need Nitro,
   as Discord's client has them. Its pictures are
   kept on disk and fetched ahead, so the tab shows them at once. The left edge

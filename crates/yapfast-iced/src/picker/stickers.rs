@@ -3,8 +3,9 @@
 //! then Discord's default packs); the grid of 96 px tiles in columns under
 //! each collection's name, those this account may not send here greyed with
 //! a lock; the pointed sticker's name at the foot. A click sends a sticker
-//! as a message of its own; its star keeps it among the favourites. Only
-//! the pictures in sight and a screen either side are asked of the core.
+//! as a message of its own; its star keeps it among the favourites, as its
+//! right-click menu's Favorite does. Only the pictures in sight and a
+//! screen either side are asked of the core.
 
 use std::hash::{Hash, Hasher};
 
@@ -19,7 +20,7 @@ use super::{
     kit::{self, Grid},
 };
 use crate::{
-    app::Message,
+    app::{App, Message},
     controls::lit_style,
     ctx::Cx,
     media::{Fit, Shot},
@@ -249,6 +250,48 @@ impl Picker {
     }
 }
 
+/// Tile `index`'s menu at the pointer, as Discord's picker has it: Favorite
+/// or Unfavorite, which its star does (`MenuAct::FavoriteSticker`), and with
+/// Developer Mode on Copy Sticker ID and Copy Sticker Image Link, the
+/// picture's address without the tile's size.
+pub(super) fn sticker_menu(app: &mut App, index: usize) -> Task<Message> {
+    use crate::menus::{Menu, MenuAct, MenuRow};
+    let Some(Item::Sticker {
+        id,
+        picture,
+        favorite,
+        ..
+    }) = app
+        .win
+        .picker
+        .get()
+        .and_then(|picker| picker.sticker_item(index))
+    else {
+        return Task::none();
+    };
+    // As Discord's menu draws them: a filled star to favourite, an outline
+    // to let go.
+    let star = if *favorite {
+        MenuRow::new(MenuAct::FavoriteSticker, "Unfavorite", Icon::Star)
+    } else {
+        MenuRow::new(MenuAct::FavoriteSticker, "Favorite", Icon::StarFilled)
+    };
+    let mut rows = vec![star.key(index.to_string())];
+    if app.layout.developer_mode {
+        let copy = |label, icon, copied: &str| {
+            MenuRow::new(MenuAct::CopyTextLink, label, icon).key(copied)
+        };
+        rows.push(MenuRow {
+            separated: true,
+            ..copy("Copy Sticker ID", Icon::Id, id.as_str())
+        });
+        let link = yapfast_core::yapfast_discord::ready::sticker_link(picture);
+        rows.push(copy("Copy Sticker Image Link", Icon::Chain, link));
+    }
+    app.win.menu = Some(Menu::new(app.pressed.get(), rows));
+    iced::widget::operation::focus(crate::app::NOBODY)
+}
+
 impl<'a> View<'a> {
     fn sticker_mark(self, mark: &Mark, side: f32) -> Element<'a, Message> {
         let size = side as u32;
@@ -364,6 +407,7 @@ impl<'a> View<'a> {
                     mouse_area(layers)
                         .on_enter(Message::Picker(Event::Hover(index)))
                         .on_exit(Message::Picker(Event::Left(index)))
+                        .on_right_press(Message::Picker(Event::Menu(index)))
                         .into()
                 }
             });
