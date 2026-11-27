@@ -773,8 +773,10 @@ impl Application {
         if self.state.selected.as_ref() == Some(&room) {
             self.pending_jump = None;
             effects.extend(self.jump(item, false));
-        } else if self.pending_open.as_deref() == Some(room.as_str()) {
-            self.pending_jump = Some((room, item));
+        } else {
+            // A room that isn't listed opens once it is.
+            self.pending_jump =
+                (self.pending_open.as_deref() == Some(room.as_str())).then_some((room, item));
         }
         effects
     }
