@@ -629,8 +629,9 @@ message, or by when they were made if the forum sorts by creation, then
 "Older posts", the archived ones by latest message, then what a search of
 their titles finds while one shows. Each card shows, as Discord's list
 layout does: a pin for a pinned post and its first three tags, "+N" for
-more; its title and first message's author and preview, muted when the
-post has a read state and no unread messages; "NEW" for a post made
+more; its title and first message's author and preview, bright only for
+an active post with messages to read (one never opened has them all), so
+muted for a read post and for every archived one; "NEW" for a post made
 since the forum was last read that has no read state of its own; the
 reaction most given, with super reactions, or the
 forum's default reaction without a count; the replies; how long ago it was

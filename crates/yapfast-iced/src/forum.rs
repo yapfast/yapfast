@@ -468,7 +468,9 @@ fn card(post: &ForumPost, info: &ForumInfo, now: u64) -> Card {
         name: thread.name.clone(),
         pinned: thread.pinned,
         new: post.new,
-        read: thread.opened && !thread.unread,
+        // Discord's client brightens a card only for an active post with
+        // messages to read, and a post never opened has them all to read.
+        read: thread.archived || (thread.opened && !thread.unread),
         tags: post
             .tags
             .iter()
@@ -1056,6 +1058,11 @@ mod tests {
         assert!(card(&post, &info, now).read);
         post.thread.unread = true;
         assert!(!card(&post, &info, now).read);
+        // Archived posts are muted, read or not.
+        post.thread.archived = true;
+        assert!(card(&post, &info, now).read);
+        post.thread.opened = false;
+        assert!(card(&post, &info, now).read);
 
         post.starter = Some(None);
         let deleted = card(&post, &info, now);
