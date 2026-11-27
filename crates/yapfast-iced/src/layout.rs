@@ -515,9 +515,9 @@ pub struct Voice {
     pub push_to_talk_key: Option<Shortcut>,
     pub push_to_talk_release_delay: Option<u32>,
     /// How loud calls send the microphone and play, as sliders'
-    /// percentages from 0% to 200%; 100% unless changed.
-    pub microphone_volume: Option<u8>,
-    pub speaker_volume: Option<u8>,
+    /// percentages from 0% to 400%; 100% unless changed.
+    pub microphone_volume: Option<u16>,
+    pub speaker_volume: Option<u16>,
     /// People's own volumes and their streams', by Discord or Matrix id.
     pub volumes: std::collections::BTreeMap<String, f32>,
     pub stream_volumes: std::collections::BTreeMap<String, f32>,
@@ -586,9 +586,9 @@ impl Voice {
         // as it opens: one checking them holds them meanwhile.
         #[cfg(test)]
         let _held = (!tests::HOLDING.get()).then(tests::lock);
-        let gain = |value: Option<u8>| {
-            yapfast_core::volume::from_slider(f32::from(value.unwrap_or(100).min(200)))
-        };
+        use yapfast_core::volume::{MAX_PERCENT, from_slider};
+        let gain =
+            |value: Option<u16>| from_slider(f32::from(value.unwrap_or(100).min(MAX_PERCENT)));
         yapfast_core::volume::set_microphone(gain(self.microphone_volume));
         yapfast_core::volume::set_speakers(gain(self.speaker_volume));
     }
