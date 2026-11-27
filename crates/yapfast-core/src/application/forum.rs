@@ -268,10 +268,33 @@ impl Application {
         };
         active.sort_by_key(|post| (!post.thread.pinned, std::cmp::Reverse(order(post))));
         let found = forum.list.search.as_ref().map(|search| {
-            search
-                .found
-                .as_ref()
-                .map(|found| found.clone().map(|found| found.iter().map(post).collect()))
+            let found = search.found.as_ref()?;
+            #[cfg(feature = "discord")]
+            let server = self
+                .discord_place(&forum.list.room)
+                .map(|(server, _, _)| server);
+            Some(found.as_ref().map_err(String::clone).map(|found| {
+                found
+                    .iter()
+                    .map(|thread| {
+                        let post = post(thread);
+                        // Search pages carry no read marks. Use the current snapshot
+                        // so opening a result updates its card without another search.
+                        #[cfg(feature = "discord")]
+                        if let Some(known) = server.and_then(|server| {
+                            let (_, id) = discord::parse_room(&thread.room)?;
+                            server.channel(id)
+                        }) {
+                            let mut post = post;
+                            post.thread.opened = known.marks.opened;
+                            post.thread.unread = known.marks.opened && known.marks.unread;
+                            post.new &= !known.marks.opened;
+                            return post;
+                        }
+                        post
+                    })
+                    .collect()
+            }))
         });
         Some(ForumPosts {
             active,

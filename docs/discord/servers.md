@@ -629,15 +629,17 @@ message, or by when they were made if the forum sorts by creation, then
 "Older posts", the archived ones by latest message, then what a search of
 their titles finds while one shows. Each card shows, as Discord's list
 layout does: a pin for a pinned post and its first three tags, "+N" for
-more; its title, bright when the account opened it and has messages to
-read there, and "NEW" for a post made since the forum was last read that
-the account never opened (it has no read state of its own); the first
-message's author in their role colour and its text, or "Original message
-was deleted"; the reaction most given, with super reactions, or the
+more; its title and first message's author and preview, muted when the
+post has a read state and no unread messages; "NEW" for a post made
+since the forum was last read that has no read state of its own; the
+reaction most given, with super reactions, or the
 forum's default reaction without a count; the replies; how long ago it was
 last active, or made; and its first picture, a 72px thumbnail from a file
 or an embed. Clicking a card opens the post beside the forum, as Discord's
 does, and Shift-click in its place.
+
+The author uses their role colour on unread posts. A deleted first message
+shows "Original message was deleted" in the preview.
 
 First messages, as Discord's client gets them: an archived page or a
 search brings its posts' `first_messages`; the active posts' come from
