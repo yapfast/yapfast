@@ -1039,10 +1039,12 @@ impl Tracker {
             Event::VoiceServerUpdate => {
                 let guild = data["guild_id"].as_str().unwrap_or(PRIVATE);
                 let entry = self.voice.get(&(guild.to_owned(), self.me.clone()))?;
-                // A DM call's update names its channel instead.
-                if (guild == PRIVATE && data["channel_id"] != entry.channel.as_str())
-                    || self.elsewhere(entry)
-                {
+                // A DM call's update names its channel instead. A move to
+                // another channel gives this account a new voice session, so
+                // the entry is no longer this client's by `elsewhere`; the
+                // voice server Discord names for the guild is still the move,
+                // and only this session's update carries one.
+                if guild == PRIVATE && data["channel_id"] != entry.channel.as_str() {
                     return None;
                 }
                 Some(Live::VoiceMoved {
@@ -2518,8 +2520,14 @@ mod tests {
             !tracker.in_voice_here("10"),
             "leaving would end the phone's call"
         );
+        // Discord names a voice server to the session that holds the state, so
+        // one for this guild is this account's move, not the phone's: see
+        // a_move_to_another_channel_names_the_voice_server_to_move_to.
         let update = json!({"guild_id": "10", "token": "t", "endpoint": "e"});
-        assert!(tracker.moved(&Event::VoiceServerUpdate, &update).is_none());
+        assert!(matches!(
+            tracker.moved(&Event::VoiceServerUpdate, &update),
+            Some(Live::VoiceMoved { .. })
+        ));
 
         tracker.apply(
             &Event::VoiceStateUpdate,
@@ -2527,6 +2535,38 @@ mod tests {
         );
         assert_eq!(elsewhere(&mut tracker)[0], ("1".into(), false));
         assert!(tracker.in_voice_here("10"));
+    }
+
+    /// A move to another channel gives this account a new voice session, so
+    /// its state is no longer this client's; the voice server Discord names
+    /// after it is still the move to follow.
+    #[test]
+    fn a_move_to_another_channel_names_the_voice_server_to_move_to() {
+        let ready = json!({"session_id": "here", "user": {"id": "1", "username": "me"}});
+        let mut tracker = Tracker::from_ready("1".into(), &ready, Default::default());
+        tracker.apply(
+            &Event::VoiceStateUpdate,
+            &json!({"guild_id": "10", "user_id": "1", "channel_id": "11", "session_id": "here"}),
+        );
+        assert!(tracker.in_voice_here("10"));
+        // Someone moves this account, and the new session isn't this one's.
+        tracker.apply(
+            &Event::VoiceStateUpdate,
+            &json!({"guild_id": "10", "user_id": "1", "channel_id": "12", "session_id": "moved"}),
+        );
+        assert!(
+            !tracker.in_voice_here("10"),
+            "the move's session isn't this client's"
+        );
+        let update = json!({"guild_id": "10", "token": "t2", "endpoint": "e"});
+        let Some(Live::VoiceMoved { guild, server }) =
+            tracker.moved(&Event::VoiceServerUpdate, &update)
+        else {
+            panic!("a move's voice server is the move");
+        };
+        assert_eq!(guild, "10");
+        assert_eq!(server.session_id, "moved", "the session the move named");
+        assert_eq!(server.token, "t2");
     }
 
     #[test]

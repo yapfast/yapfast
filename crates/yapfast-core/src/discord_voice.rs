@@ -496,6 +496,9 @@ pub(crate) async fn call(
         // The voice connection dropped, and the call ends when `lost` comes
         // unless Discord says it moved the call meanwhile.
         let mut dropped = false;
+        // Another session of this account holds the guild's voice state,
+        // which a move does too until Discord names the voice server.
+        let mut claimed = false;
         let lost = tokio::time::sleep(MOVE_GRACE);
         tokio::pin!(lost);
         loop {
@@ -966,11 +969,19 @@ pub(crate) async fn call(
                             soundboard.play(discord, &hearing, &played.sound, played.volume * gain);
                         }
                     }
-                    // Joined on another client, which takes the call over, as
-                    // in Discord. Leaving below sends nothing then.
-                    Live::VoiceElsewhere { .. } => {
+                    // Another session of this account holds the guild's voice
+                    // state: another client took the call over, which ends it,
+                    // or a moderator moved this account, which gives it a new
+                    // voice session too and names a voice server for the move
+                    // next. Wait for that rather than ending the call here.
+                    Live::VoiceElsewhere { guild: moved } if moved != guild => {
                         tracing::info!("joined voice on another client; ending the call here");
                         break;
+                    }
+                    Live::VoiceElsewhere { .. } => {
+                        tracing::info!("another session holds this call; waiting for a move");
+                        claimed = true;
+                        lost.as_mut().reset(tokio::time::Instant::now() + MOVE_GRACE);
                     }
                     // Who watches this account's stream, or the one it watches.
                     Live::StreamUpdated { stream_key, viewers, .. } => {
@@ -1022,6 +1033,7 @@ pub(crate) async fn call(
                                 Ok(Ok(())) => {
                                     server = next;
                                     dropped = false;
+                                    claimed = false;
                                 }
                                 Ok(Err(error)) => {
                                     tracing::warn!(error = format!("{error:#}"), "could not follow the call to its new voice server");
@@ -1063,7 +1075,10 @@ pub(crate) async fn call(
                     dropped = true;
                     lost.as_mut().reset(tokio::time::Instant::now() + MOVE_GRACE);
                 }
-                () = &mut lost, if dropped => {
+                () = &mut lost, if dropped || claimed => {
+                    if claimed {
+                        bail!("Another client took the call over. Join again here to take it back.");
+                    }
                     bail!("Discord voice disconnected. Join again to reconnect.");
                 }
                 changed = discord_states.changed() => {
