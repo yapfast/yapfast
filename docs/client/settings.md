@@ -111,9 +111,12 @@ recording. Each change is kept at once in
   that isn't a font is left out with the reason under the list, and Reset to
   default goes back to DM Sans. The paths are kept as `ui_font_files` in
   `layout.json` and loaded at startup; the rows are measured again as the
-  text size's change does. Application icon shows the colours of the
-  built-in themes as preview tiles, with Yap selected by default. The tray
-  uses the application icon's selection by default. Turning off “Use the
+  text size's change does. Font smoothing offers None and Grayscale
+  (the default) and takes effect after restarting Yapfast. Grayscale
+  strengthens partially covered text pixels to make fine strokes more
+  visible. Application icon shows the colours of the built-in themes as
+  preview tiles, with Yap selected by default. The tray uses the application
+  icon's selection by default. Turning off “Use the
   application icon in the tray” reveals the tray's own choices. A previously
   saved different preset or separate custom image starts with the switch
   off. The tray keeps its separate choice while the switch is on.

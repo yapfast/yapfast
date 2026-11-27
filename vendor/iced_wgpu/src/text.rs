@@ -643,6 +643,6 @@ fn prepare(
         atlas,
         viewport,
         text_areas,
-        &mut cryoglyph::SwashCache::new(),
+        &mut cryoglyph::SwashCache::for_window(),
     )
 }

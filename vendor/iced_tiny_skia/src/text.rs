@@ -25,7 +25,7 @@ impl Pipeline {
         Pipeline {
             glyph_cache: GlyphCache::new(),
             cache: RefCell::new(Cache::new()),
-            swash: cosmic_text::SwashCache::new(),
+            swash: cosmic_text::SwashCache::for_window(),
         }
     }
 

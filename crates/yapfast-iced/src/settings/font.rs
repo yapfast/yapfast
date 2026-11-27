@@ -30,6 +30,8 @@ pub enum FontEvent {
     Remove(usize),
     /// Goes back to DM Sans.
     Reset,
+    /// Saves the smoothing mode for the next start.
+    Antialiasing(bool),
 }
 
 fn font_message(event: FontEvent) -> Message {
@@ -48,6 +50,11 @@ impl Settings {
                     self.font_note = None;
                     use_files(&paths, cx);
                 }
+            }
+            FontEvent::Antialiasing(enabled) => {
+                cx.layout.prefs.font_antialiasing = Some(enabled);
+                cx.keep("font_antialiasing", enabled);
+                cx.touch();
             }
             FontEvent::Reset => {
                 self.font_note = None;
@@ -199,6 +206,40 @@ impl<'a> Page<'a> {
             );
         }
         parts.push(form::buttons(buttons));
+        let enabled = self.cx.layout.prefs.font_antialiasing.unwrap_or(true);
+        parts.push(form::heading(theme, "FONT SMOOTHING"));
+        parts.push(form::buttons(
+            [("None", false), ("Grayscale", true)]
+                .into_iter()
+                .map(|(label, choice)| {
+                    action(
+                        theme,
+                        label,
+                        if choice == enabled {
+                            Kind::Primary
+                        } else {
+                            Kind::Plain
+                        },
+                        Some(font_message(FontEvent::Antialiasing(choice))),
+                    )
+                    .into()
+                }),
+        ));
+        if enabled != iced::advanced::graphics::text::cosmic_text::window_antialiasing() {
+            parts.push(form::note(
+                theme,
+                "Restart Yapfast to apply font smoothing. Restarting leaves any call.",
+            ));
+            parts.push(
+                action(
+                    theme,
+                    "Restart Yapfast",
+                    Kind::Plain,
+                    Some(crate::app::settings(Event::Restart)),
+                )
+                .into(),
+            );
+        }
         column(parts).spacing(8).into()
     }
 }
