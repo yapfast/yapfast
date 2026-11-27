@@ -272,31 +272,29 @@ Don't want to take my word for it? Fair, the code's all right here.
 
 ### Windows 10 and 11
 
-1. Download `Yapfast-…-windows-x64-setup.exe` from the
-   [latest release](https://github.com/yapfast/yapfast/releases/latest).
-2. Run it. It installs just for you, with no administrator prompt. The
-   installer isn't signed yet, so SmartScreen may get nervous: choose **More
-   info**, then **Run anyway**.
+1. On the [latest release](https://github.com/yapfast/yapfast/releases/latest),
+   choose the MSI or portable ZIP for your PC's architecture (x64 or ARM64).
+   On x64, the Inno Setup EXE is also available for per-user installation.
+2. Run the installer, or extract the ZIP and double-click `yapfast.exe`.
+   The MSI installs for all users and requires administrator rights.
 3. Yapfast shows a QR code. On your phone, open Discord, go to **Settings →
    Scan QR Code**, and point the camera at it.
 
-Rather skip the installer? The release has a portable ZIP too: extract it and
-double-click `yapfast.exe`.
-
-Yapfast starts with Windows and waits in the tray, so messages and calls still
-reach you. Untick that in the installer, or turn it off later in **Settings →
-Advanced**.
+Set whether Yapfast starts with Windows in **Settings → Advanced**.
+The Inno Setup installer also offers that option.
 
 ### Linux
 
 It runs great on both X11 and Wayland, screen sharing too (Hyprland here).
-Every release has two packages, on the
+Choose a package from the
 [latest release](https://github.com/yapfast/yapfast/releases/latest):
 
-- **AppImage**, `Yapfast-…-x86_64.AppImage`, for any distro with glibc 2.39 or
+- **AppImage**, named for x86_64 or aarch64, for a distro with glibc 2.39 or
   newer, like Ubuntu 24.04, Fedora 40 or Debian 13. Make it executable
   (`chmod +x`, or "Allow executing" in its properties) and run it. It adds
   itself to your app menu, and uses your own graphics driver, Mesa or NVIDIA.
+- **DEB**, **RPM** and **Flatpak** for x86_64 and aarch64. Use
+  [the package installation commands](docs/packaging.md#deb-rpm-and-flatpak).
 - **Arch package**, `yapfast-…-x86_64.pkg.tar.zst`. Install it with
   `sudo pacman -U` and the file or its link. Rather build it yourself? The
   [PKGBUILD](packaging/arch/PKGBUILD) builds the release's tag from source.
@@ -323,10 +321,10 @@ Then [build it yourself](#build-it-yourself).
 ### Updates
 
 Turn on **Check for updates** in **Settings → About**, and Yapfast tells you
-when a new release is out. The Windows installer's copy and the AppImage can
+when a new release is out. The Windows Inno Setup copy and the AppImage can
 then update themselves with **Update and restart**; they install only a
-release signed with Yapfast's key. Update the portable ZIP and the Arch
-package the way you installed them.
+release signed with Yapfast's key. Update the portable ZIP, MSI and Linux
+packages the way you installed them.
 
 ### macOS
 
@@ -343,8 +341,8 @@ yourself? Every now and then I put out a nightly build of the Discord-only app.
 They're on the [releases page](https://github.com/yapfast/yapfast/releases),
 marked **Pre-release**, newest first, each with a list of what changed:
 
-- **Windows:** the portable ZIP. Extract it and double-click `yapfast.exe`.
-- **Linux:** the AppImage. `chmod +x` it and run it.
+- **Windows:** portable ZIP and MSI for x64 and ARM64.
+- **Linux:** AppImage, DEB, RPM and Flatpak for x86_64 and aarch64.
 - **Arch Linux:** the `.pkg.tar.zst`. Install it with `sudo pacman -U` and the
   file or its link.
 
@@ -455,14 +453,16 @@ nix develop path:./nix --command cargo run --locked --profile fast
 # With Matrix too
 nix develop path:./nix --command cargo run --locked --profile fast --features matrix
 
-# Windows installer and ZIP, cross-built from Linux, into target/dist
+# Windows packages, cross-built from x86_64 Linux into target/dist
 nix develop path:./nix#windows --command scripts/build-windows
+nix develop path:./nix#windows-arm64 --command scripts/build-windows
 
 # Format, lint and test everything
 scripts/check --fast
 ```
 
-The Windows commands use the Rust version pinned in `rust-toolchain.toml`.
+See [Packaging and releases](docs/packaging.md) to build the MSI and Linux
+packages.
 See [Contributing](CONTRIBUTING.md#build-and-test) for the complete checks
 on each system and for running against the fake Discord server.
 

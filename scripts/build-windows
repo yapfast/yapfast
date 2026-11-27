@@ -3,7 +3,7 @@ set -euo pipefail
 cd "$(dirname "${BASH_SOURCE[0]}")/.."
 # The Discord flavour is the release; full adds Matrix, as a separate preview.
 # Arguments after the flavour go to scripts/package-windows.py, such as
-# --no-installer.
+# --no-installer. The Windows Nix shell selects the target and WebRTC archive.
 flavour=${1:-discord}
 case $flavour in
   discord) features=(--no-default-features --features desktop,discord) ;;
@@ -11,12 +11,17 @@ case $flavour in
   *) echo "usage: scripts/build-windows [discord|full] [package-windows.py options]" >&2; exit 2 ;;
 esac
 shift $(($# > 0 ? 1 : 0))
-rustup target add x86_64-pc-windows-msvc
+case ${YAPFAST_WINDOWS_ARCH:-} in
+  x64) target=x86_64-pc-windows-msvc ;;
+  arm64) target=aarch64-pc-windows-msvc ;;
+  *) echo "Enter nix develop path:./nix#windows or path:./nix#windows-arm64 first" >&2; exit 2 ;;
+esac
+rustup target add "$target"
 mkdir -p "$PWD/.local/windows"
 # cargo-xwin's environment, with source paths that name no folder here.
-source scripts/release-env x86_64-pc-windows-msvc
+source scripts/release-env "$target"
 # The release's own build: Settings and --version call it a stable release or
 # a nightly, by its version, and not a development build (src/build_info.rs).
 export YAPFAST_RELEASE=1
-cargo build --locked --release --target x86_64-pc-windows-msvc "${features[@]}"
+cargo build --locked --release --target "$target" "${features[@]}"
 python3 scripts/package-windows.py --flavour "$flavour" "$@"

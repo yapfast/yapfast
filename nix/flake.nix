@@ -3,9 +3,9 @@
 
   inputs.nixpkgs.url = "github:NixOS/nixpkgs/nixos-25.11";
 
-  outputs = { nixpkgs, ... }:
+  outputs = { nixpkgs, ... }: {
+    devShells = nixpkgs.lib.genAttrs [ "x86_64-linux" "aarch64-linux" ] (system:
     let
-      system = "x86_64-linux";
       pkgs = import nixpkgs { inherit system; };
       native = import ./native.nix { inherit pkgs; };
       inherit (native) webrtc libraries runtimeLibraries;
@@ -27,67 +27,72 @@
           hash = "sha256-FRK4bCTPAPWGov8vEFr9XdqCNoeXeyFdyiWV5x+4WYY=";
         };
       });
-      windowsWebrtcArchive = pkgs.fetchurl {
-        url = "https://github.com/livekit/rust-sdks/releases/download/webrtc-51ef663/webrtc-win-x64-release.zip";
-        hash = "sha256-ClalyRs7e0IiCCuKCTiNFqgCzeItZylb6yTFVwB1WzA=";
-      };
-      windowsWebrtc = pkgs.runCommand "talk-libwebrtc-windows-51ef663" {
-        nativeBuildInputs = [ pkgs.unzip ];
-      } ''
-        unzip -q ${windowsWebrtcArchive} -d unpacked
-        mv unpacked/win-x64-release "$out"
-      '';
-    in {
-      devShells.${system} = {
-        default = pkgs.mkShell {
-          nativeBuildInputs = with pkgs; [
-            rustup pkg-config cmake ninja llvmPackages_21.clang llvmPackages_21.libclang
-            protobuf curl jq docker-compose python3 llvmPackages_21.llvm
-            # pasta, nftables and iproute2 isolate one voice test participant's network.
-            passt nftables iproute2
-            # Runs testing/fake_discord.ts, and its tests side by side.
-            bun cargo-nextest
-            # Assembles x264's x86-64 code (vendor/x264-src).
-            nasm
-          ];
-          buildInputs = libraries;
-          # mold through the Nix ld wrapper, which puts the directories of the
-          # libraries it links (GLib, PulseAudio, libstdc++) in the binary's
-          # runpath, so a build also runs outside this shell.
-          CARGO_TARGET_X86_64_UNKNOWN_LINUX_GNU_LINKER = pkgs.writeShellScript "yapfast-linker" ''
-            exec ${pkgs.llvmPackages_21.clang}/bin/clang --ld-path=${pkgs.mold-wrapped}/bin/ld.mold "$@"
+      windowsShell = arch:
+        let
+          sha256 = {
+            x64 = "0a56a5c91b3b7b4222082b8a09388d16a802cde22d67295beb24c55700755b30";
+            arm64 = "929bd9e5682549eb3d43104e59c6c561f3d429f29caefea1c227b94839e7c5b7";
+          }.${arch};
+          archive = pkgs.fetchurl {
+            url = "https://github.com/livekit/rust-sdks/releases/download/webrtc-51ef663/webrtc-win-${arch}-release.zip";
+            inherit sha256;
+          };
+          webrtc = pkgs.runCommand "talk-libwebrtc-windows-${arch}-51ef663" {
+            nativeBuildInputs = [ pkgs.unzip ];
+          } ''
+            unzip -q ${archive} -d unpacked
+            mv unpacked/win-${arch}-release "$out"
           '';
-          # The libraries Yapfast opens at run time, such as the Vulkan loader,
-          # which no runpath names.
-          LD_LIBRARY_PATH = pkgs.lib.makeLibraryPath (runtimeLibraries ++ [ pkgs.stdenv.cc.cc.lib ]);
+        in pkgs.mkShell {
+          nativeBuildInputs = with pkgs; [
+            rustup cargoXwin cmake ninja protobuf python3 curl jq zip
+            llvmPackages_21.clang llvmPackages_21.lld llvmPackages_21.llvm llvmPackages_21.libclang
+            nasm
+          ] ++ pkgs.lib.optionals (arch == "x64") [ pkgs.wineWowPackages.stable pkgs.xvfb-run ];
           CC = "clang";
           CXX = "clang++";
-          LIBCLANG_PATH = "${pkgs.llvmPackages_21.libclang.lib}/lib";
           PROTOC = "${pkgs.protobuf}/bin/protoc";
-          # webrtc-sys must not download binaries from inside a Nix build sandbox.
           LK_CUSTOM_WEBRTC = "${webrtc}";
-          shellHook = ''
-            export LD_LIBRARY_PATH="/run/opengl-driver/lib:$LD_LIBRARY_PATH"
-            # Only people see the greeting; commands run through the shell don't.
-            [ -t 1 ] && echo "Yapfast dev shell. Run scripts/check --fast or cargo run --profile fast."
-          '';
-        };
-        windows = pkgs.mkShell {
-          nativeBuildInputs = with pkgs; [
-            rustup cargoXwin cmake ninja protobuf python3 curl jq zip wineWowPackages.stable
-            # Inno Setup's own installer opens windows even when silent.
-            xvfb-run
-            llvmPackages_21.clang llvmPackages_21.lld llvmPackages_21.llvm
-            llvmPackages_21.libclang
-            # Assembles x264's x86-64 code (vendor/x264-src).
-            nasm
-          ];
-          CC = "clang";
-          CXX = "clang++";
-          PROTOC = "${pkgs.protobuf}/bin/protoc";
-          LK_CUSTOM_WEBRTC = "${windowsWebrtc}";
+          YAPFAST_WINDOWS_ARCH = arch;
+          YAPFAST_WEBRTC_ARCHIVE_HASH = sha256;
           LIBCLANG_PATH = "${pkgs.llvmPackages_21.libclang.lib}/lib";
         };
-      };
-    };
+    in {
+      default = pkgs.mkShell ({
+        nativeBuildInputs = with pkgs; [
+          rustup pkg-config cmake ninja llvmPackages_21.clang llvmPackages_21.libclang
+          protobuf curl jq docker-compose python3 llvmPackages_21.llvm
+          # pasta, nftables and iproute2 isolate one voice test participant's network.
+          passt nftables iproute2
+          # Runs testing/fake_discord.ts, and its tests side by side.
+          bun cargo-nextest
+          # Assembles x264's x86-64 code (vendor/x264-src).
+          nasm
+        ] ++ pkgs.lib.optionals pkgs.stdenv.hostPlatform.isAarch64 [ pkgs.llvmPackages_21.lld ];
+        buildInputs = libraries;
+        # The libraries Yapfast opens at run time, such as the Vulkan loader,
+        # which no runpath names.
+        LD_LIBRARY_PATH = pkgs.lib.makeLibraryPath (runtimeLibraries ++ [ pkgs.stdenv.cc.cc.lib ]);
+        CC = "clang";
+        CXX = "clang++";
+        LIBCLANG_PATH = "${pkgs.llvmPackages_21.libclang.lib}/lib";
+        PROTOC = "${pkgs.protobuf}/bin/protoc";
+        # webrtc-sys must not download binaries from inside a Nix build sandbox.
+        LK_CUSTOM_WEBRTC = "${webrtc}";
+        shellHook = ''
+          export LD_LIBRARY_PATH="/run/opengl-driver/lib:$LD_LIBRARY_PATH"
+          # Only people see the greeting; commands run through the shell don't.
+          [ -t 1 ] && echo "Yapfast dev shell. Run scripts/check --fast or cargo run --profile fast."
+        '';
+      } // pkgs.lib.optionalAttrs (system == "x86_64-linux") {
+        # The Nix ld wrapper adds the libraries' runpath for builds run outside the shell.
+        CARGO_TARGET_X86_64_UNKNOWN_LINUX_GNU_LINKER = pkgs.writeShellScript "yapfast-linker" ''
+          exec ${pkgs.llvmPackages_21.clang}/bin/clang --ld-path=${pkgs.mold-wrapped}/bin/ld.mold "$@"
+        '';
+      });
+    } // pkgs.lib.optionalAttrs (system == "x86_64-linux") {
+      windows = windowsShell "x64";
+      windows-arm64 = windowsShell "arm64";
+    });
+  };
 }

@@ -15,12 +15,14 @@ for map in "${yapfast_maps[@]}"; do
   yapfast_c+=("-ffile-prefix-map=$map")
 done
 case "$yapfast_release_target" in
-  x86_64-pc-windows-msvc)
+  x86_64-pc-windows-msvc|aarch64-pc-windows-msvc)
     # Match LiveKit's Windows runtime linkage, as .cargo/config.toml does.
     yapfast_rust=(-Ctarget-feature=+crt-static "${yapfast_rust[@]}")
     # cargo-xwin compiles C with clang-cl, which takes Clang's flags this way.
     yapfast_c=("${yapfast_c[@]/#//clang:}") ;;
   x86_64-unknown-linux-gnu) ;;
+  aarch64-unknown-linux-gnu)
+    yapfast_rust+=("-Clink-arg=-fuse-ld=lld") ;;
   *) echo "scripts/release-env: no flags known for $yapfast_release_target" >&2; return 2 ;;
 esac
 CARGO_ENCODED_RUSTFLAGS=$(IFS=$'\x1f'; printf '%s' "${yapfast_rust[*]}")
@@ -30,7 +32,8 @@ export CARGO_ENCODED_RUSTFLAGS
 # these rustflags, and add the C flags to what it sets.
 yapfast_target_flags=${yapfast_release_target//-/_}
 if [[ "$yapfast_release_target" == *-windows-msvc ]]; then
-  eval "$(cargo xwin env --target "$yapfast_release_target")"
+  yapfast_xwin_env=$(cargo xwin env --target "$yapfast_release_target") || return
+  eval "$yapfast_xwin_env"
   # thorvg-sys tells bindgen's libclang `--target=x86_64-none-elf` on every
   # cross build, which can't read the MSVC headers. bindgen adds these
   # arguments after a build script's, and Clang takes the last target.
@@ -41,4 +44,4 @@ yapfast_cflags="CFLAGS_$yapfast_target_flags" yapfast_cxxflags="CXXFLAGS_$yapfas
 export "$yapfast_cflags=${!yapfast_cflags:-} ${yapfast_c[*]}"
 export "$yapfast_cxxflags=${!yapfast_cxxflags:-} ${yapfast_c[*]}"
 unset yapfast_release_target yapfast_root yapfast_maps yapfast_rust yapfast_c map \
-  yapfast_target_flags yapfast_cflags yapfast_cxxflags yapfast_bindgen
+  yapfast_target_flags yapfast_cflags yapfast_cxxflags yapfast_bindgen yapfast_xwin_env

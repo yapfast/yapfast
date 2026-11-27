@@ -52,6 +52,11 @@ rustPlatform.buildRustPackage {
     PROTOC = "${pkgs.protobuf}/bin/protoc";
     LK_CUSTOM_WEBRTC = "${native.webrtc}";
   }
+  // lib.optionalAttrs pkgs.stdenv.hostPlatform.isAarch64 {
+    # lld links the ARM64 libwebrtc archive; see .cargo/config.toml.
+    CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_LINKER = "${pkgs.llvmPackages_21.clang}/bin/clang";
+    CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_RUSTFLAGS = "-C link-arg=--ld-path=${pkgs.llvmPackages_21.lld}/bin/ld.lld";
+  }
   // lib.optionalAttrs (commit != "") { YAPFAST_COMMIT = commit; }
   // lib.optionalAttrs (date != "") { YAPFAST_COMMIT_DATE = date; }
   // lib.optionalAttrs release { YAPFAST_RELEASE = "1"; };
@@ -79,6 +84,6 @@ rustPlatform.buildRustPackage {
     homepage = "https://github.com/yapfast/yapfast";
     license = lib.licenses.gpl3Plus;
     mainProgram = "yapfast";
-    platforms = [ "x86_64-linux" ];
+    platforms = [ "x86_64-linux" "aarch64-linux" ];
   };
 }

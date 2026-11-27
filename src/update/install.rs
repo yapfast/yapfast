@@ -108,8 +108,16 @@ pub fn target_for(
     appimage: Option<&Path>,
     flavour: &str,
 ) -> Result<Target, String> {
+    // Only Inno Setup leaves this uninstaller beside the executable.
+    let source = if source == Source::Installer && !program.with_file_name("unins000.exe").is_file()
+    {
+        Source::Other
+    } else {
+        source
+    };
     let suffix = match source {
         Source::AppImage if cfg!(target_arch = "x86_64") => "-x86_64.AppImage",
+        Source::AppImage if cfg!(target_arch = "aarch64") => "-aarch64.AppImage",
         Source::Installer if cfg!(target_arch = "x86_64") => "-windows-x64-setup.exe",
         Source::AppImage | Source::Installer => {
             return Err("There's no download for your system yet.".into());
@@ -145,14 +153,6 @@ pub fn target_for(
         }
         _ => {
             let folder = program.parent().ok_or("Yapfast has no folder.")?;
-            // The installer left its uninstaller there; a folder without one
-            // was unpacked by hand or installed by something else.
-            if !folder.join("unins000.exe").is_file() {
-                return Err(
-                    "This copy can't update itself. Get the new version from the release page."
-                        .into(),
-                );
-            }
             if !writable(folder) {
                 return Err("Yapfast can't write to its own folder.".into());
             }
@@ -554,6 +554,8 @@ mod tests {
             assets: vec![
                 asset("Yapfast-0.4.1-x86_64.AppImage"),
                 asset("Yapfast-0.4.1-x86_64.AppImage.zsync"),
+                asset("Yapfast-0.4.1-aarch64.AppImage"),
+                asset("Yapfast-0.4.1-windows-arm64.msi"),
                 asset("Yapfast-0.4.1-windows-x64-setup.exe"),
                 asset("Yapfast-0.4.1-windows-x64.zip"),
                 asset("SHA256SUMS.txt"),
@@ -573,12 +575,15 @@ mod tests {
         };
         assert!(reason(Source::Manager("Scoop")).contains("Scoop"));
         assert!(reason(Source::Other).contains("can't update itself"));
-        if !cfg!(target_arch = "x86_64") {
+        if !cfg!(any(target_arch = "x86_64", target_arch = "aarch64")) {
             return;
         }
         // An AppImage in a folder that can be written to.
         let target = target_for(&release, Source::AppImage, &program, Some(&app), "").unwrap();
-        assert_eq!(target.asset().name, "Yapfast-0.4.1-x86_64.AppImage");
+        assert_eq!(
+            target.asset().name,
+            format!("Yapfast-0.4.1-{}.AppImage", std::env::consts::ARCH)
+        );
         assert_eq!(target.part(), folder.path().join(".yapfast-update.part"));
         assert!(
             target_for(&release, Source::AppImage, &program, None, "")
@@ -590,6 +595,9 @@ mod tests {
             reason(Source::Installer).contains("can't update itself"),
             "no uninstaller"
         );
+        if !cfg!(target_arch = "x86_64") {
+            return;
+        }
         std::fs::write(folder.path().join("unins000.exe"), b"").unwrap();
         let target = target_for(&release, Source::Installer, &program, None, "").unwrap();
         assert_eq!(target.asset().name, "Yapfast-0.4.1-windows-x64-setup.exe");
