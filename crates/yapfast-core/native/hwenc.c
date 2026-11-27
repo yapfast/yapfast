@@ -14,6 +14,7 @@
 #include <stdarg.h>
 #include <stdint.h>
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 #ifdef __linux__
 #include <unistd.h>
@@ -38,7 +39,33 @@ struct yapfast_hwenc {
   int64_t index;
   /* AMF hands a frame back a little after taking it, and is polled for it. */
   int poll;
+  /* The access unit the last frame produced, kept until Rust copies it into
+   * the buffer it holds: encoding the picture again to get it into a larger
+   * buffer would send a frame referencing one the receiver never got. A frame
+   * is one packet, which is held by its own reference, so the unit is copied
+   * once, straight into what is sent; only a frame that came out as several
+   * packets is gathered into `staged`, which then holds one frame's worth. */
+  AVPacket *held;
+  int holding;
+  unsigned char *staged;
+  size_t staged_capacity;
+  size_t staged_size;
 };
+
+/* Keeps `size` bytes of `bytes`, at `at` into the staged access unit, for Rust
+ * to copy out. The buffer grows to the largest frame seen and no further, so a
+ * stream asks for memory only until its frames settle. Returns 0 when memory
+ * ran out. */
+static int stage(struct yapfast_hwenc *h, size_t at, const unsigned char *bytes, size_t size) {
+  if (at + size > h->staged_capacity) {
+    unsigned char *larger = realloc(h->staged, at + size);
+    if (!larger) return 0;
+    h->staged = larger;
+    h->staged_capacity = at + size;
+  }
+  memcpy(h->staged + at, bytes, size);
+  return 1;
+}
 
 /* FFmpeg's first error on this thread since it was cleared, for saying why
  * an encoder didn't open: the cause, where later ones only say what failed
@@ -64,7 +91,12 @@ static void close_encoder(struct yapfast_hwenc *h) {
   av_frame_free(&h->surface);
   av_frame_free(&h->frame);
   av_packet_free(&h->packet);
+  av_packet_free(&h->held);
+  h->holding = 0;
   av_buffer_unref(&h->device);
+  free(h->staged);
+  h->staged = NULL;
+  h->staged_capacity = h->staged_size = 0;
 }
 
 /* A render node for VA-API, and the libva driver for it. */
@@ -161,7 +193,8 @@ static int open_encoder(struct yapfast_hwenc *h, const AVCodec *found, struct va
   if (ret < 0) return ret;
   h->frame = av_frame_alloc();
   h->packet = av_packet_alloc();
-  if (!h->frame || !h->packet) return AVERROR(ENOMEM);
+  h->held = av_packet_alloc();
+  if (!h->frame || !h->packet || !h->held) return AVERROR(ENOMEM);
   h->frame->format = vaapi || amf ? AV_PIX_FMT_NV12 : AV_PIX_FMT_YUV420P;
   h->frame->width = (int)width;
   h->frame->height = (int)height;
@@ -301,13 +334,16 @@ static int fill(struct yapfast_hwenc *h, const uint8_t *y, int y_stride, const u
   return 0;
 }
 
-/* Encodes one I420 frame into `out`. Returns the encoded size, 0 when the
- * encoder gave no frame, or a negative number on failure. `pts` and
- * `duration` are unused: frames are timed by the frame rate. */
+/* Encodes one I420 frame, and keeps the access unit it produced for
+ * `yapfast_hwenc_drain` to copy into the caller's buffer: the size it reports
+ * may be larger than that buffer, which grows to hold it without the frame
+ * being encoded a second time. Returns the size produced, 0 when the encoder
+ * gave no frame, or a negative number on failure. `pts` and `duration` are
+ * unused: frames are timed by the frame rate. */
 long yapfast_hwenc_encode(struct yapfast_hwenc *h, const unsigned char *y, int y_stride,
                           const unsigned char *u, int u_stride, const unsigned char *v,
                           int v_stride, long long pts, unsigned long duration, int keyframe,
-                          unsigned char *out, size_t capacity, int *is_key) {
+                          int *is_key) {
   (void)pts;
   (void)duration;
   int ret = fill(h, y, y_stride, u, u_stride, v, v_stride);
@@ -324,6 +360,11 @@ long yapfast_hwenc_encode(struct yapfast_hwenc *h, const unsigned char *y, int y
   frame->pict_type = keyframe ? AV_PICTURE_TYPE_I : AV_PICTURE_TYPE_NONE;
   if (avcodec_send_frame(h->codec, frame) < 0) return -1;
   size_t size = 0;
+  /* Whatever the last call left is this frame's to replace, copied out or
+   * not: one frame is held at a time. */
+  h->staged_size = 0;
+  if (h->holding) av_packet_unref(h->held);
+  h->holding = 0;
   *is_key = 0;
   /* AMF waits a millisecond at most for each receive: polled for the
    * frame's packet for up to 100 ms, after which it comes with the next. */
@@ -336,16 +377,53 @@ long yapfast_hwenc_encode(struct yapfast_hwenc *h, const unsigned char *y, int y
       continue;
     }
     if (ret < 0) break;
-    if (size + (size_t)h->packet->size > capacity) {
-      av_packet_unref(h->packet);
-      return -2;
-    }
-    memcpy(out + size, h->packet->data, (size_t)h->packet->size);
-    size += (size_t)h->packet->size;
+    const size_t length = (size_t)h->packet->size;
     *is_key |= (h->packet->flags & AV_PKT_FLAG_KEY) != 0;
-    av_packet_unref(h->packet);
+    if (!size) {
+      /* The frame's packet, held where FFmpeg made it. */
+      av_packet_move_ref(h->held, h->packet);
+      h->holding = 1;
+    } else {
+      /* A second packet for one frame: the first joins it in `staged`. */
+      if (h->holding) {
+        if (!stage(h, 0, h->held->data, (size_t)h->held->size)) {
+          av_packet_unref(h->packet);
+          return -1;
+        }
+        av_packet_unref(h->held);
+        h->holding = 0;
+      }
+      if (!stage(h, size, h->packet->data, length)) {
+        av_packet_unref(h->packet);
+        return -1;
+      }
+      av_packet_unref(h->packet);
+    }
+    size += length;
   }
   if (ret != AVERROR(EAGAIN)) return -1;
+  h->staged_size = h->holding ? 0 : size;
+  return (long)size;
+}
+
+/* Copies the access unit the last encode produced into `out`, which holds it,
+ * and gives up the copy: the buffer stays for the next frame. Rust grows its
+ * buffer to the size the encode reported before calling this once, so a frame
+ * is never encoded twice to fit one. Returns the size copied, or -1 when there
+ * is nothing to copy or `out` is too small. */
+long yapfast_hwenc_drain(struct yapfast_hwenc *h, unsigned char *out, size_t capacity) {
+  if (h->holding) {
+    const size_t size = (size_t)h->held->size;
+    if (!size || size > capacity) return -1;
+    memcpy(out, h->held->data, size);
+    av_packet_unref(h->held);
+    h->holding = 0;
+    return (long)size;
+  }
+  size_t size = h->staged_size;
+  if (!size || size > capacity) return -1;
+  memcpy(out, h->staged, size);
+  h->staged_size = 0;
   return (long)size;
 }
 

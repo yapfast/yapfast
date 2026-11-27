@@ -36,6 +36,19 @@ fn stored(folder: &tempfile::TempDir) -> serde_json::Value {
     .expect("JSON")
 }
 
+/// The text glow switch stops a theme's soft edge, and is kept.
+#[test]
+fn the_text_glow_switch_stops_the_soft_edge_and_is_kept() {
+    let (mut app, folder) = preview();
+    open(&mut app, Section::Appearance);
+    assert!(shows(&app, "Draw text glow"), "the switch");
+    interact(&mut app, |ui| {
+        ui.click("Draw text glow").expect("the switch");
+    });
+    assert_eq!(app.layout.prefs.text_glow, Some(false), "off at once");
+    assert_eq!(stored(&folder)["text_glow"], false, "and kept");
+}
+
 /// Settings open moving, once: their motion starts as they open, stays
 /// through what's done in them, and turns to closing as they close, the
 /// Settings closed kept, taking nothing, until they've been drawn going.
@@ -240,6 +253,23 @@ fn themes_is_its_own_settings_section_while_appearance_keeps_shortcuts() {
     assert!(shows(&app, "Marketplace"), "the page's tabs");
     assert!(shows(&app, "PERFORMANCE"));
     assert!(shows(&app, "No themes yet"), "what to do with none");
+}
+
+/// Showing connections on profile cards is off until it's turned on in
+/// Appearance's PROFILES, and stays on after a restart.
+#[test]
+fn showing_connections_on_cards_is_kept() {
+    let (mut app, folder) = preview();
+    assert!(!app.layout.prefs.card_connections, "off by default");
+    open(&mut app, Section::Appearance);
+    interact(&mut app, |ui| {
+        ui.click("Show connections on profile cards")
+            .expect("the switch");
+    });
+    assert!(app.layout.prefs.card_connections);
+    assert_eq!(stored(&folder)["card_connections"], true);
+    let again = start(&folder, true);
+    assert!(again.layout.prefs.card_connections);
 }
 
 #[test]
@@ -1120,6 +1150,128 @@ fn creator_save_migrates_an_external_folder_without_touching_it() {
 }
 
 #[test]
+fn a_custom_theme_is_exported_from_the_editor_and_imported_by_another_install() {
+    use crate::settings::{ThemeEvent, appearance_event as theme};
+    use yapfast_core::theme::Theme;
+    let files = tempfile::tempdir_in(super::local()).expect("test folder");
+    let (mut app, _folder) = preview();
+    open(&mut app, Section::Appearance);
+    let file = |app: &App| app.win.settings.get().expect("Settings").theme_file();
+    let note = |app: &App| app.win.settings.get().expect("Settings").theme_note.clone();
+
+    // Nothing to export outside the editor, or while a field holds no colour.
+    assert!(file(&app).is_none());
+    let _ = app.update(theme(ThemeEvent::Choose("tokyo-night".into())));
+    interact(&mut app, |ui| {
+        ui.click("New theme").expect("New theme");
+    });
+    let _ = app.update(theme(ThemeEvent::Name("Night / Shift".into())));
+    let chat = Theme::NAMES
+        .iter()
+        .position(|name| *name == "chat")
+        .expect("chat");
+    let _ = app.update(theme(ThemeEvent::Colour(chat, "#102030".into())));
+    let _ = app.update(theme(ThemeEvent::Dark(false)));
+    let made = app
+        .win
+        .settings
+        .get()
+        .and_then(|settings| settings.editor.as_ref())
+        .map(|editor| editor.theme)
+        .expect("the editor");
+    let _ = app.update(theme(ThemeEvent::Colour(chat, "#10".into())));
+    assert!(file(&app).is_none());
+    let _ = app.update(theme(ThemeEvent::Colour(chat, "#102030".into())));
+
+    // The unsaved edit exports as it stands, and Copy says it copied it.
+    let _ = app.update(theme(ThemeEvent::Copy));
+    assert!(shows(&app, "Copied the theme to the clipboard."));
+    let (file_name, text) = file(&app).expect("a theme to export");
+    assert_eq!(file_name, "Night - Shift.yapfast-theme.json");
+    let path = files.path().join(&file_name);
+    std::fs::write(&path, &text).expect("the file");
+    let _ = app.update(theme(ThemeEvent::Exported(file_name.clone(), Ok(()))));
+    assert!(shows(&app, "Exported to Night - Shift.yapfast-theme.json."));
+    assert_eq!(note(&app).map(|(_, wrong)| wrong), Some(false));
+    let _ = app.update(theme(ThemeEvent::Exported(
+        file_name,
+        Err("disk full".into()),
+    )));
+    assert!(shows(&app, "Couldn't save the theme file: disk full"));
+    assert_eq!(note(&app).map(|(_, wrong)| wrong), Some(true));
+    interact(&mut app, |ui| {
+        ui.click("Cancel").expect("Cancel");
+    });
+    assert_eq!(note(&app), None, "gone with the editor");
+
+    // Another install loads it as a theme of its own, chosen, and keeps it.
+    let (mut other, other_folder) = preview();
+    open(&mut other, Section::Appearance);
+    let _ = other.update(theme(ThemeEvent::Imported(path.clone())));
+    assert_eq!(other.theme.id, "custom:1");
+    assert_eq!(other.theme.chat, crate::style::hex(0x102030));
+    assert!(!other.theme.dark);
+    assert_eq!(other.themes.custom.len(), 1);
+    assert_eq!(other.themes.custom[0].name, "Night / Shift");
+    assert_eq!(other.themes.custom[0].base, "tokyo-night");
+    assert_eq!(other.themes.custom[0].theme, made);
+    assert!(shows(&other, "Night / Shift"), "among the tiles");
+    assert!(shows(&other, "Imported Night / Shift."));
+    assert_eq!(note(&other).map(|(_, wrong)| wrong), Some(false));
+    let layout = stored(&other_folder);
+    assert_eq!(layout["theme"], "custom:1");
+    assert_eq!(layout["custom_themes"][0]["base"], "tokyo-night");
+    assert_eq!(layout["custom_themes"][0]["colours"]["chat"], "#102030");
+
+    // Importing it again adds another with its own id.
+    let _ = other.update(theme(ThemeEvent::Imported(path.clone())));
+    assert_eq!(other.theme.id, "custom:2");
+    assert_eq!(other.themes.custom.len(), 2);
+
+    // Pasting the same text, as Copy put it on the clipboard, adds one too;
+    // a clipboard without text or with other text changes nothing but the
+    // note.
+    let pasted = std::fs::read_to_string(&path).expect("the file");
+    let _ = other.update(theme(ThemeEvent::Pasted(Some(pasted))));
+    assert_eq!(other.theme.id, "custom:3");
+    assert_eq!(other.themes.custom[2].theme, made);
+    let _ = other.update(theme(ThemeEvent::Pasted(None)));
+    assert!(shows(&other, "The clipboard holds no text."));
+    let _ = other.update(theme(ThemeEvent::Pasted(Some("hello".into()))));
+    assert!(shows(&other, "That is not a Yapfast theme."));
+    assert_eq!(other.themes.custom.len(), 3);
+
+    // A file that isn't a theme, or can't be read, changes nothing but the
+    // note.
+    let junk = files.path().join("junk.json");
+    std::fs::write(&junk, "{}").expect("the file");
+    let _ = other.update(theme(ThemeEvent::Imported(junk)));
+    assert!(shows(&other, "That is not a Yapfast theme."));
+    assert_eq!(note(&other).map(|(_, wrong)| wrong), Some(true));
+    let missing = files.path().join("missing.json");
+    let _ = other.update(theme(ThemeEvent::Imported(missing)));
+    assert!(note(&other).is_some_and(|(note, wrong)| wrong && note.starts_with("Couldn't read")));
+    assert_eq!(other.theme.id, "custom:3");
+    assert_eq!(other.themes.custom.len(), 3);
+
+    // The editor owns the window's colours while it is open.
+    interact(&mut other, |ui| {
+        ui.click("New theme").expect("New theme");
+    });
+    let _ = other.update(theme(ThemeEvent::Imported(path)));
+    assert!(shows(
+        &other,
+        "Save or cancel the theme being edited first."
+    ));
+    let _ = other.update(theme(ThemeEvent::Pasted(Some(text))));
+    assert_eq!(other.themes.custom.len(), 3);
+    interact(&mut other, |ui| {
+        ui.click("Cancel").expect("Cancel");
+    });
+    assert_eq!(note(&other), None);
+}
+
+#[test]
 fn the_theme_editors_colour_picker_opens_picks_and_dismisses() {
     let (mut app, _folder) = preview();
     open(&mut app, Section::Appearance);
@@ -1323,9 +1475,13 @@ fn preferences_are_kept_across_a_restart() {
     interact(&mut app, |ui| {
         ui.click("Collapse long messages").expect("the switch");
     });
-    interact(&mut app, |ui| {
-        ui.click("Large").expect("the text size");
-    });
+    open(&mut app, Section::Accessibility);
+    let _ = app.update(crate::settings::pref_message(
+        crate::settings::Pref::TextPx(18),
+    ));
+    let _ = app.update(crate::settings::pref_message(
+        crate::settings::Pref::KeepTextPx,
+    ));
     assert!(app.layout.prefs.twelve_hour_clock && app.layout.prefs.clock_seconds);
     // The timeline's times follow at once: 9:41:05 PM, say.
     let time = &app.timeline.looks.last().expect("a message").time;
@@ -1345,12 +1501,27 @@ fn preferences_are_kept_across_a_restart() {
     let prefs = &again.layout.prefs;
     assert!(prefs.twelve_hour_clock && prefs.clock_seconds);
     assert!(again.layout.collapse_long && again.layout.developer_mode);
-    assert_eq!(prefs.text_size, Some(2));
+    assert_eq!(prefs.text_px(), 18);
     assert_eq!(prefs.flash_taskbar, Some(false));
     // `layout.json` keeps them under the keys older versions wrote.
     let layout = stored(&folder);
     assert_eq!(layout["twelve_hour_clock"], true);
     assert_eq!(layout["flash_taskbar"], false);
+}
+
+/// Appearance's Show activity cards says what the member list's eye left:
+/// one click after the eye hid them shows them again.
+#[test]
+fn show_activity_cards_follows_the_member_lists_eye() {
+    let (mut app, folder) = preview();
+    let _ = app.update(Message::Members(crate::members::Event::HideActivity));
+    assert!(app.client.state().activity_cards_hidden, "the eye hid them");
+    open(&mut app, Section::Appearance);
+    interact(&mut app, |ui| {
+        ui.click("Show activity cards").expect("the switch");
+    });
+    assert!(!app.client.state().activity_cards_hidden, "shown again");
+    assert_eq!(stored(&folder)["activity_cards_hidden"], false);
 }
 
 #[test]
@@ -1716,6 +1887,124 @@ fn the_theme_command_switches_the_colours_and_keeps_the_choice() {
     assert_eq!(start(&folder, true).theme.id, "sakura");
 }
 
+/// Accessibility shows Discord's sections, the text size at the one older
+/// versions chose, and the animations Messages had; the text size follows
+/// the slider's marks, and the rows take it.
+#[test]
+fn accessibility_keeps_the_text_size_and_the_animations() {
+    let folder = tempfile::tempdir_in(local()).expect("test folder");
+    std::fs::write(
+        folder.path().join("layout.json"),
+        br#"{"text_size":2,"animate":"never"}"#,
+    )
+    .expect("an older layout");
+    let mut app = start(&folder, true);
+    let _ = app.sync();
+    open(&mut app, Section::Accessibility);
+    for words in [
+        "TEXT READABILITY",
+        "Text size in chat",
+        "18px",
+        "REDUCED MOTION",
+        "Enable Reduced Motion",
+        "Sync with computer setting",
+        "PLAY GIFS, EMOJI AND STICKERS",
+    ] {
+        assert!(shows(&app, words), "{words}");
+    }
+    open(&mut app, Section::Messages);
+    assert!(!shows(&app, "PLAY GIFS, EMOJI AND STICKERS"), "moved");
+    open(&mut app, Section::Accessibility);
+    interact(&mut app, |ui| {
+        ui.click("Always").expect("the animations");
+    });
+    assert_eq!(app.layout.prefs.animate, crate::layout::Animate::Always);
+    // A size between two marks goes to the nearest, and is kept as the
+    // slider's let go.
+    let _ = app.update(crate::settings::pref_message(
+        crate::settings::Pref::TextPx(21),
+    ));
+    assert_eq!(app.layout.prefs.text_px(), 20);
+    assert!(
+        stored(&folder).get("chat_text_size").is_none(),
+        "not while dragged"
+    );
+    let _ = app.update(crate::settings::pref_message(
+        crate::settings::Pref::KeepTextPx,
+    ));
+    assert_eq!(stored(&folder)["chat_text_size"], 20);
+    assert_eq!(crate::message::text_size(app.ctx()), 20.0);
+}
+
+/// Enable Reduced Motion stills GIFs, emoji and stickers as Discord's
+/// client does, until they're chosen again; off, they play as chosen.
+/// Synced to the desktop, the desktop's wish decides, and unsyncing keeps
+/// what it said.
+#[test]
+fn reduced_motion_stills_animations_and_can_follow_the_desktop() {
+    use crate::layout::Animate;
+    let (mut app, folder) = preview();
+    app.layout.prefs.animate = Animate::Always;
+    open(&mut app, Section::Accessibility);
+    assert!(!app.layout.reduced_motion(), "off, as today");
+    assert!(!app.layout.sync_reduced_motion, "not synced, as today");
+    interact(&mut app, |ui| {
+        ui.click("Enable Reduced Motion").expect("the switch");
+    });
+    assert!(app.layout.reduced_motion());
+    assert_eq!(app.layout.animate(), Animate::Never, "stilled");
+    assert!(shows(
+        &app,
+        "This setting has been automatically disabled because of your Reduced Motion setting."
+    ));
+    assert_eq!(stored(&folder)["reduce_motion"], true);
+    // Chosen again, they play with reduced motion on.
+    interact(&mut app, |ui| {
+        ui.click("Always").expect("the animations");
+    });
+    assert_eq!(app.layout.animate(), Animate::Always);
+    interact(&mut app, |ui| {
+        ui.click("Enable Reduced Motion").expect("the switch");
+    });
+    interact(&mut app, |ui| {
+        ui.click("Enable Reduced Motion").expect("the switch");
+    });
+    assert_eq!(app.layout.animate(), Animate::Never, "stilled again");
+    interact(&mut app, |ui| {
+        ui.click("Enable Reduced Motion").expect("the switch");
+    });
+    assert_eq!(app.layout.animate(), Animate::Always, "as chosen");
+
+    // Synced, the desktop's wish counts.
+    interact(&mut app, |ui| {
+        ui.click("Sync with computer setting").expect("the switch");
+    });
+    assert!(app.layout.sync_reduced_motion);
+    let _ = app.update(Message::Shell(crate::shell::Event::SystemMotion(Some(
+        true,
+    ))));
+    assert!(app.layout.reduced_motion());
+    assert_eq!(app.layout.animate(), Animate::Never);
+    // Unsynced, the choice is what the desktop last said.
+    interact(&mut app, |ui| {
+        ui.click("Sync with computer setting").expect("the switch");
+    });
+    assert!(!app.layout.sync_reduced_motion);
+    assert!(app.layout.reduced_motion() && app.layout.reduce_motion);
+    // Choosing it stops following the desktop.
+    interact(&mut app, |ui| {
+        ui.click("Sync with computer setting").expect("the switch");
+    });
+    interact(&mut app, |ui| {
+        ui.click("Enable Reduced Motion").expect("the switch");
+    });
+    assert!(!app.layout.sync_reduced_motion && !app.layout.reduced_motion());
+    let layout = stored(&folder);
+    assert_eq!(layout["sync_reduced_motion"], false);
+    assert_eq!(layout["reduce_motion"], false);
+    assert_eq!(layout["animate_stilled"], false);
+}
+
 #[test]
 fn theme_performance_reduced_motion_and_readable_text_are_kept_in_the_layout() {
     let (mut app, folder) = preview();
@@ -1784,6 +2073,40 @@ fn edit_profile_from_settings_closes_them_under_the_editor() {
         "the editor opens"
     );
     assert!(app.win.settings.get().is_none(), "Settings close under it");
+}
+
+/// Appearance's Font lists no file until one is chosen. A file that is no
+/// font is left out, with the reason under the buttons, and isn't kept for
+/// the next start. (A real font isn't loaded here: the font database is the
+/// process's, and the other tests measure their text in DM Sans.)
+#[test]
+fn a_file_that_is_no_font_is_left_out_of_appearances_font() {
+    use crate::settings::{FontEvent, font_message};
+    let (mut app, folder) = preview();
+    open(&mut app, Section::Appearance);
+    assert!(shows(&app, "FONT") && shows(&app, "Choose font files"));
+    assert!(!shows(&app, "Reset to default"), "nothing to reset yet");
+    let words = folder.path().join("notes.ttf");
+    std::fs::write(&words, b"only words, no font tables in here").expect("a file");
+    let _ = app.update(font_message(FontEvent::Chosen(vec![
+        words.to_str().expect("a path").to_owned(),
+    ])));
+    assert!(
+        shows(
+            &app,
+            "notes.ttf: Not a font file. Yapfast reads TTF, OTF, TTC and WOFF."
+        ),
+        "the note names the file and says why"
+    );
+    assert!(!shows(&app, "Reset to default"), "nothing is loaded");
+    assert_eq!(stored(&folder)["ui_font_files"], serde_json::json!([]));
+    assert!(app.layout.prefs.ui_font_files.is_empty());
+    // Going back to DM Sans with nothing loaded is no change either.
+    let _ = app.update(font_message(FontEvent::Reset));
+    assert!(!shows(
+        &app,
+        "notes.ttf: Not a font file. Yapfast reads TTF, OTF, TTC and WOFF."
+    ));
 }
 
 /// A call going on in Lounge, joined as the preview joins, unmuted
@@ -1886,6 +2209,48 @@ fn the_mic_test_without_a_call_deafens_nothing() {
     let _ = app.update(crate::app::settings(Event::Voice(VoiceEvent::MicTest)));
     assert!(testing(&app));
     assert_eq!(call(&app), before);
+}
+
+#[test]
+fn the_detected_games_menu_lists_each_game_and_choosing_one_never_shows_it() {
+    use crate::menus::MenuAct;
+    use yapfast_core::yapfast_discord::game_detection::custom_games::set_detected;
+    let (mut app, _folder) = preview();
+    // Nothing found: one row, which can't be chosen.
+    set_detected(Vec::new());
+    let _ = crate::settings::open_detected_games_menu(&mut app, iced::Point::ORIGIN);
+    let menu = app.win.menu.take().expect("a menu opened");
+    assert_eq!(menu.rows.len(), 1);
+    assert!(menu.rows[0].disabled, "there is nothing to choose");
+    // Two found: a row for each, by the name that shows after Playing.
+    set_detected(vec!["Roblox".into(), "Zelda".into()]);
+    let _ = crate::settings::open_detected_games_menu(&mut app, iced::Point::ORIGIN);
+    let menu = app.win.menu.take().expect("a menu opened");
+    let rows: Vec<_> = menu
+        .rows
+        .iter()
+        .map(|row| (row.label.to_string(), row.key.clone()))
+        .collect();
+    assert_eq!(
+        rows,
+        [
+            ("Roblox".to_owned(), "Roblox".to_owned()),
+            ("Zelda".to_owned(), "Zelda".to_owned())
+        ]
+    );
+    assert!(
+        menu.rows
+            .iter()
+            .all(|row| row.act == MenuAct::BlockGame && !row.disabled)
+    );
+    set_detected(Vec::new());
+    // Choosing one lists it as never shown, once.
+    crate::settings::block_game(&mut app, "Roblox");
+    crate::settings::block_game(&mut app, "roblox");
+    assert_eq!(app.layout.prefs.blocked_games.len(), 1);
+    assert_eq!(app.layout.prefs.blocked_games[0].name, "Roblox");
+    assert!(app.layout.prefs.blocked_games[0].on, "chosen, it is hidden");
+    yapfast_core::discord::set_blocked_games(&[]);
 }
 
 #[test]

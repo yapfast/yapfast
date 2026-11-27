@@ -59,6 +59,98 @@ fn typing_shows_for_the_open_conversation() {
     ));
 }
 
+/// Who types in `room`, as the backend says it after each change.
+fn typing_in(app: &mut Application, room: &str, names: &[&str]) {
+    app.apply(Event::Typing {
+        room: room.into(),
+        names: names.iter().map(|name| (*name).to_owned()).collect(),
+    });
+}
+
+fn typing_dms(app: &Application) -> Vec<&str> {
+    app.state.typing_dms.iter().map(String::as_str).collect()
+}
+
+#[test]
+fn typing_in_a_dm_marks_its_row_until_the_typers_stop() {
+    let mut app = connected();
+    // Matrix says who types only in the open room.
+    app.dispatch(Action::SelectRoom("dm".into()));
+    assert_eq!(app.state.selected.as_deref(), Some("dm"));
+    let group = "discord:@me:31";
+    // A Discord DM by its id, a Matrix DM, and neither a Discord server's
+    // channel nor a Matrix room that isn't a DM.
+    typing_in(&mut app, group, &["Sam"]);
+    typing_in(&mut app, "dm", &["Bob"]);
+    typing_in(&mut app, "discord:10:11", &["Ann"]);
+    typing_in(&mut app, "general", &["Bob"]);
+    assert_eq!(typing_dms(&app), [group, "dm"]);
+    // A group DM stays marked while any of its typers is left.
+    typing_in(&mut app, group, &["Riley", "Sam"]);
+    typing_in(&mut app, group, &["Riley"]);
+    assert_eq!(typing_dms(&app), [group, "dm"]);
+    // The backend says nobody types once the last stops or times out.
+    typing_in(&mut app, group, &[]);
+    typing_in(&mut app, "dm", &[]);
+    assert!(typing_dms(&app).is_empty());
+    // This account's own typing goes to the network and marks nothing:
+    // the backends never name this account among the typers.
+    assert!(matches!(
+        app.dispatch(Action::SetDraft("Hi".into())).as_slice(),
+        [Effect::Backend(Command::Typing { typing: true, .. }), ..]
+    ));
+    assert!(typing_dms(&app).is_empty());
+}
+
+#[test]
+fn a_discord_dms_typing_outlives_a_room_switch_and_a_matrix_ones_doesnt() {
+    let mut app = connected();
+    app.dispatch(Action::SelectRoom("dm".into()));
+    let discord = "discord:@me:30";
+    typing_in(&mut app, discord, &["Sam"]);
+    typing_in(&mut app, "dm", &["Bob"]);
+    // Discord says who types in every channel, Matrix only in the open one.
+    app.dispatch(Action::Navigate(Navigation::Server("friends".into())));
+    app.dispatch(Action::SelectRoom("general".into()));
+    assert_eq!(app.state.selected.as_deref(), Some("general"));
+    assert_eq!(typing_dms(&app), [discord]);
+    // Discord's stop still comes for a DM that isn't open.
+    typing_in(&mut app, discord, &[]);
+    assert!(typing_dms(&app).is_empty());
+}
+
+#[test]
+fn a_matrix_dms_typing_goes_as_its_room_closes_and_a_late_word_marks_nothing() {
+    let mut app = connected();
+    app.dispatch(Action::SelectRoom("dm".into()));
+    typing_in(&mut app, "dm", &["Bob"]);
+    assert_eq!(typing_dms(&app), ["dm"]);
+    // The Friends screen closes the room with none opening after it, and
+    // Matrix stops saying who types there: no word that Bob stopped comes.
+    app.dispatch(Action::OpenDmScreen(DmScreen::Friends));
+    assert_eq!(app.state.selected, None);
+    assert!(typing_dms(&app).is_empty());
+    // A word Matrix sent before it stopped, arriving late, marks nothing.
+    typing_in(&mut app, "dm", &["Bob"]);
+    assert!(typing_dms(&app).is_empty());
+}
+
+#[test]
+fn signing_out_of_discord_forgets_who_types_there() {
+    let mut app = connected();
+    app.dispatch(Action::SelectRoom("dm".into()));
+    let discord = "discord:@me:30";
+    typing_in(&mut app, discord, &["Sam"]);
+    typing_in(&mut app, "discord:10:11", &["Ann"]);
+    typing_in(&mut app, "dm", &["Bob"]);
+    // The session whose timers would end them is gone, so they go with
+    // it, as Discord's own list of typers empties when it connects. The
+    // same DM under the next account starts with nobody typing.
+    app.apply(Event::DiscordUnlinked);
+    assert_eq!(typing_dms(&app), ["dm"]);
+    assert_eq!(app.state.typing.keys().collect::<Vec<_>>(), ["dm"]);
+}
+
 #[test]
 fn members_belong_to_the_selected_text_room() {
     let mut app = connected();
@@ -86,6 +178,7 @@ fn members_belong_to_the_selected_text_room() {
         group_icon: None,
         role_icon: None,
         boosting_since: None,
+        color_end: None,
     };
     app.apply(Event::Members {
         room: "games".into(),

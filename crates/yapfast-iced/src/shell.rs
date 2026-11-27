@@ -16,7 +16,7 @@ use yapfast_core::{application::Action, chat::Alert, sounds::Sound, voice, zoom}
 use crate::{
     after,
     app::{App, Message},
-    desktop::{self, ABOUT, Heard, Notifier, Tell, Tray, TrayChoice},
+    desktop::{self, ABOUT, Heard, IconTarget, Notifier, Tell, Tray, TrayChoice},
 };
 
 /// The least size the window lays out in.
@@ -129,7 +129,7 @@ pub enum Event {
     MonitorScaled(window::Id, Option<f32>),
     /// The banner that the GPU failed to start, dismissed.
     DismissGpuNotice,
-    /// The window took another size, or opened at one.
+    /// The size iced laid out for the window.
     Resized(Size),
     /// Glass art baked for the window's new size, off its thread.
     GlassBaked(Option<crate::themes::GlassBaked>),
@@ -137,6 +137,23 @@ pub enum Event {
     Zoom(keyboard::Key, key::Physical),
     /// Ctrl and the wheel.
     ZoomStep(zoom::Step),
+    /// Whether the desktop asks for reduced motion, as read off the
+    /// window's thread; none where it doesn't say.
+    SystemMotion(Option<bool>),
+}
+
+/// Reads whether the desktop asks for reduced motion, off the window's
+/// thread, as its settings may take a moment over D-Bus.
+pub fn read_system_motion() -> Task<Message> {
+    Task::perform(
+        async {
+            tokio::task::spawn_blocking(|| desktop::desktop().reduced_motion())
+                .await
+                .ok()
+                .flatten()
+        },
+        |reduce| Message::Shell(Event::SystemMotion(reduce)),
+    )
 }
 
 impl App {
@@ -149,7 +166,8 @@ impl App {
         });
         let desktop = desktop::desktop();
         desktop.start(tell.clone());
-        self.shell.tray = desktop.tray(tell.clone());
+        let (source, choice) = self.layout.prefs.tray_artwork();
+        self.shell.tray = desktop.tray(tell.clone(), self.client.root(), source, choice);
         self.shell.notifier = desktop.notifier(self.client.root(), tell.clone());
         self.shell.tell = Some(tell);
         self.shell.pending_link = start.link;
@@ -201,7 +219,14 @@ impl App {
                 self.focus_changed(focused);
                 crate::call::stage::place_videos(self);
                 if focused {
-                    return window::request_user_attention(id, None);
+                    // The desktop's reduced motion may have changed while
+                    // Yapfast was in the background.
+                    let motion = if self.layout.sync_reduced_motion {
+                        read_system_motion()
+                    } else {
+                        Task::none()
+                    };
+                    return Task::batch([window::request_user_attention(id, None), motion]);
                 }
                 // Alt may be let go elsewhere.
                 self.modifiers = iced::keyboard::Modifiers::default();
@@ -239,6 +264,7 @@ impl App {
                     self.shell.display_scale = Some(scale);
                     // Frames are made at the window's pixels.
                     crate::call::stage::place_videos(self);
+                    crate::playback::resize_full_clip(self);
                 }
                 Task::none()
             }
@@ -260,6 +286,7 @@ impl App {
                     tracing::info!(?scale, window = ?self.shell.display_scale, "the monitor's scale");
                     self.shell.monitor_scale = scale;
                     crate::call::stage::place_videos(self);
+                    crate::playback::resize_full_clip(self);
                 }
                 Task::none()
             }
@@ -283,6 +310,7 @@ impl App {
                 self.fit_zoom();
                 let fitted = crate::active_now::active_now_fits(self.ctx());
                 crate::window_bar::fit_window(self);
+                crate::playback::resize_full_clip(self);
                 if crate::active_now::active_now_fits(self.ctx()) == fitted {
                     return Task::batch([glass, crate::window_bar::read_window_state(self)]);
                 }
@@ -296,6 +324,16 @@ impl App {
             Event::GlassBaked(baked) => {
                 if let Some(baked) = baked {
                     self.themes.glass_baked(baked);
+                }
+                Task::none()
+            }
+            Event::SystemMotion(reduce) => {
+                if let Some(reduce) = reduce
+                    && reduce != self.layout.system_reduced_motion
+                {
+                    tracing::info!(reduce, "the desktop's reduced motion");
+                    let mut cx = crate::ctx::cx!(self);
+                    crate::settings::system_motion(&mut cx, reduce);
                 }
                 Task::none()
             }
@@ -422,6 +460,13 @@ impl App {
                 self.client.dispatch(Action::Voice(voice::Command::Leave));
                 self.sync()
             }
+            // About isn't open to show what the look finds, so a newer
+            // release is told of in a notification, as a timed look does.
+            Heard::Tray(TrayChoice::CheckForUpdates) => {
+                crate::updates::look_for_updates(self, true);
+                Task::none()
+            }
+            Heard::Tray(TrayChoice::Restart) => self.restart(),
             Heard::Tray(TrayChoice::Quit) => self.quit(),
             Heard::Tray(TrayChoice::Available) => {
                 let available = self
@@ -499,11 +544,7 @@ impl App {
             min_size: Some(MIN_SIZE),
             decorations: !self.shell.own_title_bar,
             exit_on_close_request: false,
-            icon: desktop::desktop()
-                .window_icon()
-                .and_then(|(pixels, width, height)| {
-                    window::icon::from_rgba(pixels, width, height).ok()
-                }),
+            icon: self.window_icon(),
             ..window::Settings::default()
         };
         #[cfg(target_os = "linux")]
@@ -516,6 +557,44 @@ impl App {
         settings
     }
 
+    fn window_icon(&self) -> Option<window::Icon> {
+        let (pixels, width, height) = desktop::desktop()
+            .window_icon(self.client.root(), &self.layout.prefs.application_icon)?;
+        window::icon::from_rgba(pixels, width, height).ok()
+    }
+
+    pub(crate) fn change_desktop_icon(&self, target: IconTarget) -> Task<Message> {
+        let prefs = &self.layout.prefs;
+        if (target == IconTarget::Tray || prefs.tray_uses_application_icon())
+            && let Some(tray) = &self.shell.tray
+        {
+            let (source, choice) = prefs.tray_artwork();
+            tray.set_icon(self.client.root(), source, choice);
+        }
+        if target == IconTarget::Application
+            && let Some(id) = self.shell.window
+        {
+            #[cfg(windows)]
+            return self.set_native_window_icon(id);
+            #[cfg(not(windows))]
+            if let Some(icon) = self.window_icon() {
+                return window::set_icon(id, icon);
+            }
+        }
+        Task::none()
+    }
+
+    #[cfg(windows)]
+    fn set_native_window_icon(&self, id: window::Id) -> Task<Message> {
+        let root = self.client.root().to_owned();
+        let choice = self.layout.prefs.application_icon.clone();
+        let unread = self.desktop_unread();
+        window::run(id, move |window| {
+            desktop::desktop().set_window_icon(window, &root, &choice, unread);
+        })
+        .discard()
+    }
+
     /// The window opened: what iced doesn't give it, then the focus with a
     /// later start's token, and what was waiting for it.
     fn opened(&mut self, id: window::Id) -> Task<Message> {
@@ -525,18 +604,13 @@ impl App {
         self.shell.minimized = false;
         self.focus_changed(true);
         let tell = self.shell.tell.clone();
-        let unread = if cfg!(windows) {
-            self.desktop_unread()
-        } else {
-            0
-        };
         #[cfg(windows)]
         {
-            self.shell.taskbar_unread = Some((id, unread));
+            self.shell.taskbar_unread = Some((id, self.desktop_unread()));
         }
         let decorate = window::run(id, move |window| {
             if let Some(tell) = tell {
-                desktop::desktop().decorate(window, tell, unread);
+                desktop::desktop().decorate(window, tell);
             }
         })
         .discard();
@@ -549,6 +623,8 @@ impl App {
             window::scale_factor(id).map(move |scale| Message::Shell(Event::Scaled(id, scale))),
             Self::read_monitor_scale(id),
         ];
+        #[cfg(windows)]
+        tasks.push(self.set_native_window_icon(id));
         let maximize = self.shell.maximized.then(|| window::maximize(id, true));
         tasks.push(match self.shell.position {
             // Made hidden: put where the last one was, maximized on the
@@ -692,6 +768,11 @@ impl App {
         settled
     }
 
+    pub fn restart(&mut self) -> Task<Message> {
+        crate::exit_for(crate::Exit::Restart);
+        self.quit()
+    }
+
     /// Ends Yapfast: the icon goes first, rather than when the desktop next
     /// looks at it.
     pub fn quit(&mut self) -> Task<Message> {
@@ -748,6 +829,11 @@ impl App {
         }
         if let Some(bytes) = self.client.take_copied_picture() {
             desktop::desktop().copy_picture(bytes);
+        }
+        // The question before leaving takes the keys, as a masked link's does.
+        if let Some(link) = self.client.take_leaving() {
+            self.leaving = Some(link);
+            tasks.push(iced::widget::operation::focus(crate::app::NOBODY));
         }
         if self.shell.pending_link.is_some() && self.shell.window.is_some() {
             tasks.push(self.open_pending_link());

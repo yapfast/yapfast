@@ -69,6 +69,7 @@ fn in_call(id: &str, local: bool, streaming: bool) -> voice::Participant {
         muted: false,
         deafened: false,
         server_muted: false,
+        speaking_blocked: false,
         server_deafened: false,
         speaking: false,
         connected: true,
@@ -517,6 +518,60 @@ fn preview_and_voice_switching_need_no_backend_and_voice_survives_navigation() {
     assert!(!app.state.voice.active());
 }
 
+/// As Discord's client: watching a stream while one other is watched
+/// takes its place; beside it when asked to, and once two are watched,
+/// every next one goes beside them.
+#[test]
+fn a_second_stream_replaces_the_first_unless_watched_alongside() {
+    let mut app = connected();
+    let watching = |users: &[&str]| -> Vec<voice::Watching> {
+        users
+            .iter()
+            .map(|&user| voice::Watching {
+                user: user.into(),
+                name: user.into(),
+                opening: false,
+                frames: None,
+                viewers: vec![],
+            })
+            .collect()
+    };
+    let commands = |effects: Vec<Effect>| -> Vec<voice::Command> {
+        effects
+            .into_iter()
+            .filter_map(|effect| match effect {
+                Effect::Backend(Command::Voice(command)) => Some(command),
+                _ => None,
+            })
+            .collect()
+    };
+    let watch = |user: &str| Action::Voice(voice::Command::Watch(user.into()));
+    app.state.voice = voice::State {
+        phase: Phase::Connected,
+        room: Some("lounge".into()),
+        watching: watching(&["sam"]),
+        ..Default::default()
+    };
+    assert!(matches!(
+        commands(app.dispatch(watch("kim"))).as_slice(),
+        [voice::Command::StopWatching(sam), voice::Command::Watch(kim)] if sam == "sam" && kim == "kim"
+    ));
+    assert!(matches!(
+        commands(app.dispatch(Action::WatchAlongside("kim".into()))).as_slice(),
+        [voice::Command::Watch(kim)] if kim == "kim"
+    ));
+    app.state.voice.watching = watching(&["sam", "kim"]);
+    assert!(matches!(
+        commands(app.dispatch(watch("lee"))).as_slice(),
+        [voice::Command::Watch(lee)] if lee == "lee"
+    ));
+    app.state.voice.watching = watching(&[]);
+    assert!(matches!(
+        commands(app.dispatch(watch("lee"))).as_slice(),
+        [voice::Command::Watch(lee)] if lee == "lee"
+    ));
+}
+
 #[test]
 fn streams_sound_as_others_start_and_stop_watching() {
     let mut app = connected();
@@ -528,6 +583,7 @@ fn streams_sound_as_others_start_and_stop_watching() {
         muted: false,
         deafened: false,
         server_muted: false,
+        speaking_blocked: false,
         server_deafened: false,
         speaking: false,
         connected: true,
@@ -551,15 +607,16 @@ fn streams_sound_as_others_start_and_stop_watching() {
             frames: frames.clone(),
             viewers: viewers.iter().map(|&viewer| viewer.into()).collect(),
         }),
-        watching: watching.map(|viewers| {
-            Box::new(voice::Watching {
+        watching: watching
+            .map(|viewers| voice::Watching {
                 user: "sam".into(),
                 name: "sam".into(),
                 opening: false,
                 frames: None,
                 viewers: viewers.iter().map(|&viewer| viewer.into()).collect(),
             })
-        }),
+            .into_iter()
+            .collect(),
         ..Default::default()
     };
     let mut heard = |state: voice::State| sounds(&app.apply(Event::Voice(state)));
@@ -595,6 +652,7 @@ fn others_going_live_and_ending_sounds_but_not_as_anyone_comes_or_goes_streaming
         muted: false,
         deafened: false,
         server_muted: false,
+        speaking_blocked: false,
         server_deafened: false,
         speaking: false,
         connected: true,
@@ -654,6 +712,7 @@ fn calls_sound_as_people_come_and_go_but_not_while_reconnecting_or_ringing() {
         muted: false,
         deafened: false,
         server_muted: false,
+        speaking_blocked: false,
         server_deafened: false,
         speaking: false,
         connected,
@@ -799,7 +858,10 @@ fn discord_dm_calls_start_ring_and_are_answered() {
         video: false,
         elsewhere: false,
         server_muted: false,
+        speaking_blocked: false,
         server_deafened: false,
+        style: None,
+        tag: None,
     };
     let snapshot = |ringing: Vec<VoiceMember>, in_call: Vec<VoiceMember>| Snapshot {
         status: Status::Online,
@@ -891,7 +953,10 @@ fn do_not_disturb_shows_a_call_without_notifying() {
         video: false,
         elsewhere: false,
         server_muted: false,
+        speaking_blocked: false,
         server_deafened: false,
+        style: None,
+        tag: None,
     };
     let mut app = Application::default();
     let effects = app.apply(discord_event(Snapshot {

@@ -16,7 +16,7 @@ use yapfast_core::{
     discord,
 };
 
-use super::{change, interact, last, preview, right_click, shows};
+use super::{change, clipboard_writes, interact, last, preview, right_click, shows};
 use crate::{
     app::{App, Message},
     friends, person_menu, profile,
@@ -57,6 +57,7 @@ fn friend(id: &str, name: &str, presence: Presence) -> Friend {
         activity: None,
         activities: Default::default(),
         since: None,
+        style: None,
     }
 }
 
@@ -482,6 +483,8 @@ fn a_discord_dm_offers_add_friend_or_accept_in_its_opening() {
 #[test]
 fn a_cards_effect_plays_only_under_the_pointer_and_its_frame_shows() {
     use yapfast_core::chat::{EffectLayer, ProfileEffect, ProfileFrameLayer};
+    const BANNER: &str = "https://cdn.discordapp.com/banners/1/a_b.png?size=600";
+    const MOVING_BANNER: &str = "https://cdn.discordapp.com/banners/1/a_b.gif?size=600";
     let (mut app, _folder) = preview();
     let user = app
         .client
@@ -521,6 +524,7 @@ fn a_cards_effect_plays_only_under_the_pointer_and_its_frame_shows() {
             anchor: "top".into(),
             front: true,
         }]);
+        profile.banner = Some(BANNER.into());
     });
     let wanted = |app: &App, url: &str| {
         crate::profile::profile_pictures(app.ctx())
@@ -530,6 +534,8 @@ fn a_cards_effect_plays_only_under_the_pointer_and_its_frame_shows() {
     assert!(wanted(&app, "effect-still"), "its still at rest");
     assert!(!wanted(&app, "effect-layer"), "no layers at rest");
     assert!(wanted(&app, "frame-staple"));
+    assert!(wanted(&app, BANNER), "the banner's still");
+    assert!(wanted(&app, MOVING_BANNER), "and its moving one");
     let _ = app.update(Message::Profile(profile::Event::Pointed(true)));
     assert!(wanted(&app, "effect-layer"), "it plays under the pointer");
     let _ = app.update(Message::Profile(profile::Event::Pointed(false)));
@@ -537,13 +543,66 @@ fn a_cards_effect_plays_only_under_the_pointer_and_its_frame_shows() {
         !wanted(&app, "effect-layer"),
         "and lets its layers go after"
     );
-    // With effects and frames switched off, neither is asked for.
+    // With effects, frames and backgrounds switched off, none is asked
+    // for.
     change(&mut app, |state| {
         state.cosmetics.effects = false;
         state.cosmetics.frames = false;
+        state.cosmetics.background = false;
     });
     assert!(!wanted(&app, "effect-still"));
     assert!(!wanted(&app, "frame-staple"));
+    assert!(!wanted(&app, BANNER));
+    assert!(!wanted(&app, MOVING_BANNER));
+}
+
+#[test]
+fn a_cards_badges_are_asked_for_only_while_badges_show() {
+    use yapfast_core::chat::{ProfileBadge, ProfileBadgeLevel};
+    let (mut app, _folder) = preview();
+    let user = app
+        .client
+        .state()
+        .members
+        .iter()
+        .flatten()
+        .flat_map(|members| members.iter())
+        .find(|member| member.name == "Riley")
+        .map(|member| member.id.clone())
+        .expect("Riley in the preview");
+    let _ = app.open_card(user, Point::new(400.0, 200.0));
+    change(&mut app, |state| {
+        let profile = &mut state
+            .profile
+            .as_mut()
+            .map(Arc::make_mut)
+            .expect("open")
+            .profile;
+        profile.badges = vec![ProfileBadge {
+            description: "Quest".into(),
+            icon: "badge-icon".into(),
+            link: None,
+            level: Some(ProfileBadgeLevel {
+                kind: None,
+                title: "Level 2".into(),
+                progress: String::new(),
+                picture: "badge-level".into(),
+            }),
+        }];
+    });
+    let wanted = |app: &App, url: &str| {
+        crate::profile::profile_pictures(app.ctx())
+            .iter()
+            .any(|got| got == url)
+    };
+    assert!(wanted(&app, "badge-icon"));
+    assert!(
+        wanted(&app, "badge-level"),
+        "the level's picture, for its tooltip"
+    );
+    change(&mut app, |state| state.cosmetics.badges = false);
+    assert!(!wanted(&app, "badge-icon"), "no badge is asked for");
+    assert!(!wanted(&app, "badge-level"));
 }
 
 #[test]
@@ -1163,26 +1222,6 @@ fn select_and_copy(app: &mut App, line: iced::Rectangle) -> (Vec<String>, iced::
     (written, status)
 }
 
-/// What a task the window's update returned writes to the clipboard.
-fn clipboard_writes(task: iced::Task<Message>) -> Vec<String> {
-    use iced::futures::StreamExt;
-    let Some(mut actions) = iced_runtime::task::into_stream(task) else {
-        return Vec::new();
-    };
-    let mut cx = std::task::Context::from_waker(std::task::Waker::noop());
-    let mut written = Vec::new();
-    while let std::task::Poll::Ready(Some(action)) = actions.poll_next_unpin(&mut cx) {
-        if let iced_runtime::Action::Clipboard(iced_runtime::clipboard::Action::Write {
-            contents,
-            ..
-        }) = action
-        {
-            written.push(contents);
-        }
-    }
-    written
-}
-
 #[test]
 fn a_cards_username_selects_and_ctrl_c_copies_it_not_the_timelines_selection() {
     let (mut app, _folder) = preview();
@@ -1457,4 +1496,197 @@ fn a_composer_key_is_kept_no_bigger_than_its_drawn_at() {
             .composer_key(&app.theme.id, KeySlot::Sticker)
             .is_none()
     );
+}
+
+/// Every display name style draws a name that can be seen, on a light
+/// profile and a dark one, in each font Discord has and in fonts and
+/// effects Yapfast doesn't know: one person's own card showed no name.
+/// `YAPFAST_NAME_SHEET=file.ppm` also writes them all out, to look at.
+#[test]
+fn every_name_style_draws_a_name_that_shows() {
+    use yapfast_core::chat::NameStyle;
+    let (_app, _folder) = preview();
+    let name = "Lyric x7o6 ✦";
+    let colors: [&[u32]; 3] = [&[0xffffff], &[0x1e1f22], &[0xff66cc, 0x66ccff]];
+    let mut rows: Vec<(u32, u32, Vec<u8>)> = Vec::new();
+    let mut missing = Vec::new();
+    for dark in [false, true] {
+        let ground: u32 = if dark { 0x121214 } else { 0xfbfbfb };
+        for font in [
+            0u8, 1, 3, 4, 6, 7, 8, 10, 11, 12, 13, 14, 15, 16, 17, 18, 99,
+        ] {
+            for effect in 0u8..=9 {
+                for colors in colors {
+                    let style = NameStyle::new(font, effect, colors);
+                    let look = crate::looks::name_look(Some(&style), name, false, dark)
+                        .expect("a style with colours");
+                    let _ = crate::fonts::style_font(look.font(), 700);
+                    let mut system = iced::advanced::graphics::text::font_system()
+                        .write()
+                        .expect("font system");
+                    let picture = crate::paint::styled_name(system.raw(), name, &look, 20.0, 700);
+                    drop(system);
+                    let canvas = picture.canvas;
+                    // Over the ground, how many pixels stand out from it.
+                    let [gr, gg, gb] = [(ground >> 16) & 255, (ground >> 8) & 255, ground & 255];
+                    let mut over = Vec::with_capacity(canvas.pixels.len());
+                    let mut seen = 0;
+                    for pixel in canvas.pixels.as_chunks::<4>().0 {
+                        let a = u32::from(pixel[3]);
+                        let mix = |c: u8, g: u32| (u32::from(c) * a + g * (255 - a)) / 255;
+                        let (r, g, b) = (mix(pixel[0], gr), mix(pixel[1], gg), mix(pixel[2], gb));
+                        let far = r.abs_diff(gr) + g.abs_diff(gg) + b.abs_diff(gb);
+                        seen += usize::from(far > 120);
+                        over.extend_from_slice(&[r as u8, g as u8, b as u8, 255]);
+                    }
+                    if seen < 40 {
+                        missing.push((dark, font, effect, colors.to_vec(), seen));
+                    }
+                    rows.push((canvas.width, canvas.height, over));
+                }
+            }
+        }
+    }
+    // A PPM picture, rows one under another on the first row's ground.
+    if let Ok(path) = std::env::var("YAPFAST_NAME_SHEET") {
+        let width = rows.iter().map(|row| row.0).max().unwrap_or(1);
+        let height: u32 = rows.iter().map(|row| row.1).sum();
+        let mut out = format!("P6\n{width} {height}\n255\n").into_bytes();
+        for (w, h, pixels) in &rows {
+            for y in 0..*h {
+                for x in 0..width {
+                    let at = ((y * w + x.min(w - 1)) * 4) as usize;
+                    out.extend_from_slice(&pixels[at..at + 3]);
+                }
+            }
+        }
+        std::fs::write(path, out).expect("sheet");
+    }
+    assert!(missing.is_empty(), "names that don't show: {missing:?}");
+}
+
+/// A card seen 2026-11-22: a light profile theme in the dark
+/// app, and a white display name style. The style takes the card's
+/// light ground, so the name is drawn dark enough to read; before, it
+/// was made for the app's dark ground and drawn white on white.
+#[test]
+fn a_styled_name_on_a_light_profile_theme_reads_on_it() {
+    use yapfast_core::chat::{NameStyle, Profile};
+    let (mut app, _folder) = preview();
+    let style = Arc::new(NameStyle::new(10, 1, &[0xffffff]));
+    change(&mut app, |state| {
+        state.discord_user = Some("42".into());
+        state.account_profile = Some(Arc::new(Profile {
+            id: "42".into(),
+            name: "Lyric".into(),
+            handle: "x7o6".into(),
+            style: Some(style.clone()),
+            theme: Some([0xf4e9ff, 0xffffff]),
+            ..Default::default()
+        }));
+    });
+    let theme = app.ctx().look.theme;
+    assert!(theme.dark, "the preview's app theme is dark");
+    let light_card = Some([0xf4e9ff, 0xffffff]);
+    assert!(!crate::profile::body::name_on_dark(theme, light_card));
+    assert!(crate::profile::body::name_on_dark(theme, None));
+    assert!(crate::profile::body::name_on_dark(
+        theme,
+        Some([0x101018, 0x202030])
+    ));
+    let on_card = crate::looks::name_look(Some(&style), "Lyric", false, false).expect("styled");
+    let [r, g, b] = [
+        on_card.main >> 16,
+        (on_card.main >> 8) & 255,
+        on_card.main & 255,
+    ];
+    assert!(
+        r + g + b < 3 * 0xa0,
+        "white is darkened to read on the light card: {:06x}",
+        on_card.main
+    );
+    // The card itself opens with its name drawn.
+    let _ = app.update(Message::Status(crate::status::Event::Toggle));
+    assert!(app.profiles.account.is_some());
+}
+
+/// Someone in a voice channel wears their server tag beside their name,
+/// as their member row does, and only while server tags show.
+#[test]
+fn someone_in_voice_wears_their_server_tag() {
+    use yapfast_core::chat::{NameStyle, ServerTag, VoicePerson};
+    let (mut app, _folder) = preview();
+    change(&mut app, |state| {
+        let party = state
+            .rooms
+            .iter_mut()
+            .find(|room| room.id == "party-voice")
+            .expect("the preview's Party");
+        Arc::make_mut(party).people = vec![VoicePerson {
+            id: "riley".into(),
+            name: "Riley".into(),
+            style: Some(Arc::new(NameStyle::new(3, 2, &[0xff00ff]))),
+            tag: Some(ServerTag {
+                text: "GUYS".into(),
+                badge: None,
+                guild: None,
+            }),
+            ..Default::default()
+        }];
+    });
+    app.client
+        .dispatch(Action::Navigate(Navigation::Server("coop".into())));
+    let _ = app.sync();
+    assert!(shows(&app, "Riley"), "Riley under Party");
+    assert!(shows(&app, "GUYS"), "with her server tag");
+}
+
+#[test]
+fn a_nitro_avatar_in_the_member_list_plays_only_while_its_row_is_pointed_at() {
+    let (mut app, _folder) = preview();
+    let still = "https://cdn.discordapp.com/avatars/3/a_riley.png?size=128";
+    let gif = "https://cdn.discordapp.com/avatars/3/a_riley.gif?size=128";
+    let party = super::animated_emoji();
+    let mut riley = String::new();
+    change(&mut app, |state| {
+        for members in state.members.iter_mut().flatten() {
+            for member in Arc::make_mut(members).iter_mut() {
+                if member.name == "Riley" {
+                    member.avatar = Some(still.into());
+                    riley = member.id.clone();
+                }
+            }
+        }
+        state.pictures.insert(gif.into(), party.clone());
+    });
+    app.show_roster(false);
+    app.layout.prefs.animate = crate::layout::Animate::Always;
+    let plays = |app: &App| {
+        super::redraw(app);
+        let at = Arc::as_ptr(&party) as usize;
+        app.win
+            .pictures
+            .players
+            .keys()
+            .iter()
+            .any(|key| key.0 == at)
+    };
+    let wanted = |app: &App| app.pictures_shown(false).iter().any(|url| url == gif);
+    assert!(
+        !wanted(&app) && !plays(&app),
+        "held still and not asked for"
+    );
+    let _ = app.update(Message::Members(crate::members::Event::Point(
+        riley.clone(),
+        true,
+    )));
+    assert!(wanted(&app), "asked for while pointed at");
+    assert!(plays(&app), "playing while pointed at");
+    // Animate's Never holds it still, and nothing asks for it.
+    app.layout.prefs.animate = crate::layout::Animate::Never;
+    assert!(!wanted(&app) && !plays(&app));
+    app.layout.prefs.animate = crate::layout::Animate::Always;
+    let _ = app.update(Message::Members(crate::members::Event::Point(riley, false)));
+    assert!(!wanted(&app), "let go once the pointer leaves");
+    assert!(!plays(&app), "and its player with it");
 }

@@ -15,7 +15,7 @@ use crate::{
     app::{Message, key},
     controls::bar,
     fonts::{BOLD, MEDIUM, REGULAR, SEMIBOLD},
-    pictures::{Face, Icon},
+    pictures::{Face, GroupIcon, Icon},
     style::{corners, rounded, scrollbar},
     widgets::{Corner, RightPress, Rows, Settle, Watch},
 };
@@ -68,9 +68,8 @@ pub(crate) fn timeline<'a>(ctx: crate::ctx::Ctx<'a>) -> Element<'a, Message> {
         |heights| Message::Timeline(Event::Measured(heights)),
         ctx.lanes.timeline.found.clone(),
         pivot,
+        ctx.lanes.timeline.height,
     );
-    // A short history is held down, its newest message over the composer.
-    let lead = (ctx.lanes.timeline.height - ctx.lanes.timeline.total_height()).max(0.0);
     for index in first..last {
         rows.push(
             key(&ctx.lanes.timeline.messages[index].item),
@@ -79,7 +78,7 @@ pub(crate) fn timeline<'a>(ctx: crate::ctx::Ctx<'a>) -> Element<'a, Message> {
             timeline_row(ctx, index),
         );
     }
-    let list = scroll_view(column![Space::new().height(lead), rows])
+    let list = scroll_view(rows)
         .id(TIMELINE)
         .anchor_bottom()
         .on_scroll(|viewport| Message::Timeline(Event::Scrolled(viewport)))
@@ -684,7 +683,10 @@ fn direct_welcome<'a>(ctx: crate::ctx::Ctx<'a>) -> Element<'a, Message> {
         .map(|shown| &shown.look)
         .filter(|look| Some(look.profile().id.as_str()) == person);
     let mut block = column![
-        ctx.face(Face::new(ctx.header.avatar.as_deref(), &edge.name, 80.0)),
+        ctx.face(
+            Face::new(ctx.header.avatar.as_deref(), &edge.name, 80.0)
+                .group(ctx.header.group_icon.as_ref().map(GroupIcon::as_face)),
+        ),
         Space::new().height(8),
         text(edge.name.as_str())
             .size(32)
@@ -860,11 +862,12 @@ pub(super) fn conversation_start<'a>(ctx: crate::ctx::Ctx<'a>) -> Element<'a, Me
     let mut start = column![].spacing(8).padding(24).width(Length::Fill);
     if ctx.state.selected.is_some() && edge.ready {
         if edge.direct {
-            start = start.push(ctx.face(Face::new(
-                ctx.header.avatar.as_deref(),
-                &ctx.header.name,
-                72.0,
-            )));
+            start = start.push(
+                ctx.face(
+                    Face::new(ctx.header.avatar.as_deref(), &ctx.header.name, 72.0)
+                        .group(ctx.header.group_icon.as_ref().map(GroupIcon::as_face)),
+                ),
+            );
         } else {
             let raised = theme.raised;
             let icon = ctx.header.icon.unwrap_or(Icon::Hash);

@@ -334,7 +334,7 @@ errors make it taller than the minimum window. SSO and OAuth are still pending.
   still on the frame they were showing, and go on from there when the
   window has the focus again. Animated emoji stop too when nobody has
   touched the window for 15 seconds and while it is minimised, and go on
-  from the frame they stopped on. Settings' "Play GIFs, emoji and stickers",
+  from the frame they stopped on. Accessibility's "Play GIFs, emoji and stickers",
   at Always, plays them unfocused, but not while minimised, and at Never
   keeps them all still. An animated custom emoji plays in message text,
   in its reaction, in the quick reactions over a message and in its menu,
@@ -679,7 +679,7 @@ The window follows Discord's arrangement:
   and whose channel line under them opens the call, as Discord's does (see
   [The call's channel line](discord/voice.md#the-calls-channel-line)); then
   the account panel with avatar, status, mute and deafen during a call, and settings (account,
-  theme, audio devices, message text size, clock, link previews, folding long messages and peeking, notifications,
+  theme, accessibility (text size, reduced motion and animations), audio devices, clock, link previews, folding long messages and peeking, notifications,
   sounds, reconnect, sign out). A caret beside mute and deafen opens a
   device menu (see [Persistent voice channels](voice.md)); the input menu
   shows a local level meter. While you speak in
@@ -767,9 +767,15 @@ offline sending across a restart, and messages missed while a room was
 closed. Run them after `scripts/test-stack up`:
 
 ```sh
-nix develop path:./nix --command cargo test --locked --profile fast -p
-yapfast-core matrix_chat::tests -- --ignored --test-threads=1
+nix develop path:./nix --command cargo test --locked --profile fast -p yapfast-core \
+  --features matrix matrix_chat::tests -- --ignored --test-threads=1 \
+  --skip fixture_conversation --skip opening_a_discord_channel_leaves_the_matrix_room_unread
 ```
+
+The cross-network test also needs [fake Discord](../CONTRIBUTING.md#build-and-test).
+With both services running and `YAPFAST_DISCORD_TEST_SERVER` set, replace
+`matrix_chat::tests` and the two `--skip` options with the individual test
+filter `opening_a_discord_channel_leaves_the_matrix_room_unread` before `--`.
 
 To check the window by hand, see [Seeing the app](building.md#seeing-the-app).
 The native file dialogs need an XDG portal, which `scripts/ui-session` doesn't

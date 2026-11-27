@@ -33,7 +33,8 @@ pub enum Focus {
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Pip {
     None,
-    Watched,
+    /// A stream watched, by its streamer's place among the participants.
+    Watched(usize),
     Shared,
     Camera(usize),
 }
@@ -137,12 +138,26 @@ impl<'a> Stage<'a> {
         })
     }
 
-    /// The corner shows what's large if it moves, else the stream watched,
-    /// this account's own, or someone else's camera.
-    pub fn pip(&self, focus: Option<&Focus>, watching: Option<&str>) -> Pip {
+    /// The corner shows what's large if it moves, else the stream watched
+    /// last, this account's own, or someone else's camera, as Discord's
+    /// picture in picture (`VideoSpeakerStore.getSpeaker`). `watching`
+    /// names the streams watched, by their streamers' ids, in the order
+    /// they were.
+    pub fn pip(&self, focus: Option<&Focus>, watching: &[&str]) -> Pip {
+        let watched = |id: &str| {
+            watching
+                .contains(&id)
+                .then(|| self.index(id))
+                .flatten()
+                .map(Pip::Watched)
+        };
         match focus {
             Some(Focus::OwnScreen) if self.sharing => return Pip::Shared,
-            Some(Focus::Stream(id)) if watching == Some(id.as_str()) => return Pip::Watched,
+            Some(Focus::Stream(id)) => {
+                if let Some(pip) = watched(id) {
+                    return pip;
+                }
+            }
             Some(Focus::Person(id)) => {
                 if let Some(person) = self.index(id)
                     && self.participants[person].video.is_some()
@@ -152,8 +167,8 @@ impl<'a> Stage<'a> {
             }
             _ => {}
         }
-        if watching.is_some() {
-            Pip::Watched
+        if let Some(pip) = watching.iter().rev().find_map(|id| watched(id)) {
+            pip
         } else if self.sharing {
             Pip::Shared
         } else {
@@ -165,10 +180,12 @@ impl<'a> Stage<'a> {
     }
 
     /// The tile the corner shows, which a click on it shows large.
-    pub fn pip_slot(&self, pip: Pip, watching: Option<&str>) -> Option<usize> {
+    pub fn pip_slot(&self, pip: Pip) -> Option<usize> {
         match pip {
             Pip::None => None,
-            Pip::Watched => self.slot(&Focus::Stream(watching?.to_owned())),
+            Pip::Watched(person) => {
+                self.slot(&Focus::Stream(self.participants.get(person)?.id.clone()))
+            }
             Pip::Shared => self.slot(&Focus::OwnScreen),
             Pip::Camera(person) => Some(self.before() + person),
         }
@@ -343,6 +360,8 @@ pub fn status(person: &Participant) -> &str {
         "Connection lost"
     } else if person.deafened {
         "Deafened"
+    } else if person.speaking_blocked {
+        "Speaking restricted"
     } else if person.muted {
         "Muted"
     } else if person.speaking {
@@ -464,6 +483,7 @@ mod tests {
             muted: false,
             deafened: false,
             server_muted: false,
+            speaking_blocked: false,
             server_deafened: false,
             speaking: false,
             connected: true,
@@ -527,11 +547,16 @@ mod tests {
             sharing: false,
         };
         let cy = Focus::Person("cy".into());
-        assert_eq!(stage.pip(Some(&cy), Some("ana")), Pip::Camera(2));
-        assert_eq!(stage.pip(None, Some("ana")), Pip::Watched);
-        assert_eq!(stage.pip_slot(Pip::Watched, Some("ana")), Some(1));
+        assert_eq!(stage.pip(Some(&cy), &["ana"]), Pip::Camera(2));
+        assert_eq!(stage.pip(None, &["ana"]), Pip::Watched(1));
+        assert_eq!(stage.pip_slot(Pip::Watched(1)), Some(1));
         assert_eq!(
-            stage.pip(None, None),
+            stage.pip(None, &["cy", "ana"]),
+            Pip::Watched(1),
+            "the one watched last"
+        );
+        assert_eq!(
+            stage.pip(None, &[]),
             Pip::Camera(2),
             "not this account's own"
         );
@@ -539,10 +564,7 @@ mod tests {
             sharing: true,
             ..stage
         };
-        assert_eq!(
-            sharing.pip(Some(&Focus::OwnScreen), Some("ana")),
-            Pip::Shared
-        );
-        assert_eq!(sharing.pip_slot(Pip::Shared, None), Some(0));
+        assert_eq!(sharing.pip(Some(&Focus::OwnScreen), &["ana"]), Pip::Shared);
+        assert_eq!(sharing.pip_slot(Pip::Shared), Some(0));
     }
 }

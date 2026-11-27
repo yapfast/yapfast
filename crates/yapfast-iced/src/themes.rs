@@ -684,7 +684,7 @@ fn resolve_package(
         .map_err(|error| error.to_string())?;
     let palette = resolved_palette(&resolved);
     let shown = theme(&id, &palette);
-    let mut metrics = metrics(&resolved, layout.theme_performance, layout.reduce_motion);
+    let mut metrics = metrics(&resolved, layout.theme_performance, layout.reduced_motion());
     metrics.readable_text = layout.readable_text;
     let Loaded {
         types,
@@ -698,7 +698,7 @@ fn resolve_package(
         &palette,
         &package.options,
         &choices,
-        (layout.theme_performance, layout.reduce_motion),
+        (layout.theme_performance, layout.reduced_motion()),
         window,
     );
     metrics.types = types;
@@ -3049,7 +3049,7 @@ fn baked_art_image(folder: &Path, layer: &art::Layer, ground: u32) -> Option<ima
         ((ground >> 8) & 0xff) as u8,
         (ground & 0xff) as u8,
     ];
-    for pixel in image.as_mut().chunks_exact_mut(4) {
+    for pixel in image.as_mut().as_chunks_mut::<4>().0 {
         for channel in 0..3 {
             let source = f32::from(pixel[channel]) / 255.0;
             let below = f32::from(base[channel]) / 255.0;

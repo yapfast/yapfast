@@ -108,6 +108,7 @@ pub(super) fn found(
             .style(guild, &message.author_id)
             .map(|style| Arc::new(style.into())),
         color: server.and_then(|server| discord.color(server, &message.author_id)),
+        color_end: server.and_then(|server| discord.gradient(server, &message.author_id)),
         bot: message.bot,
         body,
         author,
@@ -355,6 +356,42 @@ pub(super) fn found_in(discord: &Discord, room: &str, messages: &[Message]) -> V
     messages
         .iter()
         .map(|message| found(discord, server, message))
+        .collect()
+}
+
+/// This account's recent mentions, as [`found`] shows them, each with its
+/// room: in the server its message says, or with
+/// [`yapfast_discord::ready::PRIVATE`] a DM. A message without a server is
+/// looked up in each server's channels; threads list under their own id.
+/// What calls on this account is worked out as the timeline works it out,
+/// so a reply that pings it counts as well as a mention by name: the
+/// reply's `<@id>` lives in its metadata rather than its text, which the
+/// Mentions tab would otherwise miss.
+pub(super) fn mentioned(discord: &Discord, messages: &[Message]) -> Vec<(String, ChatMessage)> {
+    let snapshot = discord.snapshots().borrow().clone();
+    let me = snapshot.user_id.as_deref().unwrap_or_default();
+    messages
+        .iter()
+        .map(|message| {
+            let guild = message
+                .guild_id
+                .as_deref()
+                .or_else(|| {
+                    snapshot
+                        .servers
+                        .iter()
+                        .find(|server| server.server.channel(&message.channel_id).is_some())
+                        .map(|server| server.id.as_str())
+                })
+                .unwrap_or(yapfast_discord::ready::PRIVATE);
+            let marked = snapshot.servers.iter().find(|server| server.id == guild);
+            let server = marked.map(|marked| &*marked.server);
+            let mut shown = found(discord, server, message);
+            let marks = marked.map(|marked| &*marked.marks);
+            shown.mentions_me = message.names_me(me, marks);
+            shown.replies_to_me = message.replies_to(me);
+            (discord::room_id(guild, &message.channel_id), shown)
+        })
         .collect()
 }
 
@@ -938,6 +975,7 @@ pub(super) fn chat_member(member: ListedMember) -> ChatMember {
         role_icon: member.role_icon,
         presence: Some(discord::presence(member.presence)),
         color: member.color,
+        color_end: member.color_end,
         activity: member.activity,
         activities: member.activities,
         roles: member.roles,

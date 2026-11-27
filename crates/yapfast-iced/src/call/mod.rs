@@ -50,9 +50,9 @@ use crate::app::{App, Message};
 #[derive(Default)]
 pub struct Call {
     pub focus: Option<Focus>,
-    /// Whose stream was watched as the window last looked, so a new one
-    /// starts large.
-    pub watched: Option<String>,
+    /// Whose streams were watched as the window last looked, so one
+    /// watched in place of another starts large.
+    pub watched: Vec<String>,
     /// The large tile over the whole window.
     pub full: bool,
     /// The voice channels whose strip of members under a large tile is
@@ -140,7 +140,11 @@ pub enum Event {
     Noise,
     StopSharing,
     Watch(String),
-    StopWatching,
+    /// Start watching multiple streams on someone's tile: theirs beside
+    /// those watched, leaving what's large.
+    WatchAlongside(String),
+    /// Stop watching someone's stream, by their id.
+    StopWatching(String),
     /// A tile shown large, by its place, or none.
     Focus(Option<usize>),
     Full(bool),
@@ -179,6 +183,8 @@ pub enum Event {
     /// dock's line to it under the pointer.
     OpenCall,
     DetailLit(bool),
+    /// The line over the call saying it stays connected, closed for good.
+    HideHint,
     /// A second of the call's clock.
     Second,
     /// In the connection's details, or on the signal.
@@ -223,8 +229,18 @@ pub fn update(app: &mut App, event: Event) -> Task<Message> {
             return Task::none();
         }
         Event::StopSharing => Action::Voice(Command::StopLive),
-        Event::Watch(user) => Action::Voice(Command::Watch(user)),
-        Event::StopWatching => Action::Voice(Command::StopWatching),
+        // A click on a stream's tile shows it large; with Shift it's
+        // watched beside those watched, as in Discord's client.
+        Event::Watch(user) => {
+            app.call.focus = Some(Focus::Stream(user.clone()));
+            if app.modifiers.shift() {
+                Action::WatchAlongside(user)
+            } else {
+                Action::Voice(Command::Watch(user))
+            }
+        }
+        Event::WatchAlongside(user) => Action::WatchAlongside(user),
+        Event::StopWatching(user) => Action::Voice(Command::StopWatching(user)),
         Event::Focus(place) => {
             crate::call::stage::focus_tile(app, place);
             return Task::none();
@@ -320,6 +336,11 @@ pub fn update(app: &mut App, event: Event) -> Task<Message> {
             }
             Action::GoToCall
         }
+        Event::HideHint => {
+            app.layout.hide_voice_hint = true;
+            crate::layout::store(app.client.root(), "hide_voice_hint", true);
+            return Task::none();
+        }
         Event::DetailLit(lit) => {
             app.call.detail_lit = lit;
             return Task::none();
@@ -399,14 +420,20 @@ pub fn call_sync(app: &mut App) {
         play(app, sound);
     }
     let voice = &app.client.state().voice;
-    let watching = voice
+    let watching: Vec<String> = voice
         .watching
-        .as_ref()
-        .map(|watching| watching.user.clone());
+        .iter()
+        .map(|watching| watching.user.clone())
+        .collect();
     if watching != app.call.watched {
-        if let Some(user) = &watching {
-            app.call.focus = Some(Focus::Stream(user.clone()));
-        } else if matches!(&app.call.focus, Some(Focus::Stream(user)) if app.call.watched.as_ref() == Some(user))
+        // As Discord's client: a stream watched in place of another shows
+        // large; one beside others doesn't, unless a click on its tile
+        // showed it. One stopped while large leaves the grid.
+        if let [only] = watching.as_slice()
+            && !app.call.watched.contains(only)
+        {
+            app.call.focus = Some(Focus::Stream(only.clone()));
+        } else if matches!(&app.call.focus, Some(Focus::Stream(user)) if app.call.watched.contains(user) && !watching.contains(user))
         {
             app.call.focus = None;
         }

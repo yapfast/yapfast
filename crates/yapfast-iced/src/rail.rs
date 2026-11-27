@@ -14,9 +14,7 @@ use std::sync::Arc;
 
 use iced::{
     Alignment, Color, Element, Length, Padding, Size, Task,
-    widget::{
-        Space, column, container, mouse_area, row, scrollable::Viewport, stack, text, tooltip,
-    },
+    widget::{Space, column, container, mouse_area, row, stack, text, tooltip},
 };
 use yapfast_core::{
     application::{Action, AppState, Navigation},
@@ -30,10 +28,9 @@ use crate::{
     controls::{self, RAIL_COUNT, bar, count_badge, count_pill},
     elide::elide,
     fonts::{BOLD, MEDIUM},
-    pictures::{Icon, initials},
+    pictures::{GroupIcon, Icon, initials, room_group_icon},
     style::{corners, hex, rounded, scrollbar},
-    sync::MARGIN,
-    sync::Scroll,
+    sync::{MARGIN, Scroll},
     widgets::{Drags, Pic, RightPress, Rows},
 };
 
@@ -159,7 +156,7 @@ const CARD_WIDTH: f32 = 220.0;
 /// What's done on the rail.
 #[derive(Clone, Debug)]
 pub enum Event {
-    Scrolled(Viewport),
+    Scrolled(Scroll),
     /// The pointer came onto a tile or left it, by its id ("" for the home,
     /// "+" for the add-a-server tile).
     Point(String, bool),
@@ -220,6 +217,7 @@ pub struct RailItem {
     pub id: String,
     pub name: String,
     pub icon: Option<String>,
+    pub group_icon: Option<GroupIcon>,
     pub kind: Kind,
     pub selected: bool,
     pub unread: bool,
@@ -276,6 +274,7 @@ impl RailItem {
             id: server.id.clone(),
             name: server.name.clone(),
             icon: server.icon.clone(),
+            group_icon: None,
             kind: Kind::Server,
             selected,
             unread: marks.unread,
@@ -371,6 +370,7 @@ pub fn rail(state: &AppState, open_folders: &BTreeSet<String>) -> Vec<RailItem> 
             id: room.id.clone(),
             name: room.name.clone(),
             icon: room.avatar.clone(),
+            group_icon: room_group_icon(room),
             kind: Kind::Dm,
             selected: false,
             unread: true,
@@ -387,6 +387,7 @@ pub fn rail(state: &AppState, open_folders: &BTreeSet<String>) -> Vec<RailItem> 
         id: "divider".into(),
         name: String::new(),
         icon: None,
+        group_icon: None,
         kind: Kind::Divider,
         selected: false,
         unread: false,
@@ -497,6 +498,7 @@ pub fn rail(state: &AppState, open_folders: &BTreeSet<String>) -> Vec<RailItem> 
             id: folder.id.clone(),
             name,
             icon: None,
+            group_icon: None,
             kind: Kind::Folder {
                 open,
                 tint,
@@ -563,6 +565,7 @@ pub fn rail(state: &AppState, open_folders: &BTreeSet<String>) -> Vec<RailItem> 
                 id: "@favorites".into(),
                 name: "Favorites".into(),
                 icon: None,
+                group_icon: None,
                 kind: Kind::Server,
                 selected: state.navigation == Navigation::Favorites,
                 unread: unread && !state.favorites_muted,
@@ -579,6 +582,7 @@ pub fn rail(state: &AppState, open_folders: &BTreeSet<String>) -> Vec<RailItem> 
             id: ADD.into(),
             name: "Add a server".into(),
             icon: None,
+            group_icon: None,
             kind: Kind::Add,
             selected: false,
             unread: false,
@@ -792,11 +796,15 @@ pub fn drag_subscription(app: &App) -> Option<iced::Subscription<Message>> {
     }))
 }
 
+fn scrolled(offset: f32, height: f32) -> Message {
+    Message::Rail(Event::Scrolled(Scroll { offset, height }))
+}
+
 /// What's done on the rail.
 pub fn update(app: &mut App, event: Event) -> Task<Message> {
     match event {
         Event::Scrolled(viewport) => {
-            app.rail.scroll = Scroll::of(viewport);
+            app.rail.scroll = viewport;
             return app.ask();
         }
         Event::Point(id, entered) => {
@@ -1060,7 +1068,7 @@ impl<'a> View<'a> {
             );
         }
         let list = scroll_view(rows)
-            .on_scroll(|viewport| Message::Rail(Event::Scrolled(viewport)))
+            .on_vertical_viewport(scrolled)
             .height(Length::Fill)
             .style(scrollbar(theme));
         // As Slint lays a theme's tiles: the home tile in a slot of its own
@@ -1914,6 +1922,16 @@ impl<'a> View<'a> {
                 .expect("a gel theme");
             }
             return picture.into();
+        }
+        if item.icon.is_none()
+            && let Some(group_icon) = &item.group_icon
+        {
+            return match group_icon {
+                GroupIcon::Placeholder(ground) => {
+                    self.cx.group_placeholder(*ground, TILE, RADIUS, opacity)
+                }
+                GroupIcon::Pair(pair) => self.cx.group_pair(pair, TILE, opacity),
+            };
         }
         let (ground, ink) = if lit {
             (theme.accent, theme.on_accent)
@@ -2872,6 +2890,7 @@ mod tests {
             id,
             name: String::new(),
             icon: None,
+            group_icon: None,
             kind,
             selected: false,
             unread: false,

@@ -18,6 +18,55 @@ fn a_failed_join_shows_the_step_that_failed() {
     );
 }
 
+/// This account's own stream shows as LIVE in the call once its worker
+/// reports it, whether or not Discord's voice state says so yet.
+#[test]
+fn the_own_stream_is_live_in_the_call_once_it_is() {
+    let member = |user: &str| yapfast_discord::service::VoiceMember {
+        user_id: user.into(),
+        name: user.into(),
+        avatar: String::new(),
+        muted: false,
+        deafened: false,
+        server_muted: false,
+        speaking_blocked: false,
+        server_deafened: false,
+        streaming: false,
+        video: false,
+        elsewhere: false,
+        style: None,
+        tag: None,
+    };
+    let mut snapshot = yapfast_discord::service::Snapshot::default();
+    snapshot
+        .voice
+        .insert("5".into(), vec![member("me"), member("you")]);
+    let mut state = State::default();
+    let cameras = Cameras::start(None);
+    let streaming = |state: &State| -> Vec<bool> {
+        discord_participants(&snapshot, "5", "me", state, &[], false, None, &cameras)
+            .iter()
+            .map(|person| person.streaming)
+            .collect()
+    };
+    assert_eq!(streaming(&state), [false, false]);
+    let frames = Arc::new(crate::frames::Frames::create(2, 2).unwrap());
+    state.sharing = Some(Sharing {
+        phase: SharePhase::Starting,
+        frames,
+        viewers: vec![],
+    });
+    assert_eq!(streaming(&state), [false, false], "not until it's live");
+    if let Some(sharing) = state.sharing.as_mut() {
+        sharing.phase = SharePhase::Live;
+    }
+    assert_eq!(
+        streaming(&state),
+        [true, false],
+        "this account, and no other"
+    );
+}
+
 /// Held by each test that joins a call in the fake Discord, so one runs at
 /// a time: they join as the same account, which sees another's join as
 /// joining elsewhere and ends its call, and the fake's voice controls are
@@ -250,28 +299,196 @@ async fn switching_calls_joins_each_next_one() {
     join_then_leave(&discord, GUILD, LOUNGE, "back to the Lounge").await;
     // Discord asks the gateway to reconnect (op 7): it resumes its session
     // (op 6), and the next joins go through the resumed connection.
-    let resumes = || async {
+    // How often the fake saw clients identify and resume.
+    let sessions = || async {
         let answer = control("/_control/sessions").await;
         let body = answer.split("\r\n\r\n").nth(1).unwrap_or_default();
-        serde_json::from_str::<serde_json::Value>(body).unwrap()["resumes"]
-            .as_u64()
-            .unwrap()
+        let counts = serde_json::from_str::<serde_json::Value>(body).unwrap();
+        (
+            counts["identifies"].as_u64().unwrap(),
+            counts["resumes"].as_u64().unwrap(),
+        )
     };
-    let before = resumes().await;
+    let (identifies_before, resumes_before) = sessions().await;
     assert!(
         control("/_control/gateway-reconnect")
             .await
             .contains("reconnect")
     );
-    let mut resumed = false;
-    for _ in 0..100 {
-        tokio::time::sleep(Duration::from_millis(50)).await;
-        if resumes().await > before {
-            resumed = true;
-            break;
+    // The client resumes at once; a try that fails waits 2–3 s, then 4–5 s,
+    // before the next, so a resume that needs retries goes past a few
+    // seconds. The test waits for the resume itself, up to a deadline that
+    // holds the client's whole schedule, and stops as soon as this client's
+    // session ends instead of resuming.
+    let resumed = async {
+        while sessions().await.1 == resumes_before {
+            tokio::time::sleep(Duration::from_millis(50)).await;
         }
-    }
-    assert!(resumed, "the gateway resumed");
+    };
+    let ended = online.wait_for(|snapshot| snapshot.status != Status::Online);
+    let outcome = tokio::time::timeout(Duration::from_secs(120), async {
+        tokio::select! {
+            () = resumed => None,
+            ended = ended => Some(ended.map(|snapshot| snapshot.status.clone())),
+        }
+    })
+    .await;
+    let failure = match outcome {
+        Ok(None) => None,
+        Ok(Some(Ok(status))) => Some(format!("the session ended instead: {status:?}")),
+        Ok(Some(Err(_))) => Some("the client stopped".to_owned()),
+        Err(_) => Some("no resume within 120 s".to_owned()),
+    };
+    let (identifies, resumes) = sessions().await;
+    assert!(
+        failure.is_none(),
+        "the gateway resumed: {}; the fake's resumes went {resumes_before} -> {resumes}, \
+         identifies {identifies_before} -> {identifies}",
+        failure.unwrap_or_default()
+    );
     join_then_leave(&discord, GUILD, LOUNGE, "the Lounge after a resume").await;
     join_then_leave(&discord, PRIVATE, DM_BOB, "Bob's DM call after a resume").await;
+}
+
+/// The wait before leaving a call left alone, shorter in a test that sets
+/// it; see [`idle_wait`].
+pub(super) static IDLE_WAIT: std::sync::Mutex<Option<Duration>> = std::sync::Mutex::new(None);
+
+/// How a call Bob starts and then leaves went: how long after he hung up
+/// it ended by itself, or `None` when it was still going after a few
+/// waits, and was left then.
+async fn after_bob_hangs_up(
+    discord: &Discord,
+    channel: &str,
+    group: bool,
+    wait: Duration,
+) -> Option<Duration> {
+    let me = discord.snapshots().borrow().user_id.clone().unwrap();
+    let bob_there = |snapshot: &Arc<Snapshot>| {
+        snapshot
+            .voice
+            .get(channel)
+            .is_some_and(|members| members.iter().any(|member| member.user_id != me))
+    };
+    let mut snapshots_seen = discord.snapshots();
+    let calling = control(if group {
+        "/_control/call?group"
+    } else {
+        "/_control/call"
+    })
+    .await;
+    assert!(calling.contains("Bob is calling"), "{calling}");
+    tokio::time::timeout(Duration::from_secs(10), snapshots_seen.wait_for(bob_there))
+        .await
+        .expect("Bob is in the call")
+        .unwrap();
+    let (commands, mut received) = mpsc::unbounded_channel();
+    let (snapshots, mut states) = watch::channel(State::default());
+    let mut state = State::default();
+    let call = call(
+        discord,
+        PRIVATE,
+        channel,
+        &mut state,
+        &mut received,
+        &snapshots,
+        None,
+    );
+    tokio::pin!(call);
+    let connected = async {
+        tokio::time::timeout(
+            Duration::from_secs(20),
+            states.wait_for(|state| state.phase == Phase::Connected),
+        )
+        .await
+        .expect("the call connects")
+        .unwrap();
+        // Someone else there, the call stays past the wait.
+        tokio::time::sleep(wait + Duration::from_secs(1)).await;
+    };
+    tokio::select! {
+        ended = &mut call => panic!("the call ended with Bob in it: {ended:?}"),
+        () = connected => {}
+    }
+    assert!(control("/_control/hang-up").await.contains("hung up"));
+    let hung_up = std::time::Instant::now();
+    let ended = tokio::select! {
+        ended = &mut call => Some(ended),
+        () = tokio::time::sleep(wait * 3) => None,
+    };
+    match ended {
+        Some(ended) => {
+            ended.unwrap();
+            Some(hung_up.elapsed())
+        }
+        None => {
+            commands.send(Command::Leave).unwrap();
+            call.await.unwrap();
+            None
+        }
+    }
+}
+
+/// As Discord's client does, a DM call everyone else has left ends after a
+/// wait, with Clyde's note in the DM saying why; a group DM's call of more
+/// people stays.
+#[tokio::test(flavor = "multi_thread")]
+#[ignore = "needs testing/fake_discord.ts and YAPFAST_DISCORD_TEST_SERVER"]
+async fn a_dm_call_left_alone_ends_with_a_note() {
+    assert!(
+        yapfast_discord::client::test_server().is_some(),
+        "set YAPFAST_DISCORD_TEST_SERVER to the fake Discord"
+    );
+    let _alone = CALLS.lock().await;
+    /// Puts the wait back for the tests after, however this one ends.
+    struct Reset;
+    impl Drop for Reset {
+        fn drop(&mut self) {
+            *IDLE_WAIT
+                .lock()
+                .unwrap_or_else(|poisoned| poisoned.into_inner()) = None;
+        }
+    }
+    let _reset = Reset;
+    const WAIT: Duration = Duration::from_secs(2);
+    *IDLE_WAIT.lock().unwrap() = Some(WAIT);
+    let _ = rustls::crypto::aws_lc_rs::default_provider().install_default();
+    let discord = Discord::start(yapfast_discord::token::load().unwrap()).unwrap();
+    let mut online = discord.snapshots();
+    tokio::time::timeout(
+        Duration::from_secs(10),
+        online.wait_for(|snapshot| snapshot.status == Status::Online),
+    )
+    .await
+    .expect("the fake Discord answers")
+    .unwrap();
+    const DM_BOB: &str = "1400000000000000120";
+    const WEEKEND: &str = "1400000000000000121";
+    let mut live = discord.live();
+
+    let ended = after_bob_hangs_up(&discord, DM_BOB, false, WAIT).await;
+    let ended = ended.expect("the DM call ended by itself");
+    assert!(ended >= WAIT, "not before the wait: {ended:?}");
+    let note = tokio::time::timeout(Duration::from_secs(5), async {
+        loop {
+            match live.recv().await {
+                Ok(Live::Created(message))
+                    if message.channel_id == DM_BOB && message.author_id == "1" =>
+                {
+                    break message;
+                }
+                Ok(_) | Err(tokio::sync::broadcast::error::RecvError::Lagged(_)) => {}
+                Err(error) => panic!("{error}"),
+            }
+        }
+    })
+    .await
+    .expect("Clyde's note in the DM");
+    assert_eq!(note.content, IDLE_NOTE);
+    assert!(note.ephemeral, "only this account sees it");
+    assert_eq!((note.author.as_str(), note.bot), ("Clyde", true));
+
+    // Weekend plans has Carol too, whom the call still rings.
+    let ended = after_bob_hangs_up(&discord, WEEKEND, true, WAIT).await;
+    assert_eq!(ended, None, "a group's call stays");
 }

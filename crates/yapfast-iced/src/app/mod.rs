@@ -63,6 +63,20 @@ pub struct App {
     /// The title bar's inbox, while open, and a press on it that may move
     /// the window (`window_bar.rs`).
     pub inbox: Option<crate::window_bar::Inbox>,
+    /// The pings this account's open rooms hold, newest first, for the
+    /// inbox's Mentions tab (`window_bar.rs`).
+    pub mention_hits: std::collections::VecDeque<crate::window_bar::MentionHit>,
+    /// Whether this account's recent mentions were asked for since Discord
+    /// came online, or since the filter changed (`window_bar.rs` asks as
+    /// the Mentions tab shows), and the room open when they last were
+    /// (`sync.rs`).
+    pub mentions_fetched: bool,
+    pub mentions_room: Option<String>,
+    /// The Discord account `mention_hits` are of, and the recent mentions
+    /// last seen, to tell a new fetch (`window_bar.rs`).
+    pub mentions_of: Option<String>,
+    pub mentions_seen:
+        std::sync::Arc<Vec<(String, std::sync::Arc<yapfast_core::chat::ChatMessage>)>>,
     pub bar_drag: crate::window_bar::Drag,
     /// A look at the releases nobody asked for is under way, whose newer
     /// release a notification tells of (`settings/updates.rs`).
@@ -147,7 +161,7 @@ pub struct App {
     /// The person dialog's field and tick.
     pub person: crate::person_menu::Dialog,
     /// Video: what [`video::frames`] looks at, and the newest frame of
-    /// each camera (by participant id), of the watched stream ("stream:"
+    /// each camera (by participant id), of each watched stream ("stream:"
     /// and the streamer's id), of this account's screen and of a message's
     /// video, with its size, which `video::Video` draws.
     pub video: Arc<video::Shared>,
@@ -212,6 +226,8 @@ pub struct App {
     pub backend_events: Option<iced::task::Handle>,
     pub linking: Option<iced::task::Handle>,
     pub mfa: mfa::Mfa,
+    /// Manage Accounts' Add Account step.
+    pub accounts: crate::accounts::Accounts,
 }
 
 impl App {
@@ -274,6 +290,7 @@ impl App {
         layout.voice.apply();
         layout.prefs.apply_clock();
         yapfast_core::discord::set_custom_games(&layout.prefs.game_executables);
+        layout.prefs.apply_blocked_games();
         client.share_typing = layout.prefs.share_typing.unwrap_or(true);
         // The window opens at its size in the desktop's pixels whatever the
         // zoom, and its layout gets fewer.
@@ -296,6 +313,11 @@ impl App {
             window: Size::new(width, height),
             shell,
             inbox: None,
+            mention_hits: Default::default(),
+            mentions_fetched: false,
+            mentions_room: None,
+            mentions_of: None,
+            mentions_seen: Default::default(),
             bar_drag: Default::default(),
             announce_updates: false,
             win: Window::new(crate::pictures::Pictures::new(fitter), theme_icons),
@@ -370,6 +392,7 @@ impl App {
             backend_events: None,
             linking: None,
             mfa: mfa::Mfa::default(),
+            accounts: Default::default(),
         };
         crate::window_bar::fit_window(&mut app);
         app.follow_protected();
@@ -396,9 +419,14 @@ impl App {
         };
         let away = crate::away::watch_away();
         let system_theme = iced::system::theme().map(Message::SystemTheme);
+        let motion = if app.layout.sync_reduced_motion {
+            crate::shell::read_system_motion()
+        } else {
+            Task::none()
+        };
         (
             app,
-            Task::batch([sync, frames, focus, away, talk, system_theme]),
+            Task::batch([sync, frames, focus, away, talk, system_theme, motion]),
         )
     }
 
@@ -496,6 +524,7 @@ impl App {
                 let mut cx = crate::ctx::cx!(self);
                 self.mfa.update(event, &mut cx)
             }
+            Message::Accounts(event) => crate::accounts::update(self, event),
             Message::Control(command) => crate::control_file::control(self, &command),
             Message::Timeline(event) => crate::timeline::update(self, event),
             Message::DismissNotice => crate::banners::dismiss_notice(self),
@@ -683,6 +712,10 @@ impl App {
             Message::Search(crate::search::Event::SortMenu) => {
                 let at = self.pressed.get();
                 crate::search::open_sort_menu(self, at)
+            }
+            Message::Search(crate::search::Event::Menu(index)) => {
+                let at = self.pressed.get();
+                crate::search::open_found_menu(self, index, at)
             }
             Message::Search(crate::search::Event::Filters(event)) => {
                 crate::search_filters::update(self, event)

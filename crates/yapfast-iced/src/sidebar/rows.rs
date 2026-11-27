@@ -14,7 +14,11 @@ use yapfast_core::{
     network::Network,
 };
 
-use crate::{controls::count_badge, looks::Status, pictures::Icon};
+use crate::{
+    controls::count_badge,
+    looks::Status,
+    pictures::{GroupIcon, Icon, room_group_icon},
+};
 
 use super::{DM_ROW, GAP, HEADING, PERSON, ROW, link_height};
 
@@ -35,6 +39,7 @@ pub struct Room {
     /// A DM, with its picture, its person's presence and the line under it.
     pub direct: bool,
     pub avatar: Option<String>,
+    pub group_icon: Option<GroupIcon>,
     pub presence: Option<Presence>,
     pub status: Status,
     /// A DM's person's looks: the decoration round the avatar, the
@@ -53,6 +58,9 @@ pub struct Room {
     /// A DM with a call going on, and a DM pinned to the top.
     pub call: bool,
     pub pinned: bool,
+    /// A DM someone else is typing in, whose avatar shows Discord's typing
+    /// dots in place of its status dot.
+    pub typing: bool,
     /// A thread under its channel, and whether another of its follows.
     pub thread: bool,
     pub thread_continues: bool,
@@ -517,6 +525,7 @@ fn room_row(
         voice: room.voice,
         direct: room.direct,
         avatar: room.avatar.clone(),
+        group_icon: room_group_icon(room),
         // Discord sends the presence of friends and of those sharing a
         // server; anyone else in a one-to-one DM shows offline.
         presence: if room.person.is_some() && room.network == Network::Discord {
@@ -568,6 +577,7 @@ fn room_row(
             }),
         call: room.direct && !room.people.is_empty(),
         pinned: room.direct && state.pinned.contains(&room.id),
+        typing: room.direct && state.typing_dms.contains(&room.id),
         thread: room.parent.is_some(),
         thread_continues: false,
         has_threads: false,
@@ -590,10 +600,12 @@ fn room_row(
                         muted: person.muted,
                         deafened: person.deafened,
                         server_muted: person.server_muted,
+                        speaking_blocked: person.speaking_blocked,
                         server_deafened: person.server_deafened,
                         streaming: person.streaming,
                         video: person.video.is_some(),
                         elsewhere: false,
+                        ..Default::default()
                     })
                     .collect()
             } else {

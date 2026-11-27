@@ -278,6 +278,8 @@ pub enum Icon {
     Search,
     /// Up and down arrows: a Sort menu.
     ArrowsUpDown,
+    /// Two sliders: a Filter menu, as the inbox's Mentions tab has.
+    FiltersHorizontal,
     ForumPost,
     /// The curve from a reply's line down to its avatar, in the top 13
     /// of its 33 px square.
@@ -299,6 +301,8 @@ pub enum Icon {
     Chain,
     Eye,
     EyeOff,
+    /// Watching a stream beside those watched, as Discord's EyePlusIcon.
+    EyePlus,
     Gif,
     Sticker,
     Star,
@@ -332,6 +336,7 @@ pub enum Icon {
     NoiseBars,
     NoiseBarsOff,
     Palette,
+    Accessibility,
     Help,
     /// The window's own title bar: back and forward, minimize, restore.
     ArrowLeft,
@@ -359,6 +364,8 @@ pub enum Icon {
     AtSign,
     UserMinus,
     UserX,
+    /// A disc with a person cut out: Switch Accounts'.
+    UserCircle,
     FolderPlus,
     CopyPlus,
 }
@@ -423,6 +430,7 @@ impl Icon {
             Icon::Chain => icon!("link.svg"),
             Icon::Eye => icon!("eye.svg"),
             Icon::EyeOff => icon!("eye-off.svg"),
+            Icon::EyePlus => icon!("eye-plus.svg"),
             Icon::Gif => icon!("gif.svg"),
             Icon::Sticker => icon!("sticker.svg"),
             Icon::Star => icon!("star.svg"),
@@ -443,6 +451,7 @@ impl Icon {
             Icon::ChartBar => icon!("chart-bar.svg"),
             Icon::Search => icon!("search.svg"),
             Icon::ArrowsUpDown => icon!("arrows-up-down.svg"),
+            Icon::FiltersHorizontal => icon!("filters-horizontal.svg"),
             Icon::ForumPost => icon!("message-square-text.svg"),
             Icon::SmilePlus => icon!("smile-plus.svg"),
             Icon::Smile => icon!("smile.svg"),
@@ -544,6 +553,7 @@ impl Icon {
             Icon::ScreenShareOff => icon!("screen-share-off.svg"),
             Icon::Soundboard => icon!("soundboard.svg"),
             Icon::Palette => icon!("palette.svg"),
+            Icon::Accessibility => icon!("accessibility.svg"),
             Icon::Help => icon!("help-circle.svg"),
             Icon::ArrowLeft => icon!("arrow-left.svg"),
             Icon::ArrowRight => icon!("arrow-right.svg"),
@@ -570,6 +580,7 @@ impl Icon {
             Icon::AtSign => icon!("at-sign.svg"),
             Icon::UserMinus => icon!("user-minus.svg"),
             Icon::UserX => icon!("user-x.svg"),
+            Icon::UserCircle => icon!("user-circle.svg"),
             Icon::FolderPlus => icon!("folder-plus.svg"),
             Icon::CopyPlus => icon!("copy-plus.svg"),
             Icon::VideoOff => icon!("video-off.svg"),

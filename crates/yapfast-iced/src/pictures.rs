@@ -53,7 +53,7 @@ impl yapfast_core::chat::PixelBuffer for NativePixels {
 
     fn straight_rgba(&self) -> Vec<u8> {
         let mut pixels = self.0.clone();
-        for pixel in pixels.chunks_exact_mut(4) {
+        for pixel in pixels.as_chunks_mut::<4>().0 {
             let [b, g, r, a] = [pixel[0], pixel[1], pixel[2], pixel[3]];
             let straight = |value: u8| match a {
                 0 => 0,
@@ -204,6 +204,12 @@ pub struct Pictures {
     /// Copies of other pictures, at each size they're drawn at (width,
     /// height, cut to cover).
     pub scaled: RefCell<HashMap<(u32, u32, bool), Converted<Handle>>>,
+    /// Back avatars of two-avatar group DM icons, cut round and notched for
+    /// the front avatar, by `(mini_pixels, size_pixels)`.
+    pub group_backs: RefCell<HashMap<(u32, u32), Converted<Handle>>>,
+    /// Fallback tinted discs with the cutout punched out, for group DMs whose
+    /// back avatar hasn't downloaded yet: `(tint, mini_pixels, size_pixels)`.
+    pub group_fallback_backs: RefCell<HashMap<(u32, u32, u32), Handle>>,
     /// Presence dots, by what they are and their ring's colour, and the
     /// scale they're drawn at.
     pub marks: RefCell<HashMap<(Mark, u32), Handle>>,
@@ -224,6 +230,8 @@ impl Pictures {
         Self {
             previews: Default::default(),
             scaled: Default::default(),
+            group_backs: Default::default(),
+            group_fallback_backs: Default::default(),
             marks: Default::default(),
             emoji: Default::default(),
             players: Players::default(),
@@ -235,7 +243,12 @@ impl Pictures {
     /// Whether `picture` is opaque all over.
     pub fn opaque(&self, picture: &Arc<Picture>) -> bool {
         self.opaque.borrow_mut().get(picture, |picture| {
-            picture.rgba.chunks_exact(4).all(|pixel| pixel[3] == 255)
+            picture
+                .rgba
+                .as_chunks::<4>()
+                .0
+                .iter()
+                .all(|pixel| pixel[3] == 255)
         })
     }
 
@@ -270,6 +283,10 @@ impl Pictures {
             converted.prune(0);
             !converted.is_empty()
         });
+        self.group_backs.borrow_mut().retain(|_, converted| {
+            converted.prune(0);
+            !converted.is_empty()
+        });
     }
 
     /// The window went: every picture made for it goes.
@@ -277,6 +294,8 @@ impl Pictures {
         *self.previews.borrow_mut() = Default::default();
         *self.opaque.borrow_mut() = Default::default();
         self.scaled.borrow_mut().clear();
+        self.group_backs.borrow_mut().clear();
+        self.group_fallback_backs.borrow_mut().clear();
         self.marks.borrow_mut().clear();
         self.emoji.borrow_mut().clear();
         self.players.clear();
@@ -289,6 +308,8 @@ impl Pictures {
         self.previews.borrow().is_empty()
             && self.opaque.borrow().is_empty()
             && self.scaled.borrow().is_empty()
+            && self.group_backs.borrow().is_empty()
+            && self.group_fallback_backs.borrow().is_empty()
             && self.marks.borrow().is_empty()
             && self.emoji.borrow().is_empty()
             && self.players.is_empty()
@@ -377,6 +398,48 @@ impl Player {
         self.due = (due + Duration::from_millis(u64::from(delay))).max(now);
         Some(frame)
     }
+
+    /// Advances a picture playing from cached frames, returning the index of
+    /// the frame that fell due by `now`.
+    pub fn advance(&mut self, now: Instant) -> Option<usize> {
+        let due = self.due()?;
+        if now < due {
+            return None;
+        }
+        let animation = self.picture.animation.as_ref()?;
+        let total = animation.delays.len();
+        if total == 0 {
+            return None;
+        }
+        if self.index >= total {
+            self.played += 1;
+            if animation.plays != 0 && self.played >= animation.plays {
+                return None;
+            }
+            self.index = 0;
+        }
+        let current = self.index;
+        let delay = animation
+            .delays
+            .get(current)
+            .copied()
+            .unwrap_or(100)
+            .max(20);
+        self.index += 1;
+        self.due = (due + Duration::from_millis(u64::from(delay))).max(now);
+        Some(current)
+    }
+
+    /// Releases the frame iterator and underlying file when all frames have
+    /// been cached.
+    pub fn drop_frames(&mut self) {
+        self.frames = Box::new(std::iter::empty());
+    }
+
+    /// How many frames this pass through the animation has shown.
+    pub fn index(&self) -> usize {
+        self.index
+    }
 }
 
 /// Small pictures the client draws for marks: presence dots, in the
@@ -389,19 +452,78 @@ pub enum Mark {
 
 pub use crate::icons::Icon;
 
-/// Whether moving pictures play, as Messages' Animate choice and the
-/// window's focus say, and not while nobody is using Yapfast, whatever
-/// Animate says (`crate::away`); while they don't, each shows its first
-/// frame and nothing asks for frames.
+/// Whether moving pictures play, as Accessibility's Animate choice (or
+/// reduced motion stilling them) and the window's focus say, and not while
+/// nobody is using Yapfast, whatever Animate says (`crate::away`); while
+/// they don't, each shows its first frame and nothing asks for frames.
 pub fn plays(app: &App) -> bool {
     if app.away.inactive {
         return false;
     }
-    match app.layout.prefs.animate {
+    match app.layout.animate() {
         crate::layout::Animate::Focused => app.shell.focused,
         crate::layout::Animate::Always => true,
         crate::layout::Animate::Never => false,
     }
+}
+
+/// How a group DM's fallback icon is drawn when it has no custom icon.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum GroupIcon {
+    /// Two-member group DM (or one without two known other members):
+    /// Discord's circular group-people placeholder icon, on this ground.
+    Placeholder(u32),
+    /// Group DM with more than two members: two overlapping circular
+    /// member avatars.
+    Pair([yapfast_core::chat::GroupAvatar; 2]),
+}
+
+impl GroupIcon {
+    pub fn as_face(&self) -> GroupFace<'_> {
+        match self {
+            Self::Placeholder(ground) => GroupFace::Placeholder(*ground),
+            Self::Pair(pair) => GroupFace::Pair(pair),
+        }
+    }
+}
+
+/// Borrowed form of [`GroupIcon`] passed to [`Face`].
+#[derive(Clone, Copy, Debug)]
+pub enum GroupFace<'a> {
+    Placeholder(u32),
+    Pair(&'a [yapfast_core::chat::GroupAvatar; 2]),
+}
+
+/// The grounds of Discord's eight group DM placeholders
+/// (`DEFAULT_GROUP_DM_AVATARS`), each the same white people glyph.
+const GROUP_PLACEHOLDERS: [u32; 8] = [
+    0xe1721f, 0xefbc12, 0x19b491, 0x29c566, 0x2d8dd6, 0x904fad, 0xe61b58, 0xe44235,
+];
+
+/// Which placeholder a group DM gets: Discord's client picks by the channel
+/// id's timestamp, read through a double, modulo eight (its epoch is a
+/// multiple of eight, so it drops out). An id that isn't a snowflake gets
+/// the green one.
+fn placeholder_ground(room: &str) -> u32 {
+    room.rsplit(':')
+        .next()
+        .and_then(|id| id.parse::<u64>().ok())
+        .map_or(GROUP_PLACEHOLDERS[3], |id| {
+            GROUP_PLACEHOLDERS[((id as f64 / 4_194_304.0).floor() as u64 % 8) as usize]
+        })
+}
+
+/// A group DM's fallback icon for `room`, if it is a Discord group DM
+/// without a custom icon. A Matrix room keeps its initials.
+pub fn room_group_icon(room: &yapfast_core::chat::ChatRoom) -> Option<GroupIcon> {
+    (room.network == yapfast_core::network::Network::Discord
+        && room.direct
+        && room.person.is_none()
+        && room.avatar.is_none())
+    .then(|| match &room.group_avatars {
+        Some(pair) => GroupIcon::Pair(pair.clone()),
+        None => GroupIcon::Placeholder(placeholder_ground(&room.id)),
+    })
 }
 
 /// What [`App::face`] draws.
@@ -416,8 +538,14 @@ pub struct Face<'a> {
     pub decoration: Option<&'a str>,
     /// Whether the decoration plays: its row or card is pointed at.
     pub play: bool,
+    /// Whether a Nitro avatar plays its GIF ([`looks::moving_avatar`]),
+    /// once it has come and while pictures play: its row or message group
+    /// is pointed at.
+    pub animate: bool,
     /// The presence dot, the ring's colour, and where the dot goes.
     pub dot: Option<(Presence, u32, Point)>,
+    /// A group DM's fallback icon when `url` is `None`.
+    pub group: Option<GroupFace<'a>>,
     /// A theme presence dot's requested side instead of stock 16 px.
     pub dot_size: Option<f32>,
     /// A theme ring outside the avatar: ARGB, width and glow reach.
@@ -431,6 +559,11 @@ pub struct Face<'a> {
     /// Degrees a theme's frame turns about the face's centre (Zine's
     /// member prints); the picture in it stays straight.
     pub turn: f32,
+    /// Discord's typing badge in the presence dot's place while someone
+    /// types: the ring's colour and where the dot goes. It takes the dot's
+    /// presence's colour, or online's with no dot (a group DM's, as
+    /// Discord's).
+    pub typing: Option<(u32, Point)>,
 }
 
 impl<'a> Face<'a> {
@@ -445,12 +578,15 @@ impl<'a> Face<'a> {
             opacity: 1.0,
             decoration: None,
             play: false,
+            animate: false,
             dot: None,
+            group: None,
             dot_size: None,
             ring: None,
             frame: None,
             initial: None,
             turn: 0.0,
+            typing: None,
         }
     }
 
@@ -488,8 +624,16 @@ impl<'a> Face<'a> {
         }
     }
 
+    pub fn animate(self, animate: bool) -> Self {
+        Self { animate, ..self }
+    }
+
     pub fn dot(self, dot: Option<(Presence, u32, Point)>) -> Self {
         Self { dot, ..self }
+    }
+
+    pub fn group(self, group: Option<GroupFace<'a>>) -> Self {
+        Self { group, ..self }
     }
 
     pub fn dot_size(self, dot_size: Option<f32>) -> Self {
@@ -502,6 +646,10 @@ impl<'a> Face<'a> {
 
     pub fn frame(self, frame: Option<&'a yapfast_core::themes::lists::TileArt>) -> Self {
         Self { frame, ..self }
+    }
+
+    pub fn typing(self, typing: Option<(u32, Point)>) -> Self {
+        Self { typing, ..self }
     }
 }
 
@@ -934,6 +1082,120 @@ impl<'a> crate::ctx::Ctx<'a> {
             .into()
     }
 
+    /// A Nitro avatar at `url` playing its GIF, `size` across, its still
+    /// showing until the first frame; none for a still avatar, while
+    /// pictures are held still, or until the GIF has come.
+    fn moving_avatar(
+        self,
+        url: &str,
+        size: f32,
+        radius: f32,
+        opacity: f32,
+    ) -> Option<Element<'a, Message>> {
+        let square = Size::new(size, size);
+        let moving = self.moving(
+            &looks::moving_avatar(url)?,
+            square,
+            Rectangle::with_size(square),
+            true,
+        )?;
+        let still = self.picture(url, size as u32, size as u32, true);
+        Some(moving.radius(radius).opacity(opacity).still(still).into())
+    }
+
+    /// Discord's group-people placeholder icon on `ground` for a group DM
+    /// without a custom icon or two-avatar pair.
+    pub fn group_placeholder(
+        self,
+        ground: u32,
+        size: f32,
+        radius: f32,
+        opacity: f32,
+    ) -> Element<'a, Message> {
+        let ground = faded(hex(ground), opacity);
+        let glyph_size = (size * 0.5).round().max(10.0) as u32;
+        container(
+            self.look
+                .glyph(Icon::Users, glyph_size, faded(Color::WHITE, opacity)),
+        )
+        .center(size)
+        .style(move |_| rounded(ground, radius))
+        .into()
+    }
+
+    /// Two overlapping circular avatars for a group DM without a custom icon,
+    /// with a transparent notch punched out of the back avatar around the
+    /// front avatar.
+    pub fn group_pair(
+        self,
+        pair: &[yapfast_core::chat::GroupAvatar; 2],
+        size: f32,
+        opacity: f32,
+    ) -> Element<'a, Message> {
+        let [first, second] = pair;
+        let mini = (size * 2.0 / 3.0).round().max(1.0);
+        let offset = size - mini;
+        let gap = (size * 0.08).max(2.0);
+        let mini_px = mini as u32;
+        let size_px = size.round() as u32;
+        let cut_center = offset + mini / 2.0;
+        let cut_radius = mini / 2.0 + gap;
+
+        let back_handle = match self.state.pictures.get(&first.avatar) {
+            Some(picture) if picture.width > 0 && picture.height > 0 => {
+                let premultiplied = picture.rgba.buffer::<NativePixels>().is_some();
+                self.pictures
+                    .group_backs
+                    .borrow_mut()
+                    .entry((mini_px, size_px))
+                    .or_default()
+                    .get(picture, |picture| {
+                        let pixels = paint::group_back_avatar(
+                            &picture.rgba,
+                            (picture.width, picture.height),
+                            mini_px,
+                            cut_center,
+                            cut_center,
+                            cut_radius,
+                            premultiplied,
+                        );
+                        Handle::from_rgba(mini_px, mini_px, pixels)
+                    })
+            }
+            _ => {
+                let tint_rgb = tint(&first.id);
+                self.pictures
+                    .group_fallback_backs
+                    .borrow_mut()
+                    .entry((tint_rgb, mini_px, size_px))
+                    .or_insert_with(|| {
+                        let mut canvas = paint::Canvas::new(mini_px, mini_px);
+                        canvas.circle(0.0, 0.0, mini, paint::Ink(tint_rgb, 1.0));
+                        canvas.erase_circle(cut_center, cut_center, cut_radius);
+                        handle(canvas)
+                    })
+                    .clone()
+            }
+        };
+        let back: Element<'a, Message> = Pic::square(back_handle, mini).opacity(opacity).into();
+        let front = self.avatar_tinted(
+            Some(&second.avatar),
+            &second.name,
+            &second.id,
+            mini,
+            mini / 2.0,
+            opacity,
+        );
+        stack![
+            iced::widget::Space::new().width(size).height(size),
+            back,
+            crate::controls::placed(front, offset, offset),
+        ]
+        .width(size)
+        .height(size)
+        .into()
+    }
+
     /// An avatar of `size` with the decoration round it (a fifth larger,
     /// centred over its edge, as Discord draws it), playing while `play`,
     /// and a presence dot ringed in `ring` at `dot`.
@@ -946,12 +1208,15 @@ impl<'a> crate::ctx::Ctx<'a> {
             opacity,
             decoration,
             play,
+            animate,
             dot,
+            group,
             dot_size,
             ring,
             frame,
             initial,
             turn,
+            typing,
         } = face;
         let content = self.themes.content(
             &self.look.theme.id,
@@ -1021,7 +1286,25 @@ impl<'a> crate::ctx::Ctx<'a> {
             })
             .into()
         } else {
-            self.avatar_tinted_exact(url, name, key.unwrap_or(name), avatar_size, radius, opacity)
+            match (url, group) {
+                (None, Some(GroupFace::Placeholder(ground))) => {
+                    self.group_placeholder(ground, avatar_size, radius, opacity)
+                }
+                (None, Some(GroupFace::Pair(pair))) => self.group_pair(pair, avatar_size, opacity),
+                _ => url
+                    .filter(|_| animate)
+                    .and_then(|url| self.moving_avatar(url, avatar_size, radius, opacity))
+                    .unwrap_or_else(|| {
+                        self.avatar_tinted_exact(
+                            url,
+                            name,
+                            key.unwrap_or(name),
+                            avatar_size,
+                            radius,
+                            opacity,
+                        )
+                    }),
+            }
         };
         let avatar: Element<'a, Message> = match content.and_then(|content| content.avatars.ring) {
             Some((colour, width)) => container(avatar)
@@ -1109,7 +1392,19 @@ impl<'a> crate::ctx::Ctx<'a> {
         {
             layers = layers.push(art);
         }
-        if let Some((presence, ring, at)) = dot
+        if let Some((ring, at)) = typing {
+            // Discord's pill takes the status's colour: the theme's live
+            // green and faint grey, as the dot has them.
+            let theme = self.look.theme;
+            let fill = match dot.map(|(presence, ..)| presence) {
+                Some(Presence::Idle) => hex(0xf0b232),
+                Some(Presence::DoNotDisturb) => hex(0xf23f43),
+                Some(Presence::Offline) => theme.faint,
+                Some(Presence::Online | Presence::Mobile) | None => theme.live,
+            };
+            let scale = dot_size.unwrap_or(16.0).max(1.0) / 16.0;
+            layers = layers.push(crate::typing::badge(fill, hex(ring), self.plays, scale, at));
+        } else if let Some((presence, ring, at)) = dot
             && let Some(dot) = self.mark(Mark::Dot(presence, ring))
         {
             // The phone stands 5 px taller than the dot.
@@ -1201,7 +1496,9 @@ mod tests {
         assert_ne!(patterned, gradient);
         assert!(
             patterned
-                .chunks_exact(4)
+                .as_chunks::<4>()
+                .0
+                .iter()
                 .all(|pixel| { pixel[..3] == [0, 0, 0] || pixel[..3] == [255, 255, 255] })
         );
     }
@@ -1224,5 +1521,45 @@ mod tests {
         assert!(player.due().is_some());
         assert!(player.next(Instant::now()).is_none(), "no frame to give");
         assert!(player.due().is_none(), "and none due");
+    }
+
+    #[test]
+    fn advance_steps_through_frames_and_loops() {
+        let gif = concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../../testing/fixtures/gifs/hello.gif"
+        );
+        let picture = yapfast_core::chat::decode_picture_at(std::path::Path::new(gif), 220, 165)
+            .expect("decoded");
+        let total = picture.animation.as_ref().unwrap().delays.len();
+        let mut player = Player::new(&Arc::new(picture)).expect("it moves");
+        player.drop_frames();
+        let mut now = Instant::now();
+        for expected in 0..total {
+            let due = player.due().expect("due");
+            now = now.max(due);
+            let idx = player.advance(now).expect("advanced");
+            assert_eq!(idx, expected);
+        }
+        // Loops back to frame 0
+        let due = player.due().expect("due");
+        now = now.max(due);
+        let idx = player.advance(now).expect("advanced second loop");
+        assert_eq!(idx, 0);
+    }
+
+    #[test]
+    fn a_group_placeholder_takes_discords_ground_for_its_channel() {
+        assert_eq!(
+            super::placeholder_ground("discord:@me:1234567890123456789"),
+            0xe44235
+        );
+        // Read through a double as Discord's client reads it, this id rounds
+        // into the next 2^22 step and gets the purple ground, not blue.
+        assert_eq!(
+            super::placeholder_ground("discord:@me:1152921504627818495"),
+            0x904fad
+        );
+        assert_eq!(super::placeholder_ground("discord:@me:two"), 0x29c566);
     }
 }

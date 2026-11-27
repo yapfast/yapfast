@@ -108,10 +108,11 @@ Voice channels and DM calls, with mute, deafen, a volume for each person,
 noise suppression, echo removal, and a voice gate you can tune, or
 push-to-talk on any key or combination, held in any app. Keybinds mute,
 deafen or push to mute from any app too ([keybinds](docs/keybinds.md)). Go
-Live, watch other people's streams, turn on your camera and play the
-soundboard. The call stays up while you read other channels, busy voice
-channels say how long their call has gone on, and pointing at a Discord
-voice channel shows who is in it, who is live and whose camera is on.
+Live, watch other people's streams, as many at once as you like, turn on
+your camera and play the soundboard. The call stays up while you read other
+channels, busy voice channels say how long their call has gone on, and
+pointing at a Discord voice channel shows who is in it, who is live and
+whose camera is on.
 
 The noise suppression could be better, though. Know an open source one that
 does a better job? PLEASE tell me.
@@ -145,7 +146,8 @@ macOS, Steam's and Wine's included, and on Linux and Windows the Rich Presence
 games send, with details, elapsed time, images and buttons.
 
 **Settings → Game activity** turns sharing on and off as Discord's own setting
-does, and names games Yapfast doesn't know. See
+does, names games Yapfast doesn't know, and lists programs it never shows as a
+game. See
 [game detection](docs/discord/people.md#game-detection) and
 [Rich Presence](docs/discord/people.md#rich-presence).
 
@@ -190,16 +192,20 @@ interested. Folders show up as they do in Discord.
   leave one, and read it beside its channel.
 - **Search** a whole server with Discord's filters, and browse a channel's pins.
 - **Profiles** as Discord draws them: badges, server tags, avatar decorations,
-  nameplates, name styles, profile effects and frames, and the full profile's
-  Board, Wishlist and recent activity. Edit Profile changes your own theme,
-  name style and server tag.
+  nameplates, name styles, profile effects and frames, what others are doing
+  with their Rich Presence buttons, and the full profile's Board, Wishlist and
+  recent activity. Edit Profile changes your own theme, name style and server
+  tag.
 - **Friends**: requests, adding by username, nicknames, notes, profile cards,
   your status and custom status (custom emoji included). Block and ignore
   people from their menu, block and unblock them from their profile, hide what
   blocked people write, and unblock them from a list in Settings. Active Now
   sits beside the friends list.
+- **Several accounts**: link as many as you like, and switch between them from your
+  account card or manage them in a dialog, as Discord's own apps do.
 - **Notifications** that follow your Discord settings, muting for channels,
-  categories and servers, and unread markers.
+  categories and servers, and unread markers. The inbox lists unread channels
+  and your recent mentions, filtered by ping, jumping to their messages.
 - **Soft sounds** for joining, leaving, muting and messages, in six sets.
 
 ### Not there yet
@@ -252,7 +258,8 @@ servers just to snoop on your DMs, and no thanks :D).
 - You link your account by scanning a QR code with Discord's phone app, so
   Yapfast never sees your password.
 - The login token stays in your system's credential store, and only ever goes
-  to Discord. Unlinking signs that session out and deletes it.
+  to Discord. Unlinking deletes it, and signs out the session the QR code
+  made. A pasted token's session stays, as it's the app you copied it from.
 - It sends no analytics or crash reports. It looks for updates only if you
   turn on **Check for updates** in **Settings → About**, with one request to
   GitHub that says nothing about you.
@@ -462,7 +469,7 @@ on each system and for running against the fake Discord server.
 ### Without Nix
 
 On Linux, `cargo run --locked` works without Nix too, with rustup, which
-installs Rust 1.97.1 from `rust-toolchain.toml`, and the tools and libraries
+installs Rust 1.100 from `rust-toolchain.toml`, and the tools and libraries
 the Arch package builds with, in `packaging/arch/PKGBUILD`. Cargo downloads
 the same libwebrtc archive the Nix shell pins.
 

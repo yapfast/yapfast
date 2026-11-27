@@ -98,7 +98,7 @@ fn viewer_sound(before: &voice::State, after: &voice::State) -> Option<Sound> {
         let mine = state.sharing.as_ref().map(|_| None);
         let watched = state
             .watching
-            .as_ref()
+            .iter()
             .map(|watching| Some(watching.user.clone()));
         mine.into_iter().chain(watched).collect()
     };
@@ -253,9 +253,31 @@ impl Application {
                         .any(|person| &person.id == user && person.streaming)
             });
         match self.state.pending_watch.take_if(|_| ready) {
-            Some((_, user)) => self.voice_command(voice::Command::Watch(user)),
+            Some((_, user)) => self.watch(user, false),
             None => vec![],
         }
+    }
+
+    /// Watches `user`'s stream as Discord's client does (`STREAM_WATCH`'s
+    /// `allowMultiple`): while none or one other is watched, in place of
+    /// it; `alongside` those watched, or while two or more are, beside
+    /// them.
+    pub(super) fn watch(&mut self, user: String, alongside: bool) -> Vec<Effect> {
+        let watching = &self.state.voice.watching;
+        let mut commands: Vec<voice::Command> = if alongside || watching.len() >= 2 {
+            Vec::new()
+        } else {
+            watching
+                .iter()
+                .filter(|watching| watching.user != user)
+                .map(|watching| voice::Command::StopWatching(watching.user.clone()))
+                .collect()
+        };
+        commands.push(voice::Command::Watch(user));
+        commands
+            .into_iter()
+            .flat_map(|command| self.voice_command(command))
+            .collect()
     }
 
     /// A call command, with the sound of muting or deafening in a call.
@@ -309,6 +331,7 @@ impl Application {
                             muted: true,
                             deafened: false,
                             server_muted: false,
+                            speaking_blocked: false,
                             server_deafened: false,
                             speaking: false,
                             connected: true,

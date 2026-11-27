@@ -17,6 +17,8 @@
 //! do.
 
 mod appearance;
+mod desktop_icons;
+mod font;
 pub mod keybinds;
 mod pages;
 pub(crate) mod theme_creator;
@@ -27,7 +29,7 @@ pub use theme_keys::ThemeKey;
 pub use theme_page::trial_banner;
 pub mod updates;
 
-pub use pages::message_size;
+pub use pages::{block_game, message_size, open_detected_games_menu, system_motion};
 pub mod voice;
 
 use crate::widgets::scroll_view;
@@ -42,6 +44,7 @@ use crate::{
     app::Message,
     controls::{self, bar},
     ctx::{self, Ctx, Cx, Focus, Request, Screen},
+    desktop::Autostart,
     fonts::BOLD,
     form,
     pictures::Icon,
@@ -53,11 +56,26 @@ use crate::{
 use appearance::Editor;
 #[cfg(test)]
 pub(crate) use appearance::{COLOUR_CODE as THEME_COLOUR_CODE, Event as ThemeEvent};
+pub(crate) use font::FontEvent;
 
 /// What a theme editor's change sends.
 #[cfg(test)]
 pub fn appearance_event(event: ThemeEvent) -> Message {
     crate::app::settings(Event::Theme(event))
+}
+
+/// What a preference's change sends.
+#[cfg(test)]
+pub fn pref_message(pref: Pref) -> Message {
+    crate::app::settings(Event::Pref(pref))
+}
+#[cfg(test)]
+pub(crate) use pages::Pref;
+
+/// What a Font event sends.
+#[cfg(test)]
+pub fn font_message(event: FontEvent) -> Message {
+    crate::app::settings(Event::Font(event))
 }
 
 /// How far the card sits in from the window's edges, and the sections'
@@ -79,6 +97,7 @@ pub enum Section {
     Account,
     Voice,
     Messages,
+    Accessibility,
     Notifications,
     Discord,
     Sounds,
@@ -105,6 +124,7 @@ impl Section {
             Section::Account => "My Account",
             Section::Voice => "Voice & Video",
             Section::Messages => "Messages",
+            Section::Accessibility => "Accessibility",
             Section::Notifications => "Notifications",
             Section::Discord => "Discord",
             Section::Sounds => "Sounds",
@@ -122,6 +142,7 @@ impl Section {
             Section::Account => Icon::User,
             Section::Voice => Icon::Mic,
             Section::Messages => Icon::MessageCircle,
+            Section::Accessibility => Icon::Accessibility,
             Section::Notifications => Icon::Bell,
             Section::Discord => Icon::Discord,
             Section::Sounds => Icon::Volume,
@@ -147,6 +168,7 @@ const GROUPS: [(&str, &[Section]); 3] = [
             Section::Notifications,
             Section::Sounds,
             Section::Appearance,
+            Section::Accessibility,
         ],
     ),
     (
@@ -185,6 +207,9 @@ pub struct Settings {
     /// Themes' editor while it's open, and the theme as edited,
     /// which the window shows meanwhile.
     pub editor: Option<Editor>,
+    /// How the last theme import or export went, under Appearance's title,
+    /// and whether it failed.
+    pub theme_note: Option<(String, bool)>,
     /// The Slint build's guided, step-based creator. The palette editor above
     /// remains available as the legacy Advanced fallback while this flow is
     /// being ported.
@@ -192,9 +217,14 @@ pub struct Settings {
     /// Installed themes, marketplace, URL fetch and protected review state.
     pub marketplace: theme_marketplace::Marketplace,
     preview: Option<Theme>,
+    icons: Option<desktop_icons::Icons>,
     /// Voice's state while it shows: the push-to-talk key being recorded,
     /// the camera being tried, the gate's meter, the entrance sounds.
     pub voice: voice::Voice,
+    /// What Appearance's Font says of the files just chosen that didn't
+    /// load, until the next change; none shows the standing note
+    /// (`custom_font::note`).
+    pub font_note: Option<String>,
     /// Game Activity's draft of a game.
     pub game: pages::GameDraft,
     /// The keybind being recorded, and the keys pressed so far.
@@ -210,7 +240,7 @@ pub struct Settings {
 /// the desktop can: none where they can't.
 #[derive(Clone, Copy, Debug, Default)]
 pub struct Platform {
-    pub autostart: Option<bool>,
+    pub autostart: Option<Autostart>,
     pub discord_links: Option<bool>,
 }
 
@@ -240,6 +270,10 @@ pub enum Event {
     Game(pages::GameEvent),
     Voice(voice::Event),
     Theme(appearance::Event),
+    DesktopIcon(desktop_icons::Event),
+    /// Appearance's Font: choosing the font files, removing one, going back
+    /// to DM Sans.
+    Font(FontEvent),
     Marketplace(theme_marketplace::Event),
     /// Recording a keybind starts or stops: push to talk's or a row's.
     Record(keybinds::Target, bool),
@@ -284,6 +318,12 @@ impl Settings {
         }
         if before == Some(Section::Themes) && section != Section::Themes {
             self.cancel_theme(cx);
+        }
+        if before == Some(Section::Appearance) && section != Section::Appearance {
+            self.icons = None;
+        }
+        if section == Section::Appearance && before != Some(Section::Appearance) {
+            self.icons = desktop_icons::Icons::new(cx.client.root(), &cx.layout.prefs);
         }
         if before == Some(Section::Voice) && section != Section::Voice {
             self.end_mic_test(cx);
@@ -336,11 +376,16 @@ impl Settings {
             Event::Account(event) => self.account_event(event, cx),
             Event::Game(event) => self.game_event(event, cx),
             Event::Voice(event) => self.voice_event(event, cx),
+            Event::DesktopIcon(event) => return self.desktop_icon_event(event, cx),
             Event::ThemeKey(key) => return self.theme_key(key, cx),
             Event::Theme(event) => {
                 // A click puts the keys back where they were before Tab.
                 self.marketplace.focus = None;
-                return self.theme_event(event, cx);
+                let task = self.theme_event(event, cx);
+                if self.section != Some(Section::Appearance) {
+                    self.icons = None;
+                }
+                return task;
             }
             Event::Marketplace(event) => {
                 self.marketplace.focus = None;
@@ -361,6 +406,7 @@ impl Settings {
                 }
                 return task;
             }
+            Event::Font(event) => return self.font_event(event, cx),
             Event::Record(target, on) => self.record(target, on),
             Event::Heard(heard) => self.heard(heard, cx),
             Event::Keybind(event) => self.keybind_event(event, cx),
@@ -411,13 +457,25 @@ impl Settings {
     }
 
     /// Reads what the desktop says of starting at sign-in and Discord's
-    /// links, for Advanced. A Discord build only offers the links.
-    fn read_platform_choices(&mut self, cx: &Cx<'_>) {
+    /// links, for Advanced. A Discord build only offers the links. A startup
+    /// entry that's on says whether Yapfast starts minimized, which is kept
+    /// for when it's turned on again, after Task Manager or the installer
+    /// changed it too.
+    fn read_platform_choices(&mut self, cx: &mut Cx<'_>) {
         let desktop = crate::desktop::desktop();
         self.platform = Platform {
             autostart: desktop.autostart(),
             discord_links: desktop.discord_links(cx.client.root()),
         };
+        let minimized = match self.platform.autostart {
+            Some(Autostart::Tray) => true,
+            Some(Autostart::Window) => false,
+            Some(Autostart::Off) | None => return,
+        };
+        if cx.layout.prefs.start_minimized != minimized {
+            cx.layout.prefs.start_minimized = minimized;
+            cx.keep("start_minimized", minimized);
+        }
     }
 }
 
@@ -498,6 +556,7 @@ impl<'a> Page<'a> {
             Section::Account => self.account_page(),
             Section::Voice => self.voice_page(),
             Section::Messages => self.messages_page(),
+            Section::Accessibility => self.accessibility_page(),
             Section::Notifications => self.notifications_page(),
             Section::Discord => self.discord_page(),
             Section::Sounds => self.sounds_page(),

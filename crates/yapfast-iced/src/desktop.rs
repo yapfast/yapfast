@@ -22,9 +22,28 @@ use yapfast_core::{
 pub enum TrayChoice {
     Open,
     Disconnect,
+    CheckForUpdates,
+    Restart,
     Quit,
     /// A tray came or went, which decides what closing the window does.
     Available,
+}
+
+/// The two independently configurable desktop icons.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum IconTarget {
+    Application,
+    Tray,
+}
+
+/// The artwork a desktop icon uses. Theme IDs name built-in palettes.
+#[derive(Clone, Debug, Default, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum IconChoice {
+    #[default]
+    Default,
+    Theme(String),
+    Custom,
 }
 
 /// What the desktop said, for the window to act on.
@@ -75,6 +94,7 @@ pub trait Tray {
     fn available(&self) -> bool;
     /// The unread dot, and Disconnect in its menu during a call.
     fn show(&self, unread: bool, call: bool);
+    fn set_icon(&self, _root: &Path, _source: IconTarget, _choice: &IconChoice) {}
 }
 
 /// Shows desktop notifications.
@@ -153,6 +173,15 @@ pub trait Updates {
     fn ready(&self) -> bool;
 }
 
+/// How the desktop starts Yapfast at sign-in, as its entry has it: not at
+/// all, with the window, or minimized to the tray (`--background`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Autostart {
+    Off,
+    Window,
+    Tray,
+}
+
 /// The desktop's parts, which the root crate fills in.
 pub trait Desktop: Send + Sync {
     /// The window's app ID on Linux, which names its desktop entry.
@@ -163,7 +192,13 @@ pub trait Desktop: Send + Sync {
     /// folder handing over, and updates' results.
     fn start(&self, _tell: Tell) {}
     /// Puts Yapfast's icon in the tray; none where there's no tray.
-    fn tray(&self, _tell: Tell) -> Option<Box<dyn Tray>> {
+    fn tray(
+        &self,
+        _tell: Tell,
+        _root: &Path,
+        _source: IconTarget,
+        _choice: &IconChoice,
+    ) -> Option<Box<dyn Tray>> {
         None
     }
     /// The activation token of the tray click that's opening the window.
@@ -175,9 +210,8 @@ pub trait Desktop: Send + Sync {
     }
     /// Brings a shown window forward with a later start's token.
     fn activate(&self, _window: &dyn iced::window::Window, _token: &str) {}
-    /// Gives a window just made what iced can't: its icon on Windows; and
-    /// on Wayland follows files dragged over it.
-    fn decorate(&self, _window: &dyn iced::window::Window, _tell: Tell, _unread: u8) {}
+    /// Follows files dragged over a new Wayland window.
+    fn decorate(&self, _window: &dyn iced::window::Window, _tell: Tell) {}
     /// Updates the notification count on the window's taskbar icon on Windows.
     #[cfg(windows)]
     fn taskbar_unread(&self, _window: &dyn iced::window::Window, _unread: u8) {}
@@ -214,14 +248,43 @@ pub trait Desktop: Send + Sync {
     /// monitor it's on if it no longer fits there.
     fn put_window(&self, _window: &dyn iced::window::Window, _at: [i32; 2]) {}
     /// The window's icon where the window carries one (X11), as RGBA.
-    fn window_icon(&self) -> Option<(Vec<u8>, u32, u32)> {
+    fn window_icon(&self, _root: &Path, _choice: &IconChoice) -> Option<(Vec<u8>, u32, u32)> {
         None
     }
-    /// Whether Yapfast starts when the person signs in; none where it can't.
-    fn autostart(&self) -> Option<bool> {
+    /// Windows has separate native icons for the title bar and taskbar.
+    fn set_window_icon(
+        &self,
+        _window: &dyn iced::window::Window,
+        _root: &Path,
+        _choice: &IconChoice,
+        _unread: u8,
+    ) {
+    }
+    fn supports_desktop_icons(&self) -> bool {
+        false
+    }
+    /// The icon's Appearance thumbnail, as RGBA.
+    fn icon_preview(
+        &self,
+        _root: &Path,
+        _target: IconTarget,
+        _choice: &IconChoice,
+    ) -> Option<(Vec<u8>, u32, u32)> {
         None
     }
-    fn set_autostart(&self, _on: bool) -> Result<(), String> {
+    /// Decodes and normalizes a chosen image off the window's thread.
+    fn prepare_icon(&self, _path: &Path) -> Result<Vec<u8>, String> {
+        Err("Custom icons are unavailable.".into())
+    }
+    /// Saves the prepared image in the data folder.
+    fn save_icon(&self, _root: &Path, _target: IconTarget, _png: &[u8]) -> Result<(), String> {
+        Err("Custom icons are unavailable.".into())
+    }
+    /// How Yapfast starts when the person signs in; none where it can't.
+    fn autostart(&self) -> Option<Autostart> {
+        None
+    }
+    fn set_autostart(&self, _mode: Autostart) -> Result<(), String> {
         Err("this build can't start at sign-in".into())
     }
     /// Whether `discord:` links open here; none where they can't.
@@ -233,6 +296,12 @@ pub trait Desktop: Send + Sync {
     }
     /// Puts a picture, as it was downloaded, on the clipboard.
     fn copy_picture(&self, _bytes: Vec<u8>) {}
+    /// Whether the desktop asks apps for less motion, as browsers read
+    /// `prefers-reduced-motion`; none where it doesn't say. It may wait on
+    /// D-Bus, so the window asks off its thread.
+    fn reduced_motion(&self) -> Option<bool> {
+        None
+    }
     /// Gives back memory freed with the window.
     fn release_memory(&self) {}
     fn updates(&self) -> Option<&dyn Updates> {

@@ -52,10 +52,22 @@ pub struct Layout {
     /// Slint build's defaults: notification replacements on, interface cues off,
     /// interface volume 50%.
     pub theme_sounds: BTreeMap<String, crate::themes::SoundPrefs>,
-    /// How much of an installed theme runs, and whether its motion stays
-    /// still. Colours and fonts apply at every setting.
+    /// How much of an installed theme runs. Colours and fonts apply at
+    /// every setting.
     pub theme_performance: Performance,
+    /// Reduced motion, as Settings → Accessibility (or Themes) chose it.
+    /// While `sync_reduced_motion` is on, what the desktop asks for decides
+    /// instead (`system_reduced_motion`, read as the window opens and each
+    /// time it takes the focus), as Discord's "Sync with computer setting";
+    /// [`Layout::reduced_motion`] is the one that counts.
     pub reduce_motion: bool,
+    pub sync_reduced_motion: bool,
+    #[serde(skip)]
+    pub system_reduced_motion: bool,
+    /// Reduced motion came on and stilled GIFs, emoji and stickers, as
+    /// Discord's client overrides its animation settings then; choosing
+    /// when they play, or reduced motion going, lets go of it.
+    pub animate_stilled: bool,
     /// Whether an installed theme's channel transition is allowed. Off by
     /// default, matching the Slint build.
     pub theme_transitions: bool,
@@ -80,6 +92,9 @@ pub struct Layout {
     /// How calls are joined: unmuted unless turned off, and deafened.
     pub unmute_on_join: Option<bool>,
     pub deafen_on_join: bool,
+    /// The line over a call saying it stays connected while browsing,
+    /// closed for good.
+    pub hide_voice_hint: bool,
     /// Long messages fold to twelve lines, with Show more.
     pub collapse_long: bool,
     /// Holding Alt over a channel or DM in the sidebar peeks at its newest
@@ -133,6 +148,12 @@ pub struct Layout {
     /// Each place's searches, newest first, by server or DM id, as
     /// Discord's box keeps them (`search_popout::HISTORY`).
     pub search_history: HashMap<String, Vec<String>>,
+    /// The inbox's last tab ("unreads" or "mentions").
+    pub inbox_tab: Option<String>,
+    /// The Mentions tab's filter, kept as `recent_mention_filter`
+    /// ([`crate::window_bar::MENTION_FILTER_KEY`]).
+    #[serde(rename = "recent_mention_filter")]
+    pub mention_filter: crate::window_bar::MentionFilter,
     /// What calls send and play; see [`Voice`].
     #[serde(flatten)]
     pub voice: Voice,
@@ -210,14 +231,18 @@ impl KeptSticker {
 #[serde(default)]
 pub struct Prefs {
     /// Messages: the clock, its seconds, the date's order (an index into
-    /// `clock::DateFormat::ALL`, following the clock unless chosen), the
-    /// text's size (0 small, 1 default, 2 large), link previews, boost gems,
-    /// mentioning those replied to, tracking taken out of links sent,
-    /// sharing that this account types, and when animations play.
+    /// `clock::DateFormat::ALL`, following the clock unless chosen), link
+    /// previews, boost gems, mentioning those replied to, tracking taken out
+    /// of links sent, sharing that this account types; and Accessibility's
+    /// text size in chat and when animations play. The text size is
+    /// `chat_text_size` in pixels; before it, older versions kept
+    /// `text_size` (0 small, 1 default, 2 large), which counts while the
+    /// pixels are unset ([`Prefs::text_px`]).
     pub twelve_hour_clock: bool,
     pub clock_seconds: bool,
     pub date_format: Option<i32>,
     pub text_size: Option<i32>,
+    pub chat_text_size: Option<u8>,
     pub link_previews: Option<bool>,
     pub boost_gems: Option<bool>,
     pub reply_ping: Option<bool>,
@@ -230,8 +255,27 @@ pub struct Prefs {
     pub decorations: Option<bool>,
     pub moving_cosmetics: Option<bool>,
     pub name_styles: Option<bool>,
+    /// Role colour gradients: a gradient or holographic role colour runs
+    /// across the name, a span a letter; off, the role's first colour.
+    pub name_colours: Option<bool>,
     pub server_tags: Option<bool>,
+    /// Profile badges and the levels their tooltips name.
+    pub badges: Option<bool>,
     pub profile_frames: Option<bool>,
+    /// Profile backgrounds: the banner picture and its colour.
+    pub profile_backgrounds: Option<bool>,
+    /// Connections on the floating profile card, as the full profile
+    /// shows them: the window's alone, and off until it's chosen.
+    pub card_connections: bool,
+    /// A theme's text glow: the soft edge it puts round text, which is
+    /// drawing rather than a profile's cosmetic.
+    pub text_glow: Option<bool>,
+    pub application_icon: crate::desktop::IconChoice,
+    pub tray_icon: Option<crate::desktop::IconChoice>,
+    pub tray_uses_application_icon: Option<bool>,
+    /// The font files Appearance's Font chose to draw the window in, in the
+    /// order they were added; none keeps DM Sans.
+    pub ui_font_files: Vec<String>,
     /// Notifications: shown, saying what messages say, flashing the
     /// taskbar.
     pub notifications: Option<bool>,
@@ -242,6 +286,10 @@ pub struct Prefs {
     pub gpu_rendering: bool,
     pub close_to_tray: Option<bool>,
     pub multiple_windows: bool,
+    /// Advanced's Start minimized: the startup entry is the setting while
+    /// it's on, and this keeps the choice while it's off, as Discord keeps
+    /// `START_MINIMIZED` apart from opening on startup. Off until chosen.
+    pub start_minimized: bool,
     /// Discord: channels this account can't see listed locked, reading
     /// marked on Discord, idle shown while away.
     pub show_hidden_channels: bool,
@@ -249,12 +297,35 @@ pub struct Prefs {
     pub show_idle: Option<bool>,
     /// Game Activity's own games: an executable and what to show for it.
     pub game_executables: Vec<(String, String)>,
+    /// Programs and games never shown as the game played, while each is
+    /// on: an executable or the name shown after Playing.
+    pub blocked_games: Vec<BlockedGame>,
     /// About: looking for releases, nightlies among them, the release
     /// skipped, and the last told of in a notification.
     pub check_for_updates: bool,
     pub update_nightlies: bool,
     pub skipped_update: Option<String>,
     pub announced_update: Option<String>,
+}
+
+/// A program or game on Game activity's list of those never shown as the game
+/// played: an executable (a file name or a full path) or the name shown after
+/// Playing, and whether it's hidden now. One turned off stays on the list and
+/// is shown as a game again, until it's turned back on. `layout.json` keeps
+/// each as `{"name": "...", "on": true}`.
+#[derive(Clone, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub struct BlockedGame {
+    pub name: String,
+    pub on: bool,
+}
+
+/// The names on `blocked` that are on, which is what detection leaves out.
+pub fn active_blocked(blocked: &[BlockedGame]) -> Vec<String> {
+    blocked
+        .iter()
+        .filter(|game| game.on)
+        .map(|game| game.name.clone())
+        .collect()
 }
 
 /// When GIFs, animated emoji and stickers play, as Messages' choice.
@@ -268,7 +339,68 @@ pub enum Animate {
     Never,
 }
 
+/// The text sizes in chat Accessibility offers, in pixels, as Discord's
+/// `FONT_SIZES`; 15 is Yapfast's default, where Discord's is 16.
+pub const TEXT_SIZES: [u8; 7] = [12, 14, 15, 16, 18, 20, 24];
+pub const DEFAULT_TEXT_SIZE: u8 = 15;
+
+impl Layout {
+    /// Whether motion is reduced: the system's wish while synced to it, the
+    /// person's choice otherwise.
+    pub fn reduced_motion(&self) -> bool {
+        if self.sync_reduced_motion {
+            self.system_reduced_motion
+        } else {
+            self.reduce_motion
+        }
+    }
+
+    /// When GIFs, emoji and stickers play: never while reduced motion
+    /// stills them, as chosen otherwise.
+    pub fn animate(&self) -> Animate {
+        if self.animate_stilled && self.reduced_motion() {
+            Animate::Never
+        } else {
+            self.prefs.animate
+        }
+    }
+}
+
 impl Prefs {
+    /// Messages' text size in pixels: the one chosen, at the nearest size
+    /// offered, or what older versions' three sizes were (14, 15 and 18).
+    pub fn text_px(&self) -> u8 {
+        match (self.chat_text_size, self.text_size) {
+            (Some(px), _) => nearest_text_size(px),
+            (None, Some(0)) => 14,
+            (None, Some(2)) => 18,
+            (None, _) => DEFAULT_TEXT_SIZE,
+        }
+    }
+
+    pub fn tray_uses_application_icon(&self) -> bool {
+        use crate::desktop::IconChoice;
+        self.tray_uses_application_icon.unwrap_or_else(|| {
+            // Matching presets can share. Custom images are stored in
+            // separate files, so two Custom choices may look different.
+            self.tray_icon
+                .as_ref()
+                .is_none_or(|tray| *tray != IconChoice::Custom && *tray == self.application_icon)
+        })
+    }
+
+    pub fn tray_artwork(&self) -> (crate::desktop::IconTarget, &crate::desktop::IconChoice) {
+        use crate::desktop::{IconChoice, IconTarget};
+        if self.tray_uses_application_icon() {
+            (IconTarget::Application, &self.application_icon)
+        } else {
+            (
+                IconTarget::Tray,
+                self.tray_icon.as_ref().unwrap_or(&IconChoice::Default),
+            )
+        }
+    }
+
     /// The profile switches, each on unless turned off.
     pub fn cosmetics(&self) -> yapfast_core::application::Cosmetics {
         let default = yapfast_core::application::Cosmetics::default();
@@ -277,9 +409,17 @@ impl Prefs {
             decorations: self.decorations.unwrap_or(default.decorations),
             moving: self.moving_cosmetics.unwrap_or(default.moving),
             name_styles: self.name_styles.unwrap_or(default.name_styles),
+            name_colours: self.name_colours.unwrap_or(default.name_colours),
             server_tags: self.server_tags.unwrap_or(default.server_tags),
+            badges: self.badges.unwrap_or(default.badges),
             frames: self.profile_frames.unwrap_or(default.frames),
+            background: self.profile_backgrounds.unwrap_or(default.background),
         }
+    }
+
+    /// Tells detection which games on the list are never shown: those on.
+    pub fn apply_blocked_games(&self) {
+        yapfast_core::discord::set_blocked_games(&active_blocked(&self.blocked_games));
     }
 
     /// Hands the date's order and the clock to what formats times.
@@ -293,6 +433,68 @@ impl Prefs {
         // After the date's order, which Discord's timestamps follow.
         clock::set_twelve_hour_clock(self.twelve_hour_clock);
     }
+}
+
+/// The text size offered nearest to `px`, the smaller of two as near.
+pub fn nearest_text_size(px: u8) -> u8 {
+    TEXT_SIZES
+        .into_iter()
+        .min_by_key(|size| size.abs_diff(px))
+        .unwrap_or(DEFAULT_TEXT_SIZE)
+}
+
+#[cfg(test)]
+#[test]
+fn the_text_size_carries_over_and_snaps_to_the_sizes_offered() {
+    use serde_json::json;
+
+    let size = |value| serde_json::from_value::<Prefs>(value).unwrap().text_px();
+    assert_eq!(size(json!({})), 15, "today's default");
+    assert_eq!(size(json!({"text_size": 0})), 14, "older Small");
+    assert_eq!(size(json!({"text_size": 2})), 18, "older Large");
+    assert_eq!(size(json!({"text_size": 2, "chat_text_size": 20})), 20);
+    assert_eq!(size(json!({"chat_text_size": 22})), 20);
+    assert_eq!(size(json!({"chat_text_size": 99})), 24);
+    assert_eq!(size(json!({"chat_text_size": 1})), 12);
+}
+
+#[cfg(test)]
+#[test]
+fn tray_icon_follows_matching_presets_and_preserves_separate_choices() {
+    use crate::desktop::{IconChoice, IconTarget};
+    use serde_json::json;
+
+    assert_eq!(
+        Prefs::default().tray_artwork(),
+        (IconTarget::Application, &IconChoice::Default)
+    );
+    let mut prefs: Prefs = serde_json::from_value(json!({
+        "application_icon": {"theme": "dracula"},
+        "tray_icon": {"theme": "dracula"}
+    }))
+    .unwrap();
+    assert_eq!(prefs.tray_artwork().0, IconTarget::Application);
+
+    let separate = IconChoice::Theme("nord".into());
+    prefs.tray_icon = Some(separate.clone());
+    assert_eq!(prefs.tray_artwork(), (IconTarget::Tray, &separate));
+
+    prefs.application_icon = IconChoice::Custom;
+    prefs.tray_icon = Some(IconChoice::Custom);
+    assert_eq!(
+        prefs.tray_artwork(),
+        (IconTarget::Tray, &IconChoice::Custom)
+    );
+    prefs.tray_uses_application_icon = Some(true);
+    assert_eq!(
+        prefs.tray_artwork(),
+        (IconTarget::Application, &IconChoice::Custom)
+    );
+    prefs.tray_uses_application_icon = Some(false);
+    assert_eq!(
+        prefs.tray_artwork(),
+        (IconTarget::Tray, &IconChoice::Custom)
+    );
 }
 
 /// Voice's settings in `layout.json`, which the core is told of as the

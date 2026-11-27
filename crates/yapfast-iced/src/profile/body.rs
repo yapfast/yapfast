@@ -203,7 +203,7 @@ pub(super) fn profile_body<'a>(
                     ctx,
                     profile.name.as_str(),
                     metrics.name,
-                    theme.font("names", BOLD),
+                    plain_name_font(ctx, shown),
                     inks.ink,
                 )
             })
@@ -212,11 +212,14 @@ pub(super) fn profile_body<'a>(
     // Discord's card has the badges beside the username, up to six of
     // them (any number in the DM's panel); more go under the name, 2 px
     // below it, and the panel's own keep to their row below.
-    let beside = !mode.large()
+    let badges = ctx.state.cosmetics.badges;
+    let beside = badges
+        && !mode.large()
         && !profile.handle.is_empty()
         && !profile.badges.is_empty()
         && (mode == Mode::Docked || profile.badges.len() <= 6);
-    let under = mode == Mode::Card && !ctx.state.preview && !beside && !profile.badges.is_empty();
+    let under =
+        badges && mode == Mode::Card && !ctx.state.preview && !beside && !profile.badges.is_empty();
     let mut names = column![name].spacing(2);
     if let Some(line) = handle_line(ctx, shown, &inks, mode, beside) {
         names = names.push(line);
@@ -230,7 +233,7 @@ pub(super) fn profile_body<'a>(
     {
         body = body.push(actions);
     }
-    if !profile.badges.is_empty() && !beside && !under {
+    if badges && !profile.badges.is_empty() && !beside && !under {
         body = body.push(badge_rows(ctx, shown));
     }
     // Discord's card shows the first activity on its own tile, with the
@@ -283,7 +286,10 @@ pub(super) fn profile_body<'a>(
             mode.full(),
         ));
     }
-    if mode.large() && !profile.connections.is_empty() {
+    // The floating card shows them too, once Appearance says so.
+    if (mode.large() || (mode == Mode::Card && ctx.layout.prefs.card_connections))
+        && !profile.connections.is_empty()
+    {
         body = body.push(connections(ctx, shown, &inks));
     }
     if mode.large() && look.note_editable {
@@ -414,15 +420,30 @@ fn profile_top<'a>(
     // The card's own corners: a theme's `card` shape (Zine's square cut).
     let corner = ctx.look.theme.surface_radius("card", 12.0);
     let top_corners = [corner, corner, 0.0, 0.0];
+    let background = ctx.state.cosmetics.background;
     let moving = profile
         .banner
         .as_deref()
+        .filter(|_| background)
         .and_then(chat::moving_banner)
         .and_then(|url| ctx.moving(&url, banner_size, Rectangle::with_size(banner_size), true));
-    let still = profile.banner.as_deref().and_then(|url| {
-        crate::profile::profile_picture(ctx, shown, url, width as u32, banner_height as u32, true)
-    });
-    let banner_ground = crate::profile::banner_ground(ctx, shown)
+    let still = profile
+        .banner
+        .as_deref()
+        .filter(|_| background)
+        .and_then(|url| {
+            crate::profile::profile_picture(
+                ctx,
+                shown,
+                url,
+                width as u32,
+                banner_height as u32,
+                true,
+            )
+        });
+    let banner_ground = background
+        .then(|| crate::profile::banner_ground(ctx, shown))
+        .flatten()
         .map(hex)
         .or(inks.themed.then_some(inks.primary))
         .unwrap_or(ctx.look.theme.raised);
@@ -513,14 +534,24 @@ pub(super) fn profile_avatar<'a>(
             .height(ring)
             .style(move |_| rounded(ground, ring_radius))
     ];
-    let face: Element<'a, Message> = match profile.avatar.as_deref().and_then(|url| {
+    let at = Rectangle::new(Point::new(6.0, 6.0), Size::new(size, size));
+    let still = profile.avatar.as_deref().and_then(|url| {
         crate::profile::profile_picture(ctx, shown, url, size as u32, size as u32, true)
-    }) {
-        Some(picture) => Pic::new(picture, ring_size)
-            .at(Rectangle::new(Point::new(6.0, 6.0), Size::new(size, size)))
+    });
+    // A Nitro avatar plays while the card is pointed at, as its decoration.
+    let moving = profile
+        .avatar
+        .as_deref()
+        .filter(|_| pointed)
+        .and_then(looks::moving_avatar)
+        .and_then(|url| ctx.moving(&url, ring_size, at, true));
+    let face: Element<'a, Message> = match (moving, still) {
+        (Some(moving), still) => moving.radius(size / 2.0).still(still).into(),
+        (None, Some(picture)) => Pic::new(picture, ring_size)
+            .at(at)
             .radius(size / 2.0)
             .into(),
-        None => container(ctx.avatar(None, &profile.name, size, size / 2.0, 1.0))
+        (None, None) => container(ctx.avatar(None, &profile.name, size, size / 2.0, 1.0))
             .padding(6)
             .into(),
     };
@@ -714,7 +745,7 @@ pub(crate) fn profile_name<'a>(
         .unwrap_or_else(|| {
             text(shown.look.profile().name.clone())
                 .size(theme_size(ctx, size))
-                .font(ctx.look.theme.font("names", BOLD))
+                .font(plain_name_font(ctx, shown))
                 .color(ink)
                 .into()
         });
@@ -739,8 +770,10 @@ fn styled_name<'a>(
     let state = ctx.state;
     let profile = shown.look.profile();
     let style = state.cosmetics.style(profile.style.as_deref());
-    let dark = ctx.look.theme.dark;
-    let style = looks::name_look(style, &profile.name, false, dark)?;
+    let dark = name_on_dark(ctx.look.theme, profile.theme);
+    // A style without colours is its font alone: [`plain_name_font`].
+    let style = looks::name_look(style, &profile.name, false, dark)
+        .filter(|style| !style.colors.is_empty())?;
     let key = (
         profile
             .style
@@ -762,6 +795,33 @@ fn styled_name<'a>(
         });
     }
     Some(cached.as_ref().expect("made above").picture.view())
+}
+
+/// The font of a name drawn as text: its style's font when the style
+/// has no colours, as Discord draws it, else the usual bold.
+fn plain_name_font(ctx: crate::ctx::Ctx<'_>, shown: &Shown) -> iced::Font {
+    let profile = shown.look.profile();
+    let font = ctx
+        .state
+        .cosmetics
+        .style(profile.style.as_deref())
+        .and_then(|style| looks::name_look(Some(style), &profile.name, true, true))
+        .and_then(|look| look.font());
+    // No style font: the theme's names face, as a plain name takes it.
+    match font {
+        Some(_) => crate::fonts::style_font(font, 700),
+        None => ctx.look.theme.font("names", crate::fonts::BOLD),
+    }
+}
+
+/// Whether a styled name lies on a dark ground: a profile's own theme
+/// decides that, as its card is drawn in it, and the app's theme only
+/// without one. Taking the app's on a light profile theme drew a white
+/// name's style for a dark ground, white on the white card: that
+/// card showed no name.
+pub(crate) fn name_on_dark(theme: &crate::theme::Theme, colors: Option<[u32; 2]>) -> bool {
+    let inks = Inks::new(theme, colors, theme.sidebar);
+    if inks.themed { !inks.light } else { theme.dark }
 }
 
 /// Text on a profile that selects, to copy, as its plain name and its

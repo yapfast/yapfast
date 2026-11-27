@@ -83,6 +83,9 @@ const SUPPRESS_NOTIFICATIONS: u64 = 1 << 12;
 const FORWARD: u64 = 1;
 /// The most messages one history request returns.
 pub const PAGE: usize = 50;
+/// The most mentions one request to the Mentions inbox returns: Discord's
+/// whole page, up to which Yapfast keeps them.
+pub const MENTIONS_PAGE: usize = 100;
 
 /// How many archived threads a page of a channel's list of threads holds,
 /// as Discord's client asks for them.
@@ -734,6 +737,35 @@ impl Api {
             .await
     }
 
+    /// What someone's activity carries beyond their presence, by its
+    /// session and application (`0` for none, as Discord's client sends),
+    /// as the client asks for it when a Rich Presence button whose address
+    /// the presence didn't carry is clicked: `{button_urls}`, or none when
+    /// Discord answers 204, having none.
+    pub async fn activity_metadata(
+        &self,
+        user: &str,
+        session: &str,
+        application: &str,
+    ) -> Result<Option<Value>> {
+        let path = format!(
+            "/users/{user}/sessions/{}/activities/{}/metadata",
+            encode(session),
+            encode(application)
+        );
+        let response = self.execute(self.request(Method::GET, &path)).await?;
+        if response.status() == StatusCode::NO_CONTENT {
+            return Ok(None);
+        }
+        let body = response
+            .bytes()
+            .await
+            .context("could not read Discord's answer")?;
+        serde_json::from_slice(&body)
+            .map(Some)
+            .context("could not understand Discord's answer")
+    }
+
     /// A shop product, such as the profile effect of a SKU, as the client
     /// fetches it to show the effect.
     pub async fn collectibles_product(&self, sku: &str) -> Result<Value> {
@@ -1079,6 +1111,30 @@ impl Api {
                 .into_iter()
                 .map(|mut item| item["message"].take())
                 .collect()),
+            _ => bail!("could not understand Discord's answer"),
+        }
+    }
+
+    /// This account's recent mentions, the newest first: the messages that
+    /// called on it in the past week, up to [`MENTIONS_PAGE`]; Discord's
+    /// Mentions inbox. `everyone` counts @everyone and @here mentions,
+    /// `roles` role mentions, and a `guild` keeps to that server's. See
+    /// "List Recent Mentions" in <https://docs.discord.food/resources/user>;
+    /// Discord's client sends `roles` and `everyone` every time, and
+    /// `guild_id` only for one server.
+    pub async fn recent_mentions(
+        &self,
+        everyone: bool,
+        roles: bool,
+        guild: Option<&str>,
+    ) -> Result<Vec<Value>> {
+        let mut path =
+            format!("/users/@me/mentions?limit={MENTIONS_PAGE}&roles={roles}&everyone={everyone}");
+        if let Some(guild) = guild {
+            let _ = write!(path, "&guild_id={guild}");
+        }
+        match self.json(self.request(Method::GET, &path)).await? {
+            Value::Array(items) => Ok(items),
             _ => bail!("could not understand Discord's answer"),
         }
     }

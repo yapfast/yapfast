@@ -30,7 +30,7 @@ use yapfast_discord::{
     congestion,
     rtp::Codec,
     stream::StreamServer,
-    stream_connection::{self, Link, StreamReceiver, StreamSender},
+    stream_connection::{self, Link, ReceivedSoFar, StreamReceiver, StreamSender},
 };
 
 use livekit::webrtc::{
@@ -44,7 +44,7 @@ use crate::{
     frames::{Frames, Writer},
     picture::{I420, Turn},
     stream_audio,
-    voice::{Resolution, StreamAudio, StreamQuality, StreamStats},
+    voice::{Resolution, StreamAudio, StreamQuality, StreamStats, WatchStats},
 };
 
 /// The argument that starts Yapfast as a stream worker.
@@ -74,7 +74,8 @@ const THUMBNAIL_EVERY: Duration = Duration::from_secs(5 * 60);
 /// How long a shared stream whose connection ended waits for a server
 /// Discord moved it to.
 const MOVE_GRACE: Duration = Duration::from_secs(5);
-/// How often a shared screen reports how it goes out, for the call's details.
+/// How often a shared screen reports how it goes out, and a watched stream
+/// how it comes in, for the call's details.
 const SENDING_EVERY: Duration = Duration::from_secs(1);
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -362,6 +363,8 @@ pub enum Report {
     Streaming,
     /// Sharing: how the stream goes out, once a second while it's live.
     Sending(StreamStats),
+    /// Watching: how the stream comes in and shows, once a second.
+    Receiving(WatchStats),
     /// Sharing: a preview of the stream for Discord to show, a JPEG as a
     /// data URI. The first comes once a picture isn't black, then one every
     /// 5 minutes, as Discord's client sends them.
@@ -514,6 +517,7 @@ fn serve(mut input: Box<dyn BufRead + Send>, report: &mut dyn FnMut(Report)) {
                 preview_due: None,
                 thumbnail: None,
                 lost: None,
+                captured: None,
             };
             report(Report::Ready);
             match source {
@@ -604,6 +608,9 @@ struct Sink {
     /// When the stream connection ended, while Discord may still name a
     /// server it moved the stream to.
     lost: Option<Instant>,
+    /// What's shared ("screen") and its size before it's fitted to the
+    /// stream, for the Stream tab.
+    captured: Option<(&'static str, u32, u32)>,
 }
 
 struct Video {
@@ -618,7 +625,7 @@ struct Video {
 
 impl Video {
     /// How the stream goes out, with the kbit/s sent since it last said.
-    fn sending(&mut self, fps: u32) -> StreamStats {
+    fn sending(&mut self, fps: u32, captured: Option<(&'static str, u32, u32)>) -> StreamStats {
         let sent = self.sender.sent();
         let (since, before) = self.measured;
         let bits = sent.video_bytes.saturating_sub(before) * 8;
@@ -628,12 +635,16 @@ impl Video {
         StreamStats {
             engine: self.encoder.engine().to_owned(),
             codec: self.encoder.codec().name().to_owned(),
+            captured: captured.map_or_else(String::new, |(what, width, height)| {
+                format!("{width}×{height} {what}")
+            }),
             width,
             height,
             fps,
             target_kbps: self.encoder.bitrate(),
             sent_kbps: (bits / milliseconds) as u32,
             keyframe_requests: sent.keyframe_requests,
+            packets: sent.video_packets,
             resent: sent.resent,
         }
     }
@@ -657,7 +668,7 @@ fn log_encoder(encoder: &Encoder) {
 impl Sink {
     /// Standard previews need at most 30 frames a second, even on 60 fps streams.
     fn local_preview_due(&mut self, now: Instant) -> bool {
-        if self.writer.preview_paused() {
+        if self.writer.preview_paused() || self.writer.unseen() {
             return false;
         }
         if self.enhanced_preview || self.fps <= 30 {
@@ -672,15 +683,24 @@ impl Sink {
         true
     }
 
-    /// Takes a frame at the size it's sent: the preview shows it, scaled
-    /// down to fit, and Discord gets it once the stream has a server.
+    /// Shows a local preview while the window takes frames and sends the
+    /// original frame to Discord once the stream has a server.
     fn frame(&mut self, picture: &mut I420Buffer) -> Result<()> {
         let (width, height) = (picture.width(), picture.height());
         if self.local_preview_due(Instant::now()) {
             let (w, h) = if self.enhanced_preview {
                 (width, height)
             } else {
-                fit(width, height, PREVIEW_WIDTH, PREVIEW_HEIGHT)
+                let (wanted_width, wanted_height) = self
+                    .writer
+                    .wanted()
+                    .unwrap_or((PREVIEW_WIDTH, PREVIEW_HEIGHT));
+                fit(
+                    width,
+                    height,
+                    wanted_width.min(PREVIEW_WIDTH),
+                    wanted_height.min(PREVIEW_HEIGHT),
+                )
             };
             let smaller = ((w, h) != (width, height)).then(|| picture.scale(w as i32, h as i32));
             let shown = smaller.as_ref().unwrap_or(picture);
@@ -765,7 +785,7 @@ impl Sink {
         let codec = video.encoder.codec();
         match video.encoder.encode_i420(picture, pts, keyframe) {
             Ok(Some(frame)) => video.sender.send(stream_connection::Frame {
-                data: frame.data.to_vec(),
+                data: frame.data,
                 codec,
                 timestamp: pts as u32,
                 keyframe: frame.keyframe,
@@ -885,7 +905,7 @@ impl Sink {
             && self.streaming
             && video.measured.0.elapsed() >= SENDING_EVERY
         {
-            report(Report::Sending(video.sending(self.fps)));
+            report(Report::Sending(video.sending(self.fps, self.captured)));
         }
         Ok(switch)
     }
@@ -914,7 +934,9 @@ fn thumbnail(picture: &mut I420Buffer) -> Result<String> {
     let mut rgba = vec![0; (width * height * 4) as usize];
     to_rgba(&small, &mut rgba);
     let rgb: Vec<u8> = rgba
-        .chunks_exact(4)
+        .as_chunks::<4>()
+        .0
+        .iter()
         .flat_map(|pixel| [pixel[0], pixel[1], pixel[2]])
         .collect();
     let mut jpeg = vec![];
@@ -958,6 +980,11 @@ fn show_stream_picture(
     size
 }
 
+/// How long a watched stream goes unseen before its frames are no longer
+/// decoded: long enough that a tile scrolled past, or a glance at another
+/// window, costs the streamer no keyframe.
+const REST_AFTER: Duration = Duration::from_secs(5);
+
 /// Shows someone's stream: whole frames from the connection, decoded, then
 /// scaled down if they don't fit, and plays its sound.
 fn watch(
@@ -985,6 +1012,13 @@ fn watch(
     let (mut scratch, mut turned) = (vec![], vec![]);
     let mut shown = false;
     let mut failures = 0u64;
+    // Since when nothing has shown the pictures, and whether the decoder
+    // rests meanwhile, with when it last asked for the keyframe to wake on.
+    let (mut unseen_since, mut resting, mut asked) = (None::<Instant>, false, None::<Instant>);
+    // For the Stream tab: what had come in at the last report, and the
+    // pictures decoded and their size since.
+    let mut measured = (Instant::now(), ReceivedSoFar::default());
+    let (mut decoded, mut size) = (0u32, (0, 0));
     while !stop.load(Ordering::Relaxed) {
         while let Ok(control) = sound.controls.try_recv() {
             match control {
@@ -993,12 +1027,59 @@ fn watch(
                 _ => {}
             }
         }
+        if measured.0.elapsed() >= SENDING_EVERY {
+            let received = receiver.received();
+            let (since, before) = measured;
+            let milliseconds = since.elapsed().as_millis().max(1) as u64;
+            let bits = received.video_bytes.saturating_sub(before.video_bytes) * 8;
+            report(Report::Receiving(WatchStats {
+                decoder: decoder.as_ref().map_or("", Decoder::engine).to_owned(),
+                codec: decoder
+                    .as_ref()
+                    .map_or("", |decoder| decoder.codec().name())
+                    .to_owned(),
+                width: size.0,
+                height: size.1,
+                fps: (u64::from(decoded) * 1000 / milliseconds) as u32,
+                received_kbps: (bits / milliseconds) as u32,
+                packets: received.video_packets,
+                lost: received.lost,
+                repaired: received.repaired,
+                keyframe_requests: received.keyframe_requests,
+                dropped: failures + received.unreadable + received.behind,
+            }));
+            measured = (Instant::now(), received);
+            decoded = 0;
+        }
         if let Link::Ended(reason) = receiver.link() {
             bail!("Lost the stream: {reason}");
         }
         let Some(frame) = receiver.next(Duration::from_millis(100)) else {
             continue;
         };
+        // Once nothing has shown the stream for a while, its frames aren't
+        // decoded either. When the window takes its last picture again, the
+        // decoder starts again at a keyframe, which it asks for.
+        if shown && writer.unseen() {
+            let since = *unseen_since.get_or_insert_with(Instant::now);
+            if !resting && since.elapsed() >= REST_AFTER {
+                tracing::info!("nothing shows the stream; decoding stops until something does");
+                resting = true;
+            }
+            if resting {
+                continue;
+            }
+        } else {
+            unseen_since = None;
+            if resting && !frame.keyframe {
+                if asked.is_none_or(|asked| asked.elapsed() >= Duration::from_secs(1)) {
+                    receiver.request_keyframe();
+                    asked = Some(Instant::now());
+                }
+                continue;
+            }
+            (resting, asked) = (false, None);
+        }
         if decoder
             .as_ref()
             .is_none_or(|decoder| decoder.codec() != frame.codec)
@@ -1009,7 +1090,11 @@ fn watch(
             continue;
         };
         let picture = match decoder.decode(&frame.data) {
-            Ok(Some(picture)) => picture,
+            Ok(Some(picture)) => {
+                decoded += 1;
+                size = (picture.width, picture.height);
+                picture
+            }
             Ok(None) => continue,
             Err(error) => {
                 failures += 1;
@@ -1027,6 +1112,18 @@ fn watch(
                 continue;
             }
         };
+        // Decoded all the same until the decoder rests, since the frames
+        // after it build on it, but not made into a picture nothing shows.
+        if shown && writer.unseen() {
+            continue;
+        }
+        // At the size the window draws it, which is mostly smaller than the
+        // stream's: scaling the picture before it's made RGBA costs less than
+        // the window scaling the RGBA.
+        let most = match writer.wanted() {
+            Some((width, height)) => (width.min(max_width), height.min(max_height)),
+            None => (max_width, max_height),
+        };
         let (width, height) = show_stream_picture(
             &mut writer,
             picture.i420(),
@@ -1034,7 +1131,7 @@ fn watch(
                 turns: frame.orientation.turns,
                 flip: frame.orientation.flip,
             },
-            (max_width, max_height),
+            most,
             &mut scratch,
             &mut turned,
         );
@@ -1071,7 +1168,7 @@ fn test_pattern(
     let mut picture = I420Buffer::new(width, height);
     while next_frame(started, frame, sink.fps, stop) {
         let shift = (frame * 4) as u32;
-        for (index, pixel) in rgba.chunks_exact_mut(4).enumerate() {
+        for (index, pixel) in rgba.as_chunks_mut::<4>().0.iter_mut().enumerate() {
             let (x, y) = (index as u32 % width, index as u32 / width);
             let bar = ((x + shift) * 8 / width) % 8;
             let level = 255 - (y * 128 / height) as u8;
@@ -1094,6 +1191,7 @@ fn test_pattern(
             width as i32,
             height as i32,
         );
+        sink.captured = Some(("test pattern", width, height));
         sink.frame(&mut picture)?;
         // Colour bars are all it shares.
         let _switch = sink.check(report)?;
@@ -1280,6 +1378,11 @@ impl Capture {
             CaptureError, DesktopCaptureSourceType, DesktopCapturer, DesktopCapturerOptions,
         };
         let portal = portal_picks();
+        let what = match source {
+            _ if portal => "screen or window",
+            Source::Window(_) => "window",
+            _ => "screen",
+        };
         let kind = match source {
             // The system's screen sharing dialog picks a screen or window.
             // libwebrtc has the generic capturer only on Linux and macOS, and
@@ -1315,10 +1418,11 @@ impl Capture {
                     if size != (width, height) {
                         picture = picture.scale(size.0 as i32, size.1 as i32);
                     }
-                    let taken = into
-                        .lock()
-                        .unwrap_or_else(|poisoned| poisoned.into_inner())
-                        .frame(&mut picture);
+                    let taken = {
+                        let mut sink = into.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+                        sink.captured = Some((what, width, height));
+                        sink.frame(&mut picture)
+                    };
                     match taken {
                         Ok(()) => seen.size = Some(size),
                         Err(error) => seen.failed = Some(format!("{error:#}")),
@@ -1365,15 +1469,15 @@ impl Capture {
                 // The camera fits the stream already; an odd size, which
                 // codecs can't take, loses a row or a column.
                 let fitted = fit(size.0, size.1, max_width, max_height);
-                let taken = if fitted == size {
-                    into.lock()
-                        .unwrap_or_else(|poisoned| poisoned.into_inner())
-                        .frame(picture)
-                } else {
-                    let mut scaled = picture.scale(fitted.0 as i32, fitted.1 as i32);
-                    into.lock()
-                        .unwrap_or_else(|poisoned| poisoned.into_inner())
-                        .frame(&mut scaled)
+                let mut scaled =
+                    (fitted != size).then(|| picture.scale(fitted.0 as i32, fitted.1 as i32));
+                let taken = {
+                    let mut sink = into.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+                    sink.captured = Some(("camera", size.0, size.1));
+                    match scaled.as_mut() {
+                        Some(scaled) => sink.frame(scaled),
+                        None => sink.frame(picture),
+                    }
                 };
                 let mut seen = seen.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
                 match taken {
@@ -2135,6 +2239,7 @@ mod tests {
             preview_due: None,
             thumbnail: None,
             lost: None,
+            captured: None,
         };
         let (offers, encoder) = sink.offers(320, 180).unwrap();
         eprintln!("offering {offers:?}, encoding with {}", encoder.engine());
@@ -2171,6 +2276,7 @@ mod tests {
             preview_due: None,
             thumbnail: None,
             lost: None,
+            captured: None,
         };
         // A 1080p picture, mid-grey: luma and chroma halfway.
         let mut picture = I420Buffer::new(SHARE_WIDTH, SHARE_HEIGHT);
@@ -2189,7 +2295,12 @@ mod tests {
         );
         assert_eq!(first[3], 255);
 
+        frames.want(320, 180);
+        sink.frame(&mut picture).unwrap();
+        assert_eq!(frames.take(|w, h, _| (w, h)), Some((320, 180)));
+
         let frames = Frames::create(SHARE_WIDTH, SHARE_HEIGHT).unwrap();
+        frames.want(320, 180);
         sink.writer = Writer::open(&frames.path().unwrap()).unwrap();
         sink.fps = 60;
         let now = Instant::now();
@@ -2204,6 +2315,55 @@ mod tests {
             frames.take(|w, h, _| (w, h)),
             Some((SHARE_WIDTH, SHARE_HEIGHT))
         );
+    }
+
+    /// A preview the window has left untaken for a while, because it isn't
+    /// on screen, isn't replaced: the frames after it skip the preview until
+    /// the window takes it. One it's only slow to take is.
+    #[test]
+    fn previews_only_what_the_window_takes() {
+        let frames = Frames::create(PREVIEW_WIDTH, PREVIEW_HEIGHT).unwrap();
+        let (_controls, received) = channel::channel();
+        let mut sink = Sink {
+            writer: Writer::open(&frames.path().unwrap()).unwrap(),
+            controls: received,
+            server: None,
+            sound: StreamAudio::Off,
+            audio_error: None,
+            video: None,
+            fps: 30,
+            effort: Effort::Light,
+            hardware: false,
+            enhanced_preview: false,
+            next_local_preview: None,
+            started: Instant::now(),
+            streaming: false,
+            preview_due: None,
+            thumbnail: None,
+            lost: None,
+            captured: None,
+        };
+        let mut grey = |level: u8| {
+            let mut picture = I420Buffer::new(PREVIEW_WIDTH, PREVIEW_HEIGHT);
+            let (y, u, v) = picture.data_mut();
+            y.fill(level);
+            u.fill(128);
+            v.fill(128);
+            sink.frame(&mut picture).unwrap();
+        };
+        let level = || frames.take(|_, _, pixels| pixels[0]);
+        grey(16);
+        grey(235);
+        let light = level().unwrap();
+        assert!(light > 248, "the newest while the window keeps up: {light}");
+        grey(16);
+        std::thread::sleep(Duration::from_millis(300));
+        grey(235);
+        let dark = level().unwrap();
+        assert!(dark < 8, "the one it left, not the one after it: {dark}");
+        grey(235);
+        let light = level().unwrap();
+        assert!(light > 248, "a new one once the window took it: {light}");
     }
 
     #[test]
@@ -2227,6 +2387,7 @@ mod tests {
             preview_due: None,
             thumbnail: None,
             lost: None,
+            captured: None,
         };
         for audio in [StreamAudio::Off, StreamAudio::Window(42), StreamAudio::All] {
             controls.send(Control::Audio(audio)).unwrap();
@@ -2266,6 +2427,7 @@ mod tests {
             preview_due: None,
             thumbnail: None,
             lost: None,
+            captured: None,
         };
         let mut report = |_| {};
         assert_eq!(sink.check(&mut report).unwrap(), None);
@@ -2297,6 +2459,7 @@ mod tests {
             preview_due: Some(Instant::now()),
             thumbnail: None,
             lost: None,
+            captured: None,
         };
         let mut picture = I420Buffer::new(SHARE_WIDTH, SHARE_HEIGHT);
         let (y, u, v) = picture.data_mut();
@@ -2621,7 +2784,11 @@ mod tests {
             let mut last = None;
             while Instant::now() < deadline {
                 let taken = frames.take(|width, height, pixels| {
-                    let lit = pixels.chunks_exact(4).filter(|pixel| pixel[..3] != [0; 3]);
+                    let lit = pixels
+                        .as_chunks::<4>()
+                        .0
+                        .iter()
+                        .filter(|pixel| pixel[..3] != [0; 3]);
                     (
                         width,
                         height,

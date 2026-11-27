@@ -41,6 +41,9 @@ pub struct Account {
     /// joined.
     pub in_call: bool,
     pub muted: bool,
+    /// Discord won't let this account speak in the call's channel, so
+    /// its mute shows on and does nothing.
+    pub speaking_blocked: bool,
     pub deafened: bool,
     /// The call's voice is through, so its mute and deafen act; while it
     /// joins or leaves they wait.
@@ -68,7 +71,7 @@ impl Account {
     /// Shown muted: in a call, as it is; out of one, as calls are joined.
     fn shown_muted(&self, join: (bool, bool)) -> bool {
         if self.in_call {
-            self.muted
+            self.muted || self.speaking_blocked
         } else {
             !join.0 || join.1
         }
@@ -175,6 +178,7 @@ pub fn account(state: &AppState) -> Account {
         },
         in_call: state.voice.active(),
         muted: state.voice.muted,
+        speaking_blocked: state.voice.speaking_blocked(),
         deafened: state.voice.deafened,
         ready: matches!(
             state.voice.phase,
@@ -339,7 +343,9 @@ pub fn view<'a>(ctx: crate::ctx::Ctx<'a>) -> Element<'a, Message> {
         ctx.layout.unmute_on_join.unwrap_or(true),
         ctx.layout.deafen_on_join,
     );
-    let (mic, mic_label) = if account.shown_muted(join) {
+    let (mic, mic_label) = if account.speaking_blocked {
+        (Icon::MicOff, "Speaking is restricted in this channel")
+    } else if account.shown_muted(join) {
         (
             Icon::MicOff,
             if account.in_call {
@@ -421,7 +427,11 @@ pub fn view<'a>(ctx: crate::ctx::Ctx<'a>) -> Element<'a, Message> {
     // In a call, a gel theme's mute and deafen are gel buttons (the
     // as asked): the danger gel while on.
     let device = |icon, label: &'static str, on: bool, glyph, event| -> Element<'a, Message> {
-        let message = toggle(event);
+        let message = if matches!(event, Event::Mute) && account.speaking_blocked {
+            None
+        } else {
+            toggle(event)
+        };
         let gel = if account.in_call {
             crate::theme_art::gel_call_button(
                 ctx,
@@ -559,7 +569,9 @@ pub fn view<'a>(ctx: crate::ctx::Ctx<'a>) -> Element<'a, Message> {
 
 /// The avatar in the green ring while the microphone carries voice, and,
 /// with no Discord presence to show, a dot saying whether the account
-/// syncs: the accent in the preview, green online, grey offline.
+/// syncs: the accent in the preview, green online, grey offline. The ring
+/// goes under the avatar, so the presence dot and its cutout sit over it,
+/// as in Discord.
 fn ring_and_dot<'a>(
     ctx: crate::ctx::Ctx<'a>,
     account: &Account,
@@ -571,7 +583,7 @@ fn ring_and_dot<'a>(
     if account.speaking {
         let ring = theme.live;
         let side = AVATAR + 6.0;
-        layers = layers.push(
+        layers = layers.push_under(
             pin(container(Space::new())
                 .width(side)
                 .height(side)

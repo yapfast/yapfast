@@ -29,7 +29,7 @@ async fn plays_through_rpc(discord: &Discord, server: &str, directory: &std::pat
         let game = directory.path().join("yapfast_detected_game");
         std::fs::hard_link(executable, &game).unwrap();
         let child = std::process::Command::new(game)
-            .args(["--exact", "waits_as_detected_game"])
+            .args(["--exact", "waits_as_detected_game", "--ignored"])
             .env("YAPFAST_TEST_DETECTED_GAME", "1")
             .stdin(std::process::Stdio::piped())
             .stdout(std::process::Stdio::null())
@@ -513,6 +513,96 @@ async fn fetches_the_activity_feed_and_who_a_channel_may_show() {
 
 #[tokio::test(flavor = "multi_thread")]
 #[ignore = "starts testing/fake_discord.ts with bun; run scripts/test-fake-discord"]
+async fn lists_the_accounts_recent_mentions() {
+    let Fixture {
+        _fake,
+        discord,
+        server,
+        guild,
+        general,
+        bob,
+        ..
+    } = Fixture::start("recent_mentions").await;
+    // Nothing has mentioned her yet.
+    assert!(
+        discord
+            .recent_mentions(true, true, None)
+            .await
+            .unwrap()
+            .is_empty()
+    );
+
+    post_control(server, "/_control/mention", "");
+    post_control(server, "/_control/mention", "");
+    let mentions = discord.recent_mentions(true, true, None).await.unwrap();
+    assert_eq!(mentions.len(), 2);
+    // Discord's list is newest first, and each message keeps its server.
+    assert!(mentions[0].order() > mentions[1].order());
+    let message = &mentions[0];
+    assert_eq!(message.channel_id, general);
+    assert_eq!(message.guild_id.as_deref(), Some(guild.as_str()));
+    assert_eq!(message.author_id, bob);
+    assert_eq!(message.author, "Bob", "learned by its own name");
+    assert!(message.content.contains("are you in for co-op tonight?"));
+    assert!(
+        message
+            .mentions
+            .iter()
+            .any(|user| user == "1400000000000000001"),
+        "it mentions Alice"
+    );
+    // Every way Bob calls on her lists: by name, through her Crew role,
+    // with @everyone and @here, and in a reply to her message; not through
+    // Mods, which she lacks, nor the one that names nobody.
+    post_control(server, "/_control/mentions", "");
+    let mentions = discord.recent_mentions(true, true, None).await.unwrap();
+    assert_eq!(mentions.len(), 2 + 5);
+    assert!(
+        mentions
+            .windows(2)
+            .all(|pair| pair[0].order() > pair[1].order()),
+        "newest first"
+    );
+    assert!(
+        mentions
+            .iter()
+            .any(|message| message.replies_to("1400000000000000001")),
+        "a reply that pings her lists"
+    );
+    // The filter's boxes go as `everyone` and `roles`: without @everyone
+    // the @everyone and @here pings go, without roles the Crew one, and
+    // what names her or replies to her stays either way.
+    let without_everyone = discord.recent_mentions(false, true, None).await.unwrap();
+    assert_eq!(without_everyone.len(), 2 + 3);
+    assert!(
+        !without_everyone
+            .iter()
+            .any(|message| message.mention_everyone)
+    );
+    let without_roles = discord.recent_mentions(true, false, None).await.unwrap();
+    assert_eq!(without_roles.len(), 2 + 4);
+    assert!(
+        without_roles
+            .iter()
+            .all(|message| message.mention_roles.is_empty())
+    );
+    let named_only = discord.recent_mentions(false, false, None).await.unwrap();
+    assert_eq!(named_only.len(), 2 + 2);
+    // `guild_id` keeps to one server's.
+    let here = discord
+        .recent_mentions(true, true, Some(guild.as_str()))
+        .await
+        .unwrap();
+    assert_eq!(here.len(), mentions.len());
+    let elsewhere = discord
+        .recent_mentions(true, true, Some("1"))
+        .await
+        .unwrap();
+    assert!(elsewhere.is_empty(), "no mention in another server");
+}
+
+#[tokio::test(flavor = "multi_thread")]
+#[ignore = "starts testing/fake_discord.ts with bun; run scripts/test-fake-discord"]
 async fn resumes_the_gateway() {
     let Fixture {
         _fake,
@@ -539,6 +629,61 @@ async fn resumes_the_gateway() {
     })
     .await;
     assert_eq!(discord.snapshots().borrow().status, Status::Online);
+}
+
+#[tokio::test(flavor = "multi_thread")]
+#[ignore = "starts testing/fake_discord.ts with bun; run scripts/test-fake-discord"]
+async fn keeps_two_accounts_and_switches_between_them() {
+    let Fixture { _fake, discord, .. } =
+        Fixture::start("keeps_two_accounts_and_switches_between_them").await;
+    // Alice is linked and active. Linking Bea makes her the active one, and
+    // the fake answers each login as its own account.
+    let alice = token::listing().unwrap().active.unwrap();
+    token::store(client::TEST_SECOND_TOKEN).unwrap();
+    let listing = token::listing().unwrap();
+    assert_eq!(listing.accounts.len(), 2);
+    let bea = listing.active.clone().unwrap();
+    assert_ne!(bea, alice);
+    assert_eq!(token::load().unwrap(), client::TEST_SECOND_TOKEN);
+    let me = Api::new(token::load().unwrap())
+        .unwrap()
+        .me()
+        .await
+        .unwrap();
+    assert_eq!(me.username, "bea");
+    assert_eq!(me.global_name.as_deref(), Some("Bea"));
+
+    // A session of hers connects, and the switcher gets her name and picture
+    // once it has.
+    let hers = Discord::start(token::load().unwrap()).unwrap();
+    snapshot_where(&hers, |snapshot| snapshot.status == Status::Online).await;
+    timeout(WAIT, async {
+        while !token::listing()
+            .unwrap()
+            .accounts
+            .iter()
+            .any(|account| account.id == bea && account.username == "bea")
+        {
+            tokio::time::sleep(Duration::from_millis(50)).await;
+        }
+    })
+    .await
+    .expect("the account wasn't described once it connected");
+    drop(hers);
+
+    // Switching back gives Alice's login again; logging Bea out leaves her.
+    token::switch(&alice).unwrap();
+    assert_eq!(token::load().unwrap(), client::TEST_TOKEN);
+    let me = Api::new(token::load().unwrap())
+        .unwrap()
+        .me()
+        .await
+        .unwrap();
+    assert_eq!(me.username, "alice");
+    assert_eq!(token::forget_account(&bea).unwrap(), Some(alice.clone()));
+    assert_eq!(token::listing().unwrap().accounts.len(), 1);
+    assert_eq!(token::load().unwrap(), client::TEST_TOKEN);
+    drop(discord);
 }
 
 #[tokio::test(flavor = "multi_thread")]
@@ -684,6 +829,57 @@ async fn refreshes_the_login_and_signs_out() {
     // Signing out ends the session on Discord.
     discord.logout().await.unwrap();
     assert_eq!(self::control(server, "GET", "/_control/logouts", ""), "1");
+}
+
+#[tokio::test(flavor = "multi_thread")]
+#[ignore = "starts testing/fake_discord.ts with bun; run scripts/test-fake-discord"]
+async fn unlinking_ends_only_the_session_yapfast_made() {
+    use yapfast_discord::token::Origin;
+    let Fixture {
+        _fake,
+        discord,
+        server,
+        ..
+    } = Fixture::start("unlinking_ends_only_the_session_yapfast_made").await;
+    let logouts = || self::control(server, "GET", "/_control/logouts", "");
+
+    // A login an earlier version linked, with nothing saying how: it may be
+    // another app's, so its session stays.
+    token::forget().unwrap();
+    token::store(client::TEST_TOKEN).unwrap();
+    assert_eq!(token::origin(), Origin::Unknown);
+    assert!(!discord.sign_out(token::origin()).await.unwrap());
+    assert_eq!(logouts(), "0");
+
+    // A pasted token: the app or browser it came from stays signed in.
+    token::store_as(client::TEST_TOKEN, Origin::Pasted).unwrap();
+    assert_eq!(token::origin(), Origin::Pasted);
+    assert!(!discord.sign_out(token::origin()).await.unwrap());
+    assert_eq!(logouts(), "0");
+
+    // Yapfast's own login, by QR code, keeps how it was linked when Discord
+    // refreshes it.
+    token::store_as(client::TEST_TOKEN, Origin::Qr).unwrap();
+    token::refresh(client::TEST_TOKEN, "yapfast-refreshed-token").unwrap();
+    assert_eq!(token::origin(), Origin::Qr);
+    token::refresh("yapfast-refreshed-token", client::TEST_TOKEN).unwrap();
+    assert_eq!(token::origin(), Origin::Qr);
+
+    // Each account keeps its own: Bea's pasted token, linked beside Alice's
+    // QR login, is the active one, and her session stays.
+    let alice = token::listing().unwrap().active.unwrap();
+    token::store_as(client::TEST_SECOND_TOKEN, Origin::Pasted).unwrap();
+    let bea = token::listing().unwrap().active.unwrap();
+    assert_ne!(bea, alice);
+    assert_eq!(token::origin(), Origin::Pasted);
+    assert_eq!(token::origin_of(&alice), Origin::Qr);
+    assert_eq!(token::origin_of(&bea), Origin::Pasted);
+    // Logging Bea out leaves Alice active, still a QR login, whose session
+    // unlinking ends.
+    assert_eq!(token::forget_account(&bea).unwrap(), Some(alice.clone()));
+    assert_eq!(token::origin(), Origin::Qr);
+    assert!(discord.sign_out(token::origin()).await.unwrap());
+    assert_eq!(logouts(), "1");
 }
 
 /// What linking showed next.

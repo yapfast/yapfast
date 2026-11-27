@@ -1419,7 +1419,9 @@ pub fn heading<'a, M: Clone + 'a>(theme: &Theme, label: &'a str, top: f32) -> El
 /// A volume slider: its label and the value as a percentage over a 4 px
 /// track, the accent filling it up to a round handle in the text's colour.
 /// Past 100% (a `maximum` over it) it marks 100% and snaps to it within
-/// four points, as Discord's does.
+/// four points, as Discord's does. With [`Slider::marks`] it marks those
+/// values instead, each labelled under the track, and stops only on them,
+/// as Discord's sliders that stick to their markers.
 pub struct Slider<'a, M> {
     label: std::borrow::Cow<'a, str>,
     value: u32,
@@ -1429,6 +1431,7 @@ pub struct Slider<'a, M> {
     step: u32,
     shown: Option<String>,
     mark: bool,
+    marks: Vec<(u32, String)>,
 }
 
 /// A [`Slider`] for `value` out of `maximum`.
@@ -1447,6 +1450,7 @@ pub fn slider<'a, M: Clone + 'a>(
         step: 5,
         shown: None,
         mark: maximum > 100,
+        marks: Vec::new(),
     }
 }
 
@@ -1475,6 +1479,14 @@ impl<'a, M: Clone + 'a> Slider<'a, M> {
         self
     }
 
+    /// The only values it stops on, each marked on the track and labelled
+    /// under it; a drag goes to the nearest. 100% is no longer marked.
+    pub fn marks(mut self, marks: Vec<(u32, String)>) -> Self {
+        self.marks = marks;
+        self.mark = false;
+        self
+    }
+
     pub fn view(self, theme: &Theme) -> Element<'a, M> {
         let Slider {
             label,
@@ -1485,6 +1497,7 @@ impl<'a, M: Clone + 'a> Slider<'a, M> {
             step,
             shown,
             mark,
+            marks,
         } = self;
         let head = row![
             text(label)
@@ -1498,8 +1511,11 @@ impl<'a, M: Clone + 'a> Slider<'a, M> {
                 .color(theme.text),
         ];
         let (field, accent, knob) = (theme.field, theme.accent, theme.text);
+        let stops: Vec<u32> = marks.iter().map(|(at, _)| *at).collect();
         let track = iced::widget::slider(0..=maximum, value, move |value| {
-            let value = if mark && value.abs_diff(100) <= 4 {
+            let value = if let Some(&stop) = stops.iter().min_by_key(|stop| stop.abs_diff(value)) {
+                stop
+            } else if mark && value.abs_diff(100) <= 4 {
                 100
             } else {
                 value
@@ -1525,29 +1541,73 @@ impl<'a, M: Clone + 'a> Slider<'a, M> {
             Some(message) => track.on_release(message),
             None => track,
         };
-        let track: Element<'a, M> = if mark {
-            // The handle travels the track less its own width; 100% sits
-            // where the handle's middle does there.
+        // The handle travels the track less its own width; a mark sits
+        // where the handle's middle does at its value.
+        let across =
+            move |width: f32, at: u32| 7.0 + (width - 14.0) * at as f32 / maximum.max(1) as f32;
+        let ticks: Vec<u32> = if marks.is_empty() {
+            if mark { vec![100] } else { Vec::new() }
+        } else {
+            marks.iter().map(|(at, _)| *at).collect()
+        };
+        let track: Element<'a, M> = if ticks.is_empty() {
+            track.into()
+        } else {
             let secondary = theme.secondary;
             iced::widget::stack![
                 iced::widget::responsive(move |size| {
-                    let x = 7.0 + (size.width - 14.0) * 100.0 / maximum as f32 - 1.0;
-                    container(bar(secondary, 2, 10))
-                        .padding(iced::Padding {
-                            left: x.max(0.0),
-                            top: 4.0,
-                            ..iced::Padding::ZERO
-                        })
-                        .into()
+                    iced::widget::Stack::with_children(ticks.iter().map(|&at| {
+                        container(bar(secondary, 2, 10))
+                            .padding(iced::Padding {
+                                left: (across(size.width, at) - 1.0).max(0.0),
+                                top: 4.0,
+                                ..iced::Padding::ZERO
+                            })
+                            .into()
+                    }))
+                    .width(Length::Fill)
+                    .height(Length::Fill)
+                    .into()
                 })
                 .height(18),
                 track,
             ]
+            .width(Length::Fill)
             .into()
-        } else {
-            track.into()
         };
-        column![head, track].spacing(6).into()
+        if marks.is_empty() {
+            return column![head, track].spacing(6).into();
+        }
+        // Each mark's label centred under it, in a box wide enough for
+        // "24px" at 12 px.
+        const LABEL: f32 = 40.0;
+        let muted = theme.muted;
+        let labels = iced::widget::responsive(move |size| {
+            iced::widget::Stack::with_children(marks.iter().map(|(at, label)| {
+                let left = (across(size.width, *at) - LABEL / 2.0)
+                    .clamp(0.0, (size.width - LABEL).max(0.0));
+                container(
+                    text(label.clone())
+                        .size(12)
+                        .color(muted)
+                        .width(LABEL)
+                        .align_x(Alignment::Center),
+                )
+                .padding(iced::Padding {
+                    left,
+                    ..iced::Padding::ZERO
+                })
+                .into()
+            }))
+            .width(Length::Fill)
+            .height(Length::Fill)
+            .into()
+        })
+        .height(16);
+        column![head, track, labels]
+            .spacing(6)
+            .width(Length::Fill)
+            .into()
     }
 }
 
@@ -1678,8 +1738,20 @@ pub fn dock_button<'a, M: Clone + 'a>(
     .into()
 }
 
+/// How tall a line of [`choices`] is.
+const CHOICE_LINE: f32 = 30.0;
+/// The gap between [`choices`]' options, and between its lines.
+const CHOICE_GAP: f32 = 3.0;
+/// The sunken frame's padding round [`choices`]' lines.
+const CHOICE_PAD: f32 = 3.0;
+/// The room at each side of an option's words, inside its share.
+const CHOICE_INSET: u16 = 4;
+/// The size of [`choices`]' words.
+const CHOICE_SIZE: f32 = 14.0;
+
 /// A row of choices, one chosen: on the sunken ground, the chosen one
-/// raised in the active colour and bold.
+/// raised in the active colour and bold. Options whose words don't all fit
+/// wrap onto even lines ([`choice_lines`]).
 pub fn choices<'a, M: Clone + 'a>(
     theme: &Theme,
     options: &[&'a str],
@@ -1689,7 +1761,9 @@ pub fn choices<'a, M: Clone + 'a>(
     choices_within(theme, options, current, 360.0, on_choose)
 }
 
-/// [`choices`] at most `widest` across, for a row of many.
+/// [`choices`] at most `widest` across, for a row of many. The lines are
+/// made for the width the row gets, which a narrow window may make less
+/// than `widest`.
 pub fn choices_within<'a, M: Clone + 'a>(
     theme: &Theme,
     options: &[&'a str],
@@ -1697,52 +1771,201 @@ pub fn choices_within<'a, M: Clone + 'a>(
     widest: f32,
     on_choose: impl Fn(usize) -> M,
 ) -> Element<'a, M> {
-    let mut row = row![].spacing(3).padding(3);
-    for (index, option) in options.iter().enumerate() {
-        let chosen = index == current;
-        let (active, hover) = (theme.active, theme.hover);
-        let (ink, lit_ink) = if chosen {
-            (theme.text, theme.text)
-        } else {
-            (theme.secondary, theme.text)
-        };
-        row = row.push(
-            button(
-                container(
-                    text(*option)
-                        .size(14.0)
-                        .font(if chosen { BOLD } else { MEDIUM })
-                        .wrapping(text::Wrapping::None),
-                )
-                .center_x(Length::Fill)
-                .height(Length::Fill)
-                .align_y(Alignment::Center),
-            )
-            .padding([0, 4])
-            .width(Length::FillPortion(option.len() as u16 + 6))
-            .height(Length::Fill)
-            .on_press(on_choose(index))
-            .style(move |_, status| {
-                let lit = lights(status);
-                button::Style {
-                    background: if chosen {
-                        Some(active.into())
-                    } else {
-                        lit.then(|| hover.into())
-                    },
-                    text_color: if lit { lit_ink } else { ink },
-                    border: Border::default().rounded(6),
-                    ..Default::default()
-                }
-            }),
-        );
+    let inks = ChoiceInks {
+        active: theme.active,
+        hover: theme.hover,
+        text: theme.text,
+        secondary: theme.secondary,
+        sunken: theme.sunken,
+    };
+    let options = options.to_vec();
+    let presses: Vec<M> = (0..options.len()).map(on_choose).collect();
+    // Capped as the row was, so a parent that centres or right-aligns it
+    // places it as before.
+    container(
+        iced::widget::responsive(move |size| {
+            choice_rows(inks, &options, current, size.width.min(widest), &presses)
+        })
+        .height(Length::Shrink),
+    )
+    .max_width(widest)
+    .into()
+}
+
+/// The colours [`choices`] are drawn in.
+#[derive(Clone, Copy)]
+struct ChoiceInks {
+    active: Color,
+    hover: Color,
+    text: Color,
+    secondary: Color,
+    sunken: Color,
+}
+
+/// [`choices`]' options on lines that fit `width`, in their sunken frame.
+fn choice_rows<'a, M: Clone + 'a>(
+    inks: ChoiceInks,
+    options: &[&'a str],
+    current: usize,
+    width: f32,
+    presses: &[M],
+) -> Element<'a, M> {
+    let shared = choice_lines(options, width);
+    let more = shared.len().saturating_sub(1) as f32;
+    let mut lines = column![].spacing(CHOICE_GAP).padding(CHOICE_PAD);
+    for line in shared {
+        let mut row = row![].spacing(CHOICE_GAP).height(CHOICE_LINE);
+        for index in line {
+            row = row.push(choice(
+                inks,
+                options[index],
+                index == current,
+                presses[index].clone(),
+            ));
+        }
+        lines = lines.push(row);
     }
-    let sunken = theme.sunken;
-    container(row)
-        .height(36)
-        .max_width(widest)
+    let sunken = inks.sunken;
+    container(lines)
+        .height(2.0 * CHOICE_PAD + CHOICE_LINE + (CHOICE_LINE + CHOICE_GAP) * more)
+        .max_width(width)
         .style(move |_| rounded(sunken, 8))
         .into()
+}
+
+/// One of [`choices`]' options, its share of its line as long as its words.
+fn choice<'a, M: Clone + 'a>(
+    inks: ChoiceInks,
+    option: &'a str,
+    chosen: bool,
+    press: M,
+) -> Element<'a, M> {
+    let (active, hover) = (inks.active, inks.hover);
+    let (ink, lit_ink) = if chosen {
+        (inks.text, inks.text)
+    } else {
+        (inks.secondary, inks.text)
+    };
+    button(
+        container(
+            text(option)
+                .size(CHOICE_SIZE)
+                .font(if chosen { BOLD } else { MEDIUM })
+                .wrapping(text::Wrapping::None),
+        )
+        .center_x(Length::Fill)
+        .height(Length::Fill)
+        .align_y(Alignment::Center),
+    )
+    .padding([0, CHOICE_INSET])
+    .width(Length::FillPortion(choice_portion(option)))
+    .height(Length::Fill)
+    .on_press(press)
+    .style(move |_, status| {
+        let lit = lights(status);
+        button::Style {
+            background: if chosen {
+                Some(active.into())
+            } else {
+                lit.then(|| hover.into())
+            },
+            text_color: if lit { lit_ink } else { ink },
+            border: Border::default().rounded(6),
+            ..Default::default()
+        }
+    })
+    .into()
+}
+
+/// An option's share of its line, by its words' length.
+fn choice_portion(option: &str) -> u16 {
+    option.len() as u16 + 6
+}
+
+/// How wide an option's words are, bold as when it's chosen. Each is
+/// measured once, as the rows are built on every view, and measured again
+/// once the font system's version moves (a fallback face loaded).
+pub fn choice_words(option: &str) -> f32 {
+    use iced::advanced::graphics::text::{Version, font_system};
+    use std::{cell::RefCell, collections::HashMap};
+    thread_local! {
+        static MEASURED: RefCell<(Version, HashMap<Box<str>, f32>)> = RefCell::default();
+    }
+    let version = font_system().read().expect("font system").version();
+    MEASURED.with_borrow_mut(|(measured, widths)| {
+        if *measured != version {
+            widths.clear();
+            *measured = version;
+        }
+        if let Some(&width) = widths.get(option) {
+            return width;
+        }
+        let width = measure_choice(option);
+        widths.insert(option.into(), width);
+        width
+    })
+}
+
+fn measure_choice(option: &str) -> f32 {
+    use iced::advanced::{
+        graphics::text::Paragraph,
+        text::{self, LineHeight, Paragraph as _, Shaping, Wrapping},
+    };
+    Paragraph::with_text(text::Text {
+        content: option,
+        bounds: iced::Size::INFINITE,
+        size: CHOICE_SIZE.into(),
+        line_height: LineHeight::default(),
+        font: BOLD,
+        align_x: text::Alignment::Default,
+        align_y: iced::alignment::Vertical::Top,
+        shaping: Shaping::Advanced,
+        wrapping: Wrapping::None,
+    })
+    .min_width()
+}
+
+/// [`choices`]' options as lines that each fit `widest`: one line when
+/// they all do, as they're shared out; otherwise as few as hold every
+/// option's words whole, each option given its share of its line as on one
+/// line, with the options kept in order and the lines as even as they can
+/// be (the first lines take one more where they don't share evenly).
+pub fn choice_lines(options: &[&str], widest: f32) -> Vec<Vec<usize>> {
+    // Inside the frame's padding, each option's words, then the gap. Its
+    // inset at each side may take the words' last pixels, as it always
+    // could; past that the row wraps.
+    let room = widest - 2.0 * CHOICE_PAD;
+    let words: Vec<f32> = options.iter().map(|option| choice_words(option)).collect();
+    // A line fits when each option's share of it (by its words' length, as
+    // `FillPortion` gives) holds its words.
+    let fits = |line: &[usize]| {
+        let portions: f32 = line
+            .iter()
+            .map(|&index| f32::from(choice_portion(options[index])))
+            .sum();
+        let free = room - CHOICE_GAP * line.len().saturating_sub(1) as f32;
+        line.iter().all(|&index| {
+            free * f32::from(choice_portion(options[index])) / portions >= words[index]
+        })
+    };
+    let all: Vec<usize> = (0..options.len()).collect();
+    if fits(&all) {
+        return vec![all];
+    }
+    for count in 2..=options.len() {
+        let (each, over) = (options.len() / count, options.len() % count);
+        let mut lines = Vec::with_capacity(count);
+        let mut from = 0;
+        for line in 0..count {
+            let take = each + usize::from(line < over);
+            lines.push(all[from..from + take].to_vec());
+            from += take;
+        }
+        if lines.iter().all(|line| fits(line)) {
+            return lines;
+        }
+    }
+    all.into_iter().map(|index| vec![index]).collect()
 }
 
 /// A tab with a bar under it while chosen (the full profile's, the voice
@@ -2029,5 +2252,93 @@ impl<M> iced::advanced::Widget<M, iced::Theme, iced::Renderer> for TooltipGlassW
                 inset: glass.inset,
             },
         );
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{CHOICE_GAP, CHOICE_PAD, choice_lines, choice_portion, choice_words};
+
+    /// The lines `names` take in `widest`, after checking they keep the
+    /// options in order and give each option a share that holds its words.
+    fn lines_of(names: &[&str], widest: f32, what: &str) -> Vec<Vec<usize>> {
+        crate::testing::install_fonts();
+        let lines = choice_lines(names, widest);
+        let order: Vec<usize> = lines.iter().flatten().copied().collect();
+        assert_eq!(order, (0..names.len()).collect::<Vec<_>>(), "{what}");
+        for line in &lines {
+            let portions: f32 = line
+                .iter()
+                .map(|&at| f32::from(choice_portion(names[at])))
+                .sum();
+            let free = widest - 2.0 * CHOICE_PAD - CHOICE_GAP * (line.len() - 1) as f32;
+            for &at in line {
+                let share = free * f32::from(choice_portion(names[at])) / portions;
+                let words = choice_words(names[at]);
+                assert!(share >= words, "{} in {what}: {share} < {words}", names[at]);
+            }
+        }
+        lines
+    }
+
+    /// Messages' date formats, bold as when chosen, are each a little wider
+    /// than their share of Settings' 360 px, so they take two lines, the
+    /// first one more.
+    #[test]
+    fn choices_wrap_onto_even_lines_only_when_their_words_dont_fit() {
+        let dates = ["Day/Month/Year", "Month/Day/Year", "Year-Month-Day"];
+        assert_eq!(
+            lines_of(&dates, 360.0, "Messages' date formats"),
+            [vec![0, 1], vec![2]],
+        );
+        assert_eq!(
+            lines_of(&dates, 600.0, "date formats with room"),
+            [vec![0, 1, 2]],
+        );
+    }
+
+    /// The other rows, at the width their screens draw them, stay one line.
+    #[test]
+    fn rows_that_fit_stay_on_one_line() {
+        for (names, widest, what) in [
+            (
+                &[
+                    "30 min", "1 hr", "6 hr", "12 hr", "1 day", "7 days", "Never",
+                ][..],
+                360.0,
+                "an invite's expiry",
+            ),
+            (
+                &["No limit", "1", "5", "10", "25", "50", "100"],
+                360.0,
+                "an invite's uses",
+            ),
+            (
+                &[
+                    "1 hour", "4 hours", "8 hours", "1 day", "3 days", "1 week", "2 weeks",
+                ],
+                460.0,
+                "a poll's duration",
+            ),
+            (
+                &[
+                    "New Kalimba",
+                    "Felt piano",
+                    "Soft marimba",
+                    "Mellow Rhodes",
+                    "Glow",
+                    "Flute",
+                ],
+                520.0,
+                "Sounds' sets",
+            ),
+            (
+                &["Never", "30 min", "1 hour", "4 hours", "Today"],
+                360.0,
+                "a status's clear after",
+            ),
+        ] {
+            assert_eq!(lines_of(names, widest, what).len(), 1, "{what}");
+        }
     }
 }

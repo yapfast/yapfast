@@ -95,6 +95,12 @@ pub enum MenuChoice {
     /// A box to tick that keeps a Discord server's muted channels out of
     /// its channel list.
     HideMuted,
+    /// Mute every server of a rail folder for one of [`MUTE_TIMES`], or
+    /// unmute them all once they all are; their level and switches, in a
+    /// submenu.
+    MuteFolder,
+    UnmuteFolder,
+    FolderNotifications,
     /// Make an invite link to a Discord server or channel.
     Invite,
     /// Pin a Discord server's channel to the top of its channel list, for
@@ -148,7 +154,7 @@ impl AppState {
         if self.servers.iter().any(|server| server.id == id) {
             self.server_choices(id)
         } else if self.is_folder(id) {
-            self.folder_choices(id)
+            self.folder_choices()
         } else if self.is_category(id) {
             self.notification_choices()
         } else {
@@ -386,26 +392,32 @@ impl AppState {
     }
 
     /// Whether an id names a folder of servers on the rail.
-    fn is_folder(&self, id: &str) -> bool {
+    pub fn is_folder(&self, id: &str) -> bool {
         self.folder_servers(id).next().is_some()
     }
 
-    /// The servers in a rail folder.
-    fn folder_servers(&self, id: &str) -> impl Iterator<Item = &ChatServer> {
+    /// The servers in a rail folder, in the rail's order.
+    pub fn folder_servers(&self, id: &str) -> impl Iterator<Item = &ChatServer> {
         self.servers
             .iter()
             .map(Arc::as_ref)
             .filter(move |server| server.folder.as_ref().is_some_and(|folder| folder.id == id))
     }
 
-    /// What a rail folder's menu offers: marking its servers read, as
-    /// Discord's does.
-    fn folder_choices(&self, id: &str) -> Vec<MenuChoice> {
-        if !self.preview && self.unread_in_folder(id).next().is_some() {
-            vec![MenuChoice::MarkRead]
-        } else {
+    /// What a rail folder's menu offers: marking its servers read, always,
+    /// as Discord's does; [`Self::folder_unread`] says whether it does
+    /// anything, and the menu greys it when not.
+    fn folder_choices(&self) -> Vec<MenuChoice> {
+        if self.preview {
             vec![]
+        } else {
+            vec![MenuChoice::MarkRead]
         }
+    }
+
+    /// Whether any server of a rail folder has messages to read.
+    pub fn folder_unread(&self, id: &str) -> bool {
+        self.unread_in_folder(id).next().is_some()
     }
 
     /// The channels of a folder's servers with messages to read.
@@ -1039,6 +1051,7 @@ impl Application {
         self.state.selection_version = self.state.selection_version.wrapping_add(1);
         // Typing is followed only in the open conversation, so what's known of others is stale.
         self.state.typing.clear();
+        self.forget_matrix_typing();
         self.state.mention_query = None;
         self.state.mention_groups.clear();
         self.state.found_members.clear();
@@ -1159,10 +1172,21 @@ impl Application {
         self.state.members = None;
         self.state.topic = None;
         self.state.selection_version = self.state.selection_version.wrapping_add(1);
+        self.forget_matrix_typing();
         if !self.state.preview {
             effects.push(Effect::Backend(Command::CloseRoom));
         }
         effects
+    }
+
+    /// Matrix says who types only in the open room, and closing it ends
+    /// that without a word, so its DMs' typing goes as it closes. Discord
+    /// says who types in every channel, and when they stop, so its DMs'
+    /// rows keep theirs.
+    fn forget_matrix_typing(&mut self) {
+        self.state
+            .typing_dms
+            .retain(|room| Network::of(room) == Network::Discord);
     }
 
     /// Shows the Matrix and Discord lists together, leaving a server or

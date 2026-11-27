@@ -459,7 +459,14 @@ mod tests {
             assert_eq!(frames[0], *picture.rgba, "{name}");
             // The test pattern moves, so the pictures differ.
             assert_ne!(frames[0], frames[5], "{name}");
-            assert!(picture.rgba.chunks_exact(4).all(|pixel| pixel[3] == 255));
+            assert!(
+                picture
+                    .rgba
+                    .as_chunks::<4>()
+                    .0
+                    .iter()
+                    .all(|pixel| pixel[3] == 255)
+            );
         }
         assert!(decode_animation(b"\0\0\0\x20ftypisom not really", 32, 32).is_none());
     }

@@ -40,9 +40,25 @@ them.
 A folder opens and closes on a click, its servers on a strip of its
 colour; closed it shows its first four servers' icons, and the speaker
 only for the call this account is in, as Discord's does.
+The icon rail builds rows near the visible area using the height and
+scroll position reported on redraw. The rail reports them even when all
+rows fit, so it can recover a stale viewport when the window reopens or
+a folder closes.
 A right click on a server, a folder or an unread DM opens its menu, the
-one its row in the sidebar opens; a folder's marks its servers read, and
-it has none while they are.
+one its row in the sidebar opens. A folder's starts with Mark folder as
+read, greyed while none of its servers has anything to read, as Discord's;
+while Discord is connected and knows each server's settings, Mute folder
+(the server menu's times beside it, a click on the row itself muting until
+it's turned back on; Unmute folder once all are muted, with when the last
+mute ends) and Notification settings (a level checked when every server
+has it, the switches ticked when every server has them on) change all its
+servers in one request (`place_menus::folder_levels`). Servers lists them
+beside the menu, each saying how it notifies, and a click goes to one; a
+right click on one opens its own choices beside the list
+(`place_menus::server_choices`, `Menu::side`): mute for each time or
+Unmute server, its levels and its two switches, which change that server
+alone and leave the menu open, a level or a switch checked in place.
+Close all folders comes last while a folder is open.
 A middle click on a server or a folder marks it all read, as its menu's
 Mark as read does.
 
@@ -60,6 +76,10 @@ limits and what leaves the conversation 420 px, and letting go writes it;
 a double click unsets it. Everything that places itself by either panel
 reads `sidebar::width`, `members::width` or `conversation::navigation`,
 never the panels' own widths.
+
+The sidebar builds rows near the visible area using the scroll position
+reported on redraw. A list that fits reports its position too, so its
+rows stay visible after switching from a longer list.
 
 The sidebar (`sidebar/`: its rows' model in `rows.rs`, the top, channels,
 voice and DM rows each a file) shows, on the DM
@@ -116,6 +136,19 @@ that ask first or need more opening their dialog (see
 taller than the window scrolls, kept inside it. A
 DM's menu mutes it for a time and, for its person, offers what their own
 menu does, with Invite to server and Apps in submenus.
+
+While someone else types in a DM or group DM, its row's avatar shows
+Discord's typing badge in place of the status dot (`typing::badge`): the
+status's colour, or online's green for a group DM, as a pill two and a
+half dots wide in the dot's ring, centred on it and reaching past the
+avatar's edge, with the composer strip's three dots pulsing in white
+within. The core keeps those DMs in `AppState::typing_dms` as each typing
+change comes, so a row looks itself up once. A Discord DM's stays as other
+rooms open, and goes with the account when it's switched or signed out. A
+Matrix one's counts only while its room is open, and goes as it closes,
+since Matrix says who types only there. The dots ask for frames only
+while a row shows them, so a DM list nobody types in draws nothing; while
+moving pictures don't play they stand still.
 
 In a Discord server, channels and categories drag to move them
 (`arrange.rs`): each category and

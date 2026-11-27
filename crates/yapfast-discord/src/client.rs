@@ -29,6 +29,11 @@ pub fn test_server() -> Option<&'static str> {
 /// The token Yapfast uses with the test server.
 pub const TEST_TOKEN: &str = "yapfast-test-token";
 
+/// The token of a second account on the test server, which the fake answers
+/// as Bea, beside Alice: see `YAPFAST_DISCORD_TEST_SECOND_ACCOUNT` in
+/// [`crate::token`].
+pub const TEST_SECOND_TOKEN: &str = "yapfast-test-token-two";
+
 /// The Firefox release Yapfast claims to be: one behind the newest, as most
 /// people's browsers are. Firefox 155 came on 1 September 2026, and one has
 /// come every two weeks since; revisit this if Mozilla changes the cadence

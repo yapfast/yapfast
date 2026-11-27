@@ -803,6 +803,7 @@ mod tests {
                 activity
             ])),
             since: None,
+            style: None,
         };
         let game = |party: Option<&str>| {
             let mut game =

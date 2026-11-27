@@ -257,6 +257,49 @@ fn the_search_popout_answers_a_filter_and_keeps_the_search_in_history() {
     );
 }
 
+/// The popout suggests the places the word names, as the regular client's
+/// box does, and picking one jumps there and ends the search instead of
+/// looking for messages. Enter alone still searches.
+#[test]
+fn the_search_popout_suggests_places_and_a_pick_jumps_to_one() {
+    use crate::search::Event;
+    use crate::search_popout::{self, PopoutEvent, Row, Shown};
+    let (mut app, _folder) = in_general();
+    in_search_box(&mut app, &|ui| {
+        ui.typewrite("lou");
+    });
+    // Where the box lies, which the popout hangs under.
+    app.searching.spot.set(iced::Rectangle::new(
+        iced::Point::new(600.0, 8.0),
+        iced::Size::new(240.0, 28.0),
+    ));
+    assert!(search_popout::open(&app.searching), "open while typing");
+    assert!(shows(&app, "Jump to"), "the suggestions lead");
+    assert!(shows(&app, "Channel"), "the place's kind beside it");
+    let state = app.client.state();
+    let Some(Shown::Rows(groups)) = search_popout::shown(&app.searching, state, &[]) else {
+        panic!("rows");
+    };
+    assert!(
+        matches!(&groups[0].rows[0], Row::Jump { name, .. } if name == "Lounge"),
+        "the place first"
+    );
+    assert!(
+        matches!(&groups[1].rows[0], Row::SearchFor(query) if query == "lou"),
+        "the search under it"
+    );
+    assert_eq!(app.searching.lit, None, "Enter still searches");
+    let _ = app.update(Message::Search(Event::Popout(PopoutEvent::Pick(0))));
+    let state = app.client.state();
+    assert_eq!(
+        state.selected.as_deref(),
+        Some("discord:10:14"),
+        "it went there"
+    );
+    assert_eq!(app.searching.text, "", "the search ended");
+    assert!(state.search_shown().is_none(), "no message search ran");
+}
+
 /// The box's filters as Discord's pills: keys and list-picked answers go
 /// whole under Backspace; a person's name is edited a letter at a time.
 #[test]
@@ -676,6 +719,81 @@ fn results_from_someone_blocked_hide_behind_a_row_that_shows_them() {
     let _ = app.update(Message::Search(Event::ShowHidden(true)));
     assert!(super::present(&app, "Mallory's plan"));
     assert!(shows(&app, "Hide 1 message from blocked users"));
+}
+
+/// #general's search showing one result, Bob's, with `item`.
+fn found_in_general(item: &str) -> (crate::app::App, tempfile::TempDir) {
+    use yapfast_core::discord;
+    let (mut app, folder) = in_general();
+    let place = app.client.state().search_place().expect("a server");
+    change(&mut app, |state| {
+        state.search = Some(Search {
+            place,
+            query: "plan".into(),
+            total: 1,
+            results: vec![SearchHit {
+                room: "discord:10:11".into(),
+                message: ChatMessage {
+                    item: item.into(),
+                    body: "The plan for tonight".into(),
+                    author: "Bob".into(),
+                    sender: discord::sender_id("1400000000000000200"),
+                    ..ChatMessage::default()
+                },
+                thread: None,
+            }],
+            ..Default::default()
+        });
+    });
+    (app, folder)
+}
+
+/// The labels of the open menu's rows.
+fn menu_labels(app: &crate::app::App) -> Vec<String> {
+    let menu = app.win.menu.as_ref().expect("the result's menu");
+    menu.rows.iter().map(|row| row.label.to_string()).collect()
+}
+
+/// A result's menu is Discord's: Copy Message Link, and with Developer
+/// Mode on Copy Message ID and Copy Author ID, each copying the result's
+/// own, though it isn't in the timeline.
+#[test]
+fn a_search_results_menu_copies_its_link_and_with_developer_mode_its_ids() {
+    let (mut app, _folder) = found_in_general("d:1400000000000000900");
+    let open = |app: &mut crate::app::App| {
+        super::interact(app, |ui| super::right_click(ui, "The plan for tonight"));
+    };
+    let choose = |app: &mut crate::app::App, row| {
+        super::clipboard_writes(app.update(Message::Menu(crate::menus::Event::Choose(row))))
+    };
+    let link = "https://discord.com/channels/10/11/1400000000000000900";
+    open(&mut app);
+    assert_eq!(menu_labels(&app), ["Copy Message Link"]);
+    assert_eq!(choose(&mut app, 0), [link]);
+    assert!(app.win.menu.is_none(), "choosing closes it");
+
+    app.layout.developer_mode = true;
+    let mut copied = Vec::new();
+    for row in 0..3 {
+        open(&mut app);
+        assert_eq!(
+            menu_labels(&app),
+            ["Copy Message Link", "Copy Message ID", "Copy Author ID"]
+        );
+        copied.extend(choose(&mut app, row));
+    }
+    assert_eq!(copied, [link, "1400000000000000900", "1400000000000000200"]);
+}
+
+/// A result with no Discord id has nothing to copy, and no menu.
+#[test]
+fn a_search_result_without_an_id_opens_no_menu() {
+    let (mut app, _folder) = found_in_general("s0");
+    app.layout.developer_mode = true;
+    super::interact(&mut app, |ui| {
+        super::right_click(ui, "The plan for tonight");
+    });
+    assert!(app.win.menu.is_none());
 }
 
 /// Discord's Filters dialog reads the box, and Apply writes its filters

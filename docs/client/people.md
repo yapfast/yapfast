@@ -18,7 +18,10 @@ member list, the DMs, and the lists still to come build on it.
   joined. Hidden (its toggle off, a thread or search in its place), the
   list keeps no lines, cards or pictures and builds none as the roster
   changes; shown again, it's built as the roster is then.
-- A DM's row (`sidebar/dms.rs`) shows the person's face, styled name and server
+- A DM's row (`sidebar/dms.rs`) shows the person's face (or for a group DM
+  without a custom icon, Discord's coloured group-people placeholder for two
+  members or two overlapping circular member avatars with a cutout for more, and
+  an online dot while any other member is online), styled name and server
   tag (OFFICIAL on Discord's own), the voice channel they're in (a click
   goes to it, in its server) or what they're up to, a group's members, and its
   nameplate under the pointer or while open, filling the row to its edges and
@@ -57,11 +60,20 @@ member list, the DMs, and the lists still to come build on it.
   kind, the level and the progress), the activities with their times (on the
   floating card each with Discord's more menu: View All Activity opens the
   full profile on Activity, and one's own game's Manage Privacy opens Game
-  Activity's settings), the mutual line
+  Activity's settings; someone else's with their Rich Presence buttons
+  after Watch, small plain `action`s worked out once per profile view in
+  `ActivityLook::buttons`, whose click sends
+  `Action::OpenActivityButton`: the core answers with
+  `Effect::AskToOpen`, which the `Client` keeps until `App::shell_sync`
+  puts it in `app.leaving`, the "Leaving Yapfast" question a masked link
+  asks, and moves the keys to `NOBODY`), the mutual line
   (which opens the full profile on its tab; in the docked card with no
   mutual friend it leads with the first three mutual servers' icons, 16 px
   and overlapping, then the servers' count), the bio cut to three lines
-  with View full bio, the roles, and a box that messages them. The full
+  with View full bio, the roles, the connections when Appearance's "Show
+  connections on profile cards" is on (`Prefs.card_connections`, the
+  floating card only, drawn by the full profile's `connections`), and a box
+  that messages them. The full
   profile (`full.rs`) has the card down its left, with Friends, Message and
   More under the name, Member Since, Friends Since, the roles, connections
   and the note (saved on Enter, and as the profile closes, grows or goes
@@ -201,9 +213,17 @@ glyph cache. The card shows if the restore fails.
   hands each step to the core, and the screen shows the QR code (drawn once
   per code, whole pixels per module), who scanned it, the captcha's notice
   with "Open it again", or the error with "Try again". "Use a token" opens
-  the field instead; Link checks it with Discord. A refused token stays
+  the field instead; Link checks it with Discord. Under the buttons, a note
+  says a pasted token can make Discord sign its app out, and that the QR
+  code is the safe way. After unlinking or signing out of the last account
+  when it was a pasted token's (the core's `discord_session_kept`), the panel
+  says Yapfast forgot the login and that the app a pasted token came from is
+  still signed in, until linking starts again. A refused token stays
   to fix; once the account is linked it's let go, its field closed. A
-  linked account starts the workspace. The screen's secrets (token,
+  linked account starts the workspace. Manage Accounts' "Add an account" shows
+  the same steps over the workspace (see [Dialogs](dialogs.md)), so with an
+  account in use the code and the token stay while that dialog is open.
+  The screen's secrets (token,
   password, recovery key) are overwritten as they go and never show in a
   log line of the screen or what's typed.
 - Matrix, with `matrix`: the homeserver, Matrix ID and password go to the

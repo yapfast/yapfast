@@ -943,13 +943,13 @@ impl<'a> Page<'a> {
                 form::heading(theme, "MOTION"),
                 switch(
                     "Reduce motion",
-                    self.cx.layout.reduce_motion,
+                    self.cx.layout.reduced_motion(),
                     Some(theme_message(Event::ReduceMotion(
-                        !self.cx.layout.reduce_motion,
+                        !self.cx.layout.reduced_motion(),
                     ))),
                 )
                 .description(
-                    "Themes' animations, text effects and hover motion stay still, whatever Performance is set to.",
+                    "Themes' animations, text effects and hover motion stay still, whatever Performance is set to, and GIFs, emoji and stickers stop playing. Accessibility has it too.",
                 )
                 .view(self.cx.look),
                 switch(

@@ -29,7 +29,7 @@ hash there; a `nix build` with the old one prints it.
 
 ## Dependencies
 
-Yapfast pins Rust 1.97.1 and iced 0.14.0. Cargo.lock pins the complete Rust
+Yapfast pins Rust 1.100 and iced 0.14.0. Cargo.lock pins the complete Rust
 graph. iced's two renderers and its text shaper, cosmic-text, are patched in
 `vendor/`; see [dependency sources](#dependency-sources) and [the vendored
 toolkit](client/toolkit.md).
@@ -52,8 +52,9 @@ taking the new commit's files over these, as `vendor/twemoji/README.yapfast.md`
 says.
 
 LiveKit's Rust crates must stay on the mutually compatible versions in
-Cargo.lock. Do not run an unrestricted `cargo update`. Upgrade against the
-MatrixRTC lockfile and rebuild the native media stack. On Linux, the Nix shell
+Cargo.lock. The manifests pin the LiveKit API, protocol and WebRTC build
+helper versions. Use targeted Cargo updates and upgrade LiveKit against the
+MatrixRTC lockfile, then rebuild the native media stack. On Linux, the Nix shell
 supplies libwebrtc `webrtc-51ef663`, matching webrtc-sys-build 0.3.18. Updating
 that crate requires updating the archive URL and checksum in `nix/native.nix`
 (Linux) and `nix/flake.nix` (Windows) too.
@@ -73,14 +74,17 @@ SDK and the C++ media bindings do not exhaust it.
 Development builds omit debug symbols for dependencies; the app keeps line
 tables. They optimize DeepFilterNet's crates and turn off tract-core's debug
 assertions, which reject its model; see Cargo.toml. Release builds strip
-symbols and use no LTO, which made both platforms' binaries bigger for no
-measured speed. Use them for builds people run. The `measure` profile
-optimizes like release, keeps symbols and builds incrementally. Use it for
+symbols and use thin LTO with one codegen unit per crate, for a smaller
+binary at about twice the cold build time. Use them for builds people run.
+The `measure` profile optimizes like release, without LTO and with many
+codegen units so it builds quickly, keeps symbols and builds incrementally. Use it for
 [measurements](measurements/README.md) and profiling: `cargo build --profile
 measure`. The `fast` profile has the same settings in a target folder of its
 own, `target/fast/`. Use it for tests, local runs and checks: `cargo build
 --profile fast` or `cargo test --profile fast`. Builds to measure then stay
 apart from the ones everyday work replaces.
+
+The Linux x86-64 Nix dev shell links Rust binaries with mold through Clang.
 
 A plain `cargo build`, `cargo build --workspace` (`scripts/check`'s) and
 `scripts/ui-session`'s build give `yapfast-core`, the window and the binary
@@ -339,10 +343,10 @@ a filter names, such as `forum` or `calls_in_dms`, a second or so apiece. Each s
 fake of its own, so none depends on another and a filter runs any alone. `cargo
 nextest`, in the development shell, runs them side by side, eight at a time
 (`.config/nextest.toml`), and the whole file takes about 15 seconds; without
-it, `cargo test` runs them one after another in about a minute. The script then
-runs yapfast-core's Discord tests against one fake, and
-`crates/yapfast-discord/tests/fake_env.rs` against a fake that runs the example
-environment.
+it, `cargo test` runs them one after another in about a minute. The script uses
+the same runner for yapfast-core's Discord tests, which take turns on one fake,
+and for `crates/yapfast-discord/tests/fake_env.rs`, which loads the example
+environment on a separate fake.
 
 `--env PATH` replaces the fake's built-in content with an environment, for
 demos, promo recordings and screenshots. An environment is a JSON file, or a
@@ -410,14 +414,15 @@ required. Published packages are still made by the Linux MSVC cross-build.
 A native development build names this machine's folders and must not be
 shipped. Install these prerequisites before running Cargo:
 
-- Rust through rustup; `rust-toolchain.toml` pins Rust 1.97.1. Use the
+- Rust through rustup; `rust-toolchain.toml` pins Rust 1.100. Use the
   `x86_64-pc-windows-msvc` toolchain.
 - Visual Studio Build Tools with the **Desktop development with C++**
   workload, including the MSVC x64/x86 build tools and a Windows 10 or 11 SDK.
   These supply the MSVC linker, headers and libraries; Cargo alone does not.
-- LLVM/Clang for Windows, including `clang-cl`, `libclang.dll` and preferably
-  `llvm-rc`. Standalone LLVM or Visual Studio's **C++ Clang tools for Windows**
-  can supply `clang-cl`; ensure `libclang.dll` is installed too. The SDK's
+- LLVM/Clang for Windows, including `clang-cl`, `libclang.dll`, the x64
+  Rust linker `lld-link.exe`, and preferably `llvm-rc`. Standalone LLVM or
+  Visual Studio's **C++ Clang tools for Windows** can supply these tools.
+  Ensure `libclang.dll` is installed and `lld-link.exe` is on `PATH`. The SDK's
   `rc.exe` can replace `llvm-rc`.
 - NASM, available on `PATH`, for FFmpeg's x86-64 assembly.
 

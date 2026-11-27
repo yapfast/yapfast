@@ -875,7 +875,13 @@ fn style_previews<'a>(
         .spacing(6)
         .height(26)
         .align_y(Alignment::Center);
-    for badge in profile.badges.iter().take(3) {
+    let badges = ctx
+        .state
+        .cosmetics
+        .badges(&profile.badges)
+        .into_iter()
+        .flatten();
+    for badge in badges.take(3) {
         if let Some(picture) =
             crate::profile::profile_picture(ctx, shown, &badge.icon, 20, 20, false)
         {

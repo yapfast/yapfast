@@ -664,10 +664,20 @@ fn friend_row<'a>(
             pointed,
         )
         .dot(Some((presence, rgb(surface), Point::new(20.0, 20.0))));
-    let name = crate::elide::elide(friend.name.as_str())
-        .size(theme.type_size("names", 16.0))
-        .font(theme.font("names", BOLD))
-        .color(theme.text);
+    // Their name style: its font at rest, its colours while pointed at,
+    // as a DM's row draws it.
+    let style = crate::looks::name_look(
+        ctx.state.cosmetics.style(friend.style.as_deref()),
+        &friend.name,
+        false,
+        theme.dark,
+    );
+    let name = ctx.person_name(
+        &friend.name,
+        crate::people::NameInk::new(16.0, 700, theme.text)
+            .style(style.as_ref())
+            .plain(!pointed),
+    );
     let status = Status::of(friend.activity.as_deref());
     let sub: Element<'a, Message> = match (spot, status.is_empty()) {
         (Some(spot), true) => ctx.voice_spot(spot, 13.0, false),

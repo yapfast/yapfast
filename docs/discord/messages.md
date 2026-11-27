@@ -213,6 +213,8 @@ Yapfast is back, rather than showing an error.
   The rail applies the move immediately from the last known server list.
   The update replaces the `guild_folders` field. A failed save restores the
   previous arrangement unless Discord has since sent a newer one.
+  A folder's menu leaves out Discord's Move to and Folder Settings; what it
+  offers is in [Notification settings](#notification-settings).
 - A server out of reach in a Discord outage (`GUILD_DELETE` with
   `unavailable`, or READY listing it so) stays in the rail, faded, as last
   known, until its `GUILD_CREATE` brings it back. Only a `GUILD_DELETE`
@@ -552,8 +554,10 @@ Yapfast is back, rather than showing an error.
   server shows as a mention, and clicking it opens the channel, a voice
   channel's chat without joining its call. Any other shows as `#channel`.
 - Who else is typing shows above the composer, for ten seconds after Discord
-  last said so or until their message arrives. Writing tells Discord Alice is
-  typing, at most every eight seconds, unless a setting turns it off.
+  last said so or until their message arrives, and on a DM's row in the DM
+  list, in place of the status dot, whichever conversation is open. Writing
+  tells Discord Alice is typing, at most every eight seconds, unless a
+  setting turns it off.
 - Clicking the account's avatar or name, bottom left, opens a menu of Online,
   Idle, Do Not Disturb and Invisible, as in Discord. Yapfast saves the choice in
   the settings below and sends it with opcode 3. Do Not Disturb holds back
@@ -584,6 +588,49 @@ Yapfast is back, rather than showing an error.
   as when another device clears it or it runs out there. Each session shows the status to others itself, so Yapfast sends it with
   opcode 3 once connected, whenever the settings change, and clears it when
   it ends. A custom emoji in a status needs Nitro.
+
+## Recent mentions
+
+When the inbox's Mentions tab first shows, as Discord's client asks, Yapfast
+asks Discord for this account's recent mentions,
+`GET /users/@me/mentions?limit=100&roles=…&everyone=…[&guild_id=…]`: the
+messages that called on it in the past week, by name, by a reply that
+pinged it, through one of its roles in the message's server, or with
+@everyone or @here, newest first (docs.discord.food, "List Recent
+Mentions", where `roles` and `everyone` default to true). Discord keeps
+only that week, so an older ping never comes from this page: opening its
+channel brings it into the Mentions tab instead, which merges the open
+rooms' pings with the fetch, newest first. A reply that didn't ping, or
+the account's own message, isn't one. It keeps up to 100 of each in
+memory, one per message, and shows the newest 30 as a pinned message or a
+search result shows: the author's name, colour and avatar in their server,
+and the message's text, files and embeds, their pictures coming when they
+show. Nothing is acknowledged at Discord, so the inbox there stays as it
+is.
+
+The tab's Filter button (Discord's `navId:"mentions-filter"` menu) holds
+three boxes, as Discord's client words them and starts them, all on:
+"Include @everyone mentions", sent as `everyone`; "Include @role
+mentions", sent as `roles`; and, only while the open room is in a server,
+"Include all servers": off, the request names that server as `guild_id`.
+The client sends `roles` and `everyone` with every request and `guild_id`
+only for one server. A box changed asks again at once; so does the tab
+showing after Discord reconnects, and, while only one server's list,
+after another channel opened, as the client marks its list unloaded on
+selecting a channel. Asked without a server (in a DM, say), "Include all
+servers" turns back on, as the client's store does. A narrower filter
+keeps the list until the answer replaces it, and hides meanwhile what it
+leaves out, as does every ping the open rooms bring: one in another server
+while only this one's list, one that calls on the account only with
+@everyone or @here, or only through a role, while that kind is left out;
+naming it or replying to it always shows. A wider one empties the list
+until the answer comes, as the client clears its own. Like the client's
+`recentMentionFilterSettings` in local storage, the filter stays on the
+device (`recent_mention_filter` in `layout.json`), not with the account.
+All of this is from the client's code (the menu, the store's defaults and
+its `SET_RECENT_MENTIONS_FILTER` and `CHANNEL_SELECT` handlers, and
+`fetchRecentMentions`); which kind a ping in the open rooms is comes from
+the mentions its text shows, Yapfast's own reading.
 
 ## Bots' buttons, menus and forms
 
@@ -1206,6 +1253,20 @@ Discord's do, built alike in `crates/yapfast-iced/src/place_menus.rs`
   heading names its first channel, and Yapfast finds the channel's category
   (`Application::category_of`); an empty category's heading names the
   category itself.
+
+A folder's menu changes its servers together, which Discord's own folder
+menu doesn't offer: `Action::ChangeNotifications` with the folder's id sends
+`DiscordCommand::FolderNotifications`, one `PATCH
+/users/@me/guilds/settings` with the same partial settings for each server,
+`{"guilds": {"<id>": {"muted": true, "mute_config": {...}}, ...}}`, the
+request Discord's client sends a server's own settings through. A mute with
+an end ends at the same moment for each. Discord answers with a
+USER_GUILD_SETTINGS_UPDATE for each server. A server right-clicked under
+Servers opens its own choices, which change that server alone with the
+same request its own menu sends.
+Mark folder as read marks every server's unread channels read, as each
+server's Mark as read does, which is what Discord's client does for a
+folder.
 
 ## Writing without permission
 

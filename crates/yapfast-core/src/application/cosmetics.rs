@@ -18,11 +18,21 @@ pub struct Cosmetics {
     pub moving: bool,
     /// Display names show in the font and colours their person picked.
     pub name_styles: bool,
+    /// A role whose colour is a gradient or holographic one draws it across
+    /// the name, a span a letter, each time the name is drawn. Off, the name
+    /// keeps the role's first colour, one span.
+    pub name_colours: bool,
     /// Server tags show beside names, with their badges.
     pub server_tags: bool,
+    /// Badges show on profile cards: a picture each, and one levels request
+    /// per profile while its card is open.
+    pub badges: bool,
     /// Profile frames show around profile cards: a request for what the
     /// frame is made of, then its stills.
     pub frames: bool,
+    /// A profile's background shows: its banner picture and its colour
+    /// (the accent, or the avatar's).
+    pub background: bool,
 }
 
 impl Default for Cosmetics {
@@ -34,8 +44,11 @@ impl Default for Cosmetics {
             decorations: true,
             moving: true,
             name_styles: true,
+            name_colours: true,
             server_tags: true,
+            badges: true,
             frames: true,
+            background: true,
         }
     }
 }
@@ -56,6 +69,16 @@ impl Cosmetics {
         style.filter(|_| self.name_styles)
     }
 
+    /// A role colour's gradient ends, if names draw gradients.
+    pub fn colours<T>(self, end: Option<T>) -> Option<T> {
+        end.filter(|_| self.name_colours)
+    }
+
+    /// A profile's badges, if they show.
+    pub fn badges<T>(self, badges: T) -> Option<T> {
+        self.badges.then_some(badges)
+    }
+
     /// A profile's frame, if frames show.
     pub fn frame<T>(self, frame: Option<T>) -> Option<T> {
         frame.filter(|_| self.frames)
@@ -64,6 +87,11 @@ impl Cosmetics {
     /// A profile's effect, if effects play.
     pub fn effect<T>(self, effect: Option<T>) -> Option<T> {
         effect.filter(|_| self.effects)
+    }
+
+    /// A profile's banner, if its background shows.
+    pub fn background<T>(self, background: Option<T>) -> Option<T> {
+        background.filter(|_| self.background)
     }
 }
 
@@ -78,14 +106,20 @@ mod tests {
             decorations: false,
             moving: false,
             name_styles: false,
+            name_colours: false,
             server_tags: false,
+            badges: false,
             frames: false,
+            background: false,
         };
         assert_eq!(off.decoration(Some("https://cdn/static")), None);
         assert_eq!(off.tag(Some(&"TAG")), None);
+        assert_eq!(off.badges(vec!["a"]), None);
         assert_eq!(off.style(Some(1)), None);
+        assert_eq!(off.colours(Some((1, Some(2)))), None);
         assert_eq!(off.effect(Some("sku")), None);
         assert_eq!(off.frame(Some("sku")), None);
+        assert_eq!(off.background(Some("https://cdn/banner.png")), None);
     }
 
     #[test]
@@ -95,13 +129,19 @@ mod tests {
             decorations: true,
             moving: true,
             name_styles: true,
+            name_colours: true,
             server_tags: true,
+            badges: true,
             frames: true,
+            background: true,
         };
         assert_eq!(on.decoration(Some("url")), Some("url"));
         assert_eq!(on.tag(Some(&"TAG")), Some(&"TAG"));
+        assert_eq!(on.badges(vec!["a"]), Some(vec!["a"]));
         assert_eq!(on.style(Some(1)), Some(1));
+        assert_eq!(on.colours(Some((1, Some(2)))), Some((1, Some(2))));
         assert_eq!(on.effect(Some("sku")), Some("sku"));
+        assert_eq!(on.background(Some("url")), Some("url"));
         // Every switch starts on.
         assert_eq!(Cosmetics::default(), on);
     }

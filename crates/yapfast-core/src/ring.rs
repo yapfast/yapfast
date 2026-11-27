@@ -81,7 +81,9 @@ fn repetition(tone: Tone) -> Vec<f32> {
         .and_then(|themed| themed[tone as usize].clone());
     match themed {
         Some(samples) => samples
-            .chunks_exact(2)
+            .as_chunks::<2>()
+            .0
+            .iter()
             .map(|pair| (f32::from(pair[0]) + f32::from(pair[1])) / 2.0 / f32::from(i16::MAX))
             .collect(),
         None => pattern(tone),
@@ -139,7 +141,7 @@ fn play(pattern: &[f32], mut output: Output<i16>, stop: &AtomicBool) {
         if stop.load(Ordering::Relaxed) {
             break;
         }
-        for (pair, sample) in stereo.chunks_exact_mut(2).zip(chunk) {
+        for (pair, sample) in stereo.as_chunks_mut::<2>().0.iter_mut().zip(chunk) {
             pair.fill((sample * f32::from(i16::MAX)) as i16);
         }
         if let Err(error) = output.write(&stereo[..chunk.len() * 2]) {

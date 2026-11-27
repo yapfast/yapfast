@@ -47,6 +47,9 @@ pub struct Participant {
     /// Muted or deafened by a Discord server, which shows in red; `muted`
     /// and `deafened` say so too.
     pub server_muted: bool,
+    /// Discord won't let them speak here (`suppress`), apart from any
+    /// mute; never shown speaking.
+    pub speaking_blocked: bool,
     pub server_deafened: bool,
     pub speaking: bool,
     /// False after this participant's media connection disappeared, for
@@ -73,7 +76,7 @@ pub struct Sharing {
     pub viewers: Vec<String>,
 }
 
-/// Watching someone's stream in the call.
+/// Watching someone's stream in the call; a call watches any number at once.
 #[derive(Clone, Debug)]
 pub struct Watching {
     /// Their user id, as in [`Participant::id`].
@@ -157,6 +160,8 @@ pub struct LinkStats {
     pub privacy_code: Option<String>,
     /// The screen this account shares, while it's live.
     pub stream: Option<StreamStats>,
+    /// The stream this account watches, while it shows.
+    pub watching: Option<WatchStats>,
 }
 
 /// How this account's shared screen goes out, as its stream worker reports
@@ -168,13 +173,41 @@ pub struct LinkStats {
 pub struct StreamStats {
     pub engine: String,
     pub codec: String,
+    /// What's shared and its size before it's scaled to fit the stream:
+    /// "2560×1440 screen".
+    pub captured: String,
     pub width: u32,
     pub height: u32,
     pub fps: u32,
     pub target_kbps: u32,
     pub sent_kbps: u32,
     pub keyframe_requests: u64,
+    /// The picture's packets sent since the stream started, not counting
+    /// those sent again: what `resent` is a share of.
+    pub packets: u64,
     pub resent: u64,
+}
+
+/// How a stream this account watches comes in and shows, as its worker
+/// reports it each second: the decoder ("FFmpeg's H264 decoder"), the codec,
+/// the size and the pictures shown in the last second, the kbit/s received
+/// in it, and since watching began, the picture's packets received, those
+/// never seen even after asking again, those a resend brought back, the
+/// keyframes asked for, and the frames dropped because they wouldn't decrypt
+/// or decode or the decoder was behind.
+#[derive(Clone, Debug, Default, PartialEq, Eq, serde::Deserialize, serde::Serialize)]
+pub struct WatchStats {
+    pub decoder: String,
+    pub codec: String,
+    pub width: u32,
+    pub height: u32,
+    pub fps: u32,
+    pub received_kbps: u32,
+    pub packets: u64,
+    pub lost: u64,
+    pub repaired: u64,
+    pub keyframe_requests: u64,
+    pub dropped: u64,
 }
 
 /// Reads the call's [`LinkStats`], which the call measures all along and
@@ -258,7 +291,7 @@ pub struct State {
     /// not received this device's audio key.
     pub warning: Option<String>,
     pub sharing: Option<Sharing>,
-    pub watching: Option<Box<Watching>>,
+    pub watching: Vec<Watching>,
     /// How the next screen share is sent.
     pub quality: StreamQuality,
     pub stream_audio: StreamAudio,
@@ -335,7 +368,7 @@ impl Default for State {
             error: None,
             warning: None,
             sharing: None,
-            watching: None,
+            watching: Vec::new(),
             quality: StreamQuality::default(),
             stream_audio: StreamAudio::default(),
             stream_app: None,
@@ -350,6 +383,12 @@ impl Default for State {
 }
 
 impl State {
+    pub fn speaking_blocked(&self) -> bool {
+        self.participants
+            .iter()
+            .any(|person| person.local && person.speaking_blocked)
+    }
+
     pub fn active(&self) -> bool {
         self.phase != Phase::Disconnected
     }
@@ -375,7 +414,7 @@ impl State {
         self.unmute_on_undeafen = false;
         self.warning = None;
         self.sharing = None;
-        self.watching = None;
+        self.watching.clear();
         self.camera_phase = CameraPhase::Off;
         self.can_film = false;
         self.link = None;
@@ -423,7 +462,8 @@ pub enum Command {
     FavoriteSound(String, bool),
     /// Watch the participant with this id's stream.
     Watch(String),
-    StopWatching,
+    /// Stop watching the stream of the participant with this id.
+    StopWatching(String),
     /// Remove memberships this device left in voice channels, for example
     /// after Yapfast was killed. Ignored during a call.
     LeaveStale,

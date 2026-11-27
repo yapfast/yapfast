@@ -77,7 +77,7 @@ async fn cameras_in_call(
     let recorded = recording(Codec::H264);
     for (index, data) in recorded.iter().take(10).enumerate() {
         camera.send(Frame {
-            data: data.clone(),
+            data: data.clone().into(),
             codec: Codec::H264,
             timestamp: index as u32 * 9000,
             keyframe: index == 0,
@@ -315,9 +315,32 @@ fn watch_frames(
         }
     }
     assert_eq!(receiver.link(), Link::Connected);
-    let heard: Vec<Vec<u8>> = sounds.try_iter().collect();
+    // What the call's details show, which the connection copies out once a
+    // second.
+    while receiver.received().video_packets == 0 {
+        assert!(
+            std::time::Instant::now() < deadline,
+            "no tally of what came"
+        );
+        std::thread::sleep(Duration::from_millis(50));
+    }
+    let received = receiver.received();
+    assert!(received.video_bytes > 0, "{received:?}");
+    assert!(received.lost <= received.video_packets, "{received:?}");
+    let heard: Vec<_> = sounds.try_iter().collect();
     assert!(heard.len() >= 5, "only {} sounds arrived", heard.len());
-    assert!(heard.iter().all(|sound| sound == &[0xf8, 0xff, 0xfe]));
+    assert!(heard.iter().all(|sound| sound.opus == [0xf8, 0xff, 0xfe]));
+    // Each in its place in the streamer's numbering; a full queue drops
+    // some, so later is all that holds.
+    assert!(
+        heard.windows(2).all(|pair| pair[1]
+            .sequence
+            .wrapping_sub(pair[0].sequence)
+            .wrapping_sub(1)
+            < 0x8000),
+        "{:?}",
+        heard.iter().map(|sound| sound.sequence).collect::<Vec<_>>()
+    );
     frames
 }
 
@@ -345,7 +368,7 @@ async fn streams_gpu_codec_until_a_viewer_cant_decode_it(
     let send = |codec, from: usize| {
         for (index, data) in recording(codec).into_iter().take(3).enumerate() {
             sender.send(Frame {
-                data,
+                data: data.into(),
                 codec,
                 timestamp: (from + index) as u32 * 3000,
                 keyframe: index == 0,
@@ -461,7 +484,7 @@ async fn send_recording(sender: &StreamSender, codec: Codec, from: usize, count:
     );
     for (index, data) in frames.into_iter().take(count).enumerate() {
         sender.send(Frame {
-            data,
+            data: data.into(),
             codec,
             timestamp: (from + index) as u32 * 3000,
             keyframe: index == 0,
@@ -932,7 +955,7 @@ async fn calls_and_goes_live() {
     let sound = sender.sound();
     for (index, data) in recording(SEND_CODEC).into_iter().take(5).enumerate() {
         sender.send(Frame {
-            data,
+            data: data.into(),
             codec: SEND_CODEC,
             timestamp: index as u32 * 3000,
             keyframe: index == 0,
@@ -1016,10 +1039,11 @@ async fn calls_and_goes_live() {
         video["announced"],
         serde_json::json!({"type": "fixed", "width": 320, "height": 180})
     );
-    // What the call's details show: the video's bytes, and the one packet
-    // the fake reported lost, resent.
+    // What the call's details show: the video's bytes and packets, and the
+    // one packet the fake reported lost, resent.
     let sent = sender.sent();
     assert!(sent.video_bytes > 1000, "{sent:?}");
+    assert!(sent.video_packets > 1, "{sent:?}");
     assert_eq!(sent.resent, 1);
     drop(sender);
     for codec in [Codec::Av1, Codec::H265] {
@@ -1123,6 +1147,48 @@ impl Listener for Dropping {
     fn disconnected(&self, reason: &str) {
         self.dropped.lock().unwrap().push(reason.to_owned());
     }
+}
+
+#[tokio::test(flavor = "multi_thread")]
+#[ignore = "starts testing/fake_discord.ts with bun; run scripts/test-fake-discord"]
+async fn two_streams_at_once() {
+    let Fixture {
+        _fake,
+        discord,
+        server,
+        guild,
+        lounge,
+        bob,
+        ..
+    } = Fixture::start("two_streams_at_once").await;
+    let assigned = discord.join(&guild, &lounge).await.unwrap();
+    let _call = timeout(
+        WAIT,
+        Call::connect(&assigned, &guild, &lounge, Arc::new(Quiet)),
+    )
+    .await
+    .expect("timed out connecting to voice")
+    .unwrap();
+    let bobs = stream::key(&guild, &lounge, &bob);
+    let carols = control(server, "POST", "/_control/stream-start?user=carol", "");
+    let carols = carols.trim();
+    // Discord answers each on its own, as a click on Watch all asks at once,
+    // and each gets a connection and its pictures while the other's go on.
+    let (first, second) = tokio::join!(discord.watch(&bobs), discord.watch(carols));
+    let (first, second) = (first.unwrap(), second.unwrap());
+    assert_eq!(first.stream_key, bobs);
+    assert_eq!(second.stream_key, carols);
+    let decodes = || vec![Codec::H264, Codec::Vp8];
+    let watching = |watched: yapfast_discord::stream::StreamServer| {
+        tokio::task::spawn_blocking(move || watch_frames(&watched, decodes(), 12))
+    };
+    let (mine, hers) = tokio::join!(watching(first), watching(second.clone()));
+    assert_eq!(mine.unwrap().len(), 12);
+    assert_eq!(hers.unwrap().len(), 12);
+    // One ending leaves the other watched.
+    discord.end_stream(&bobs);
+    let hers = tokio::task::spawn_blocking(move || watch_frames(&second, decodes(), 12));
+    assert_eq!(hers.await.unwrap().len(), 12);
 }
 
 /// Joins the Lounge, connecting a call that reports to `listener`.

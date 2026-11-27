@@ -23,6 +23,21 @@ fn a_channel_clicked_in_the_list_opens() {
 }
 
 #[test]
+fn a_short_server_rail_recovers_from_a_stale_viewport() {
+    let (mut app, _folder) = preview();
+    // A newly laid out rail can still carry the old window's scroll offset.
+    app.rail.scroll.offset = 2000.0;
+    assert!(!shows(&app, "CC"));
+    interact(&mut app, |ui| {
+        ui.simulate([iced::Event::Window(iced::window::Event::RedrawRequested(
+            std::time::Instant::now(),
+        ))]);
+    });
+    assert_eq!(app.rail.scroll.offset, 0.0);
+    assert!(shows(&app, "CC"), "the Co-op crew server tile");
+}
+
+#[test]
 fn an_unread_dm_shows_on_the_rail_above_the_servers_and_opens() {
     use crate::rail::{Event, Kind};
     let (mut app, _folder) = preview();
@@ -276,6 +291,23 @@ fn the_dm_search_keeps_the_dms_whose_names_hold_it() {
 }
 
 #[test]
+fn a_short_dm_list_recovers_after_a_scrolled_sidebar() {
+    let (mut app, _folder) = preview();
+    // The sidebar can carry the scroll report from a long server list
+    // into the first frame of a shorter DM list.
+    app.sidebar.scroll.offset = 2000.0;
+    let _ = app.update(Message::Rail(crate::rail::Event::Home));
+    assert!(!shows(&app, "Friday crew"));
+    interact(&mut app, |ui| {
+        ui.simulate([iced::Event::Window(iced::window::Event::RedrawRequested(
+            std::time::Instant::now(),
+        ))]);
+    });
+    assert_eq!(app.sidebar.scroll.offset, 0.0);
+    assert!(shows(&app, "Friday crew"));
+}
+
+#[test]
 fn with_its_setting_the_dm_lists_find_or_start_a_conversation_opens_the_quick_switcher() {
     let (mut app, _folder) = preview();
     app.layout.dm_search_switcher = true;
@@ -504,6 +536,7 @@ fn the_account_cards_avatar_rings_while_its_microphone_carries_voice() {
             muted: false,
             deafened: false,
             server_muted: false,
+            speaking_blocked: false,
             server_deafened: false,
             speaking: true,
             connected: true,
@@ -530,6 +563,59 @@ fn the_account_cards_avatar_rings_while_its_microphone_carries_voice() {
         (green[1] as f32 / 255.0 - live.g).abs() < 0.1,
         "in the live colour: {green:?}"
     );
+}
+
+#[test]
+fn the_account_cards_presence_dot_sits_over_the_speaking_ring() {
+    use yapfast_core::voice::{Participant, Phase};
+    let (mut app, _folder) = preview();
+    phase(&mut app, Phase::Connected);
+    change(&mut app, |state| {
+        state.preview = false;
+        state.discord_online = true;
+        state.discord_presence = Some("dnd".into());
+        state.voice.participants = vec![Participant {
+            id: "me".into(),
+            user: "me".into(),
+            person: "me".into(),
+            local: true,
+            muted: false,
+            deafened: false,
+            server_muted: false,
+            speaking_blocked: false,
+            server_deafened: false,
+            speaking: true,
+            connected: true,
+            problem: None,
+            streaming: false,
+            video: None,
+            avatar: None,
+        }];
+    });
+    assert!(app.ctx().account.speaking, "the ring is on");
+    let (width, _, pixels) = super::drawn(&mut account_card(&app));
+    let scale = 2.0;
+    let live = app.look().theme.live;
+    let green = |x: f32, y: f32| {
+        let at = (((y * scale) as usize) * width as usize + (x * scale) as usize) * 4;
+        let drawn = &pixels[at..at + 3];
+        let near = |drawn: u8, want: f32| (drawn as f32 / 255.0 - want).abs() < 0.1;
+        near(drawn[0], live.r) && near(drawn[1], live.g) && near(drawn[2], live.b)
+    };
+    // The avatar is 16 px in, centred down the card; its dot's 16 px sit
+    // 26 px into it, where the ring crosses its lower right.
+    let top = (crate::account::HEIGHT - 40.0) / 2.0;
+    assert!(
+        green(13.5, top + 20.0),
+        "the ring still shows left of the avatar"
+    );
+    for step in 29..=39 {
+        let t = step as f32;
+        assert!(
+            !green(16.0 + t, top + t),
+            "the ring shows through the dot {t} px into the avatar"
+        );
+    }
 }
 
 #[test]
@@ -647,6 +733,85 @@ fn a_dms_nameplate_fills_its_row_to_the_edges() {
     assert_eq!(red(right - 20.0), 42.0);
     assert!(red(right - 3.0) >= 39.0, "to the edge");
     assert_eq!(red(right + 2.0), 0.0, "and no further");
+}
+
+#[test]
+fn a_dm_someone_types_in_shows_typing_dots_in_place_of_its_status_dot() {
+    use yapfast_core::chat::Presence;
+    let (mut app, _folder) = preview();
+    // Still dots, so one pixel says which is drawn.
+    app.layout.prefs.animate = crate::layout::Animate::Never;
+    let _ = app.update(Message::Rail(crate::rail::Event::Home));
+    // Sam is online; someone types in their DM or doesn't.
+    let typing = |app: &mut App, typing: bool| {
+        change(app, |state| {
+            let room = state
+                .rooms
+                .iter_mut()
+                .find(|room| room.direct && room.name == "Sam")
+                .expect("Sam's DM");
+            Arc::make_mut(room).presence = Some(Presence::Online);
+            let id = room.id.clone();
+            if typing {
+                state.typing_dms.insert(id);
+            } else {
+                state.typing_dms.remove(&id);
+            }
+        });
+    };
+    // Pixels at `x` across the avatar's middle row of the dot, 28 px down
+    // its 32 px face, which sits 12 px before the name and centred on it.
+    // The dot's middle is at 28; the badge, 31 px wide with its 3 px ring,
+    // is centred there, from 12.5 to 43.5.
+    let pixels_at = |app: &mut App, xs: &[f32]| {
+        let mut ui =
+            iced_test::Simulator::with_size(iced::Settings::default(), app.shell.frame, app.view());
+        let name = ui
+            .find("Sam")
+            .expect("Sam's row")
+            .visible_bounds()
+            .expect("in view");
+        let (left, y) = (name.x - 12.0 - 32.0, name.center_y() - 16.0 + 28.0);
+        let (width, _, pixels) = super::drawn(&mut ui);
+        xs.iter()
+            .map(|x| {
+                let at = (((y * 2.0) as usize) * width as usize + ((left + x) * 2.0) as usize) * 4;
+                [pixels[at], pixels[at + 1], pixels[at + 2]]
+            })
+            .collect::<Vec<_>>()
+    };
+    let live = app.look().theme.live;
+    let near = |drawn: u8, want: f32| (drawn as f32 / 255.0 - want).abs() < 0.08;
+    let green =
+        |pixel: [u8; 3]| near(pixel[0], live.r) && near(pixel[1], live.g) && near(pixel[2], live.b);
+    // In the pill's fill each side of the dots (its ring ends at 15.5 and
+    // 40.5, the dots run 19.25 to 36.75), the middle dot, and past it.
+    let xs = [17.0, 28.0, 39.0, 45.0];
+    typing(&mut app, false);
+    let at_rest = pixels_at(&mut app, &xs);
+    assert!(green(at_rest[1]), "the online dot: {:?}", at_rest[1]);
+    typing(&mut app, true);
+    let typing_now = pixels_at(&mut app, &xs);
+    assert!(
+        typing_now[1].iter().all(|&channel| channel > 230),
+        "the badge's white middle dot: {:?}",
+        typing_now[1]
+    );
+    // The pill's green each side of the dots, as wide as Discord's, and
+    // the row's own ground past its end, as at rest.
+    assert!(green(typing_now[0]), "the pill's left: {:?}", typing_now[0]);
+    assert!(
+        green(typing_now[2]),
+        "the pill's right: {:?}",
+        typing_now[2]
+    );
+    assert_eq!(typing_now[3], at_rest[3], "the row past the pill");
+    typing(&mut app, false);
+    assert_eq!(
+        pixels_at(&mut app, &xs),
+        at_rest,
+        "the dot again once they stop"
+    );
 }
 
 #[test]
@@ -889,6 +1054,232 @@ fn a_busy_servers_tooltip_lists_its_voice_channels_under_the_pointer() {
             "Lounge, with Ann's and Ben's faces"
         );
     });
+}
+
+#[test]
+fn group_dm_icons_wire_custom_placeholder_and_pair_across_sidebar_header_and_rail() {
+    use crate::pictures::GroupIcon;
+    use yapfast_core::{
+        application::Navigation,
+        chat::{ChatRoom, GroupAvatar, Presence},
+    };
+    let (mut app, _folder) = preview();
+    let template = (*app.client.state().rooms[0]).clone();
+    let pair = [
+        GroupAvatar {
+            id: "2".into(),
+            name: "Ann".into(),
+            avatar: "https://cdn.example/a2.png".into(),
+        },
+        GroupAvatar {
+            id: "5".into(),
+            name: "Cy".into(),
+            avatar: "https://cdn.example/a5.png".into(),
+        },
+    ];
+    change(&mut app, |state| {
+        state.navigation = Navigation::DirectMessages;
+        state.selected = Some("discord:@me:two".into());
+        state.rooms = vec![
+            Arc::new(ChatRoom {
+                id: "discord:@me:custom".into(),
+                name: "Custom".into(),
+                network: yapfast_core::network::Network::Discord,
+                direct: true,
+                person: None,
+                members: 4,
+                unread: 1,
+                mentions: 1,
+                avatar: Some("https://cdn.example/custom.png".into()),
+                group_avatars: None,
+                presence: Some(Presence::Online),
+                ..template.clone()
+            }),
+            Arc::new(ChatRoom {
+                id: "discord:@me:two".into(),
+                name: "Two".into(),
+                network: yapfast_core::network::Network::Discord,
+                direct: true,
+                person: None,
+                members: 2,
+                unread: 1,
+                mentions: 1,
+                avatar: None,
+                group_avatars: None,
+                presence: Some(Presence::Online),
+                ..template.clone()
+            }),
+            Arc::new(ChatRoom {
+                id: "discord:@me:five".into(),
+                name: "Five".into(),
+                network: yapfast_core::network::Network::Discord,
+                direct: true,
+                person: None,
+                members: 5,
+                unread: 1,
+                mentions: 1,
+                avatar: None,
+                group_avatars: Some(pair.clone()),
+                presence: Some(Presence::Online),
+                ..template
+            }),
+        ];
+    });
+
+    let side_room = |app: &App, id: &str| {
+        app.sidebar
+            .rows
+            .iter()
+            .find_map(|row| match row {
+                crate::sidebar::SideRow::Room(room) if room.id == id => Some(room.clone()),
+                _ => None,
+            })
+            .expect("sidebar room")
+    };
+    assert_eq!(side_room(&app, "discord:@me:custom").group_icon, None);
+    assert_eq!(
+        side_room(&app, "discord:@me:custom").avatar.as_deref(),
+        Some("https://cdn.example/custom.png")
+    );
+    assert_eq!(
+        side_room(&app, "discord:@me:two").group_icon,
+        Some(GroupIcon::Placeholder(0x29c566))
+    );
+    assert_eq!(
+        side_room(&app, "discord:@me:two").presence,
+        Some(Presence::Online)
+    );
+    assert_eq!(
+        side_room(&app, "discord:@me:five").group_icon,
+        Some(GroupIcon::Pair(pair.clone()))
+    );
+    assert_eq!(
+        side_room(&app, "discord:@me:five").presence,
+        Some(Presence::Online)
+    );
+
+    // Header reflects the currently selected group DM's icon variant, with
+    // no dot, as Discord's header bar draws a group's icon.
+    assert_eq!(
+        app.header.group_icon,
+        Some(GroupIcon::Placeholder(0x29c566))
+    );
+    assert_eq!(app.header.presence, None);
+
+    change(&mut app, |state| {
+        state.selected = Some("discord:@me:five".into());
+    });
+    assert_eq!(app.header.group_icon, Some(GroupIcon::Pair(pair.clone())));
+    assert_eq!(app.header.presence, None);
+
+    change(&mut app, |state| {
+        state.selected = Some("discord:@me:custom".into());
+    });
+    assert_eq!(app.header.group_icon, None);
+    assert_eq!(
+        app.header.avatar.as_deref(),
+        Some("https://cdn.example/custom.png")
+    );
+
+    // Unread DM tiles on the rail carry the same group icon variant.
+    let rail_item = |id: &str| {
+        app.rail
+            .items
+            .iter()
+            .find(|item| item.id == id)
+            .expect("rail item")
+    };
+    assert_eq!(rail_item("discord:@me:custom").group_icon, None);
+    assert_eq!(
+        rail_item("discord:@me:two").group_icon,
+        Some(GroupIcon::Placeholder(0x29c566))
+    );
+    assert_eq!(
+        rail_item("discord:@me:five").group_icon,
+        Some(GroupIcon::Pair(pair))
+    );
+}
+
+#[test]
+fn group_dm_icons_render_placeholder_and_overlapping_pair_with_cutout() {
+    use crate::pictures::{Face, GroupFace};
+    use iced::{Color, Point, Settings, Size, widget::container};
+    use yapfast_core::chat::{GroupAvatar, Picture, Pixels, Presence};
+    let (mut app, _folder) = preview();
+    let solid = |value: u8| {
+        Arc::new(Picture {
+            width: 32,
+            height: 32,
+            rgba: Pixels::new(32, 32, vec![value; 32 * 32 * 4]),
+            ..Default::default()
+        })
+    };
+    let pair = [
+        GroupAvatar {
+            id: "2".into(),
+            name: "Ann".into(),
+            avatar: "back.png".into(),
+        },
+        GroupAvatar {
+            id: "5".into(),
+            name: "Cy".into(),
+            avatar: "front.png".into(),
+        },
+    ];
+    change(&mut app, |state| {
+        state.pictures.insert("back.png".into(), solid(200));
+        state.pictures.insert("front.png".into(), solid(80));
+    });
+
+    fn sample(app: &App, face: Face<'_>) -> (u32, u32, Vec<u8>) {
+        let el = container(app.ctx().face(face))
+            .width(32)
+            .height(32)
+            .style(|_| crate::style::fill(Color::BLACK));
+        let mut ui =
+            iced_test::Simulator::with_size(Settings::default(), Size::new(32.0, 32.0), el);
+        super::drawn(&mut ui)
+    }
+    let at = |width: u32, rgba: &[u8], x: u32, y: u32| -> [u8; 4] {
+        let i = ((y * width + x) * 4) as usize;
+        [rgba[i], rgba[i + 1], rgba[i + 2], rgba[i + 3]]
+    };
+
+    // 2-member placeholder: green circle, white group glyph in middle, online dot bottom-right.
+    let (w, _, placeholder) = sample(
+        &app,
+        Face::new(None, "Two", 32.0)
+            .group(Some(GroupFace::Placeholder(0x29c566)))
+            .dot(Some((Presence::Online, 0x000000, Point::new(20.0, 20.0)))),
+    );
+    let top = at(w, &placeholder, 32, 8);
+    assert!(
+        top[1] > top[0] + 40 && top[1] > top[2] + 20,
+        "expected green placeholder circle, got {top:?}"
+    );
+    let dot = at(w, &placeholder, 54, 54);
+    assert!(
+        dot[1] > dot[0] + 30 && dot[1] > dot[2] + 20,
+        "expected online dot bottom-right, got {dot:?}"
+    );
+
+    // >2-member overlapping pair: back top-left, transparent cutout gap, front bottom-right.
+    let (w, _, overlap) = sample(
+        &app,
+        Face::new(None, "Five", 32.0).group(Some(GroupFace::Pair(&pair))),
+    );
+    let back = at(w, &overlap, 14, 14);
+    assert!(back[0] > 170, "expected bright back avatar, got {back:?}");
+    let cutout = at(w, &overlap, 26, 26);
+    assert!(
+        cutout[0] < 20 && cutout[1] < 20 && cutout[2] < 20,
+        "expected transparent cutout revealing black ground, got {cutout:?}"
+    );
+    let front = at(w, &overlap, 43, 43);
+    assert!(
+        (60..=100).contains(&front[0]),
+        "expected darker front avatar, got {front:?}"
+    );
 }
 
 #[test]

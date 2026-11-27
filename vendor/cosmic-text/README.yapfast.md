@@ -27,3 +27,9 @@ Changes, marked `Yapfast port` in the source:
    while shaping. The iced client makes "DM Sans" stand for a theme's body
    face, as Slint's `default-font-family` follows the theme
    (`crates/yapfast-iced-kit/src/fonts.rs`, `set_default_family`).
+4. `src/font/system.rs`: `FontSystem::forget_removed_fonts`, which drops
+   the cached fonts of faces taken out of the database. Stock, the cache
+   keeps every font it loaded, with its data, for as long as the font
+   system lives, so a face removed from the database stays in memory. The
+   iced client removes the person's own font files' faces when they change
+   (`crates/yapfast-iced-kit/src/custom_font.rs`).
