@@ -2528,6 +2528,11 @@ pub enum Action {
     },
     DismissVoiceError,
     Voice(voice::Command),
+    /// Watch someone's stream beside those watched already, by their id,
+    /// as Shift and a click on their tile, or its Start watching multiple
+    /// streams, do in Discord's client. `Voice(Command::Watch)` watches it
+    /// in place of the one watched, as a plain click does.
+    WatchAlongside(String),
     /// Turn the microphone on as a call connects, as a preference asks; quietly,
     /// since joining already made a sound.
     UnmuteOnJoin,
@@ -4514,7 +4519,9 @@ impl Application {
             }
             Action::AnswerRequest(accept) => self.answer_request(accept),
             Action::Voice(voice::Command::Join(id)) => self.dispatch(Action::RequestJoinVoice(id)),
+            Action::Voice(voice::Command::Watch(user)) => self.watch(user, false),
             Action::Voice(command) => self.voice_command(command),
+            Action::WatchAlongside(user) => self.watch(user, true),
             Action::UnmuteOnJoin => self.voice_command_quietly(voice::Command::Mute(false)),
             Action::DeafenOnJoin { unmuted } => self.voice_command_quietly(if unmuted {
                 voice::Command::DeafenUnmuted

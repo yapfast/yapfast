@@ -16,12 +16,38 @@ Sharing starts from the call's controls or from the voice panel's Share
 button, which works wherever the window is; the panel says when the stream
 is live and stops it. A click on someone's tile watches their stream, which
 then shows large in it; someone who films as well has a second tile for the
-stream. A stream being watched starts large, however watching began, and
-stays watched in its tile after a click beside it. While the call is off
-screen, the large tile's stream or camera, or else the stream being watched,
-or this account's own, shows in a corner (`StreamPip`), as Discord's
-picture in picture does. STREAM_CREATE and STREAM_UPDATE name a stream's
-viewers in `viewer_ids`; Yapfast keeps them for the stream it shares and the one
+stream. A call watches any number of streams at once (`voice::State::watching`),
+each with its own connection, worker and sound, by the rule of Discord's
+client (`STREAM_WATCH`'s `allowMultiple`, `Application::watch`): watching
+a stream while none or one other is watched takes that one's place, and
+shows the new one large; Shift and a click on a tile, or the eye with a
+plus beside a tile's Watch stream (Start watching multiple streams, offered
+while another stream is watched), watches it beside the others, and once
+two or more are watched every next one goes beside them. Start watching
+multiple streams leaves what's large as it is; a click on a tile shows its
+stream large. Each watched stream stays in its own tile of the grid, the
+size of the others, with its own Stop watching; stopping the one shown
+large shows the grid again. Discord's client has no control that watches
+every stream at once, so Yapfast has none. A stream watched in place of
+another starts large, however watching began, and stays watched in its tile
+after a click beside it. While the call is off screen, the large tile's
+stream or camera, or else the stream watched last, or this account's own,
+shows in a corner, as Discord's picture in picture does
+(`VideoSpeakerStore.getSpeaker`).
+
+The window looks for a watched stream's pictures only while its tile is in
+sight on the stage, or it's the corner's: one scrolled away, hidden under
+Hide Members, beside another tile full screen, or off screen gets no
+pictures made. After five seconds of that its worker stops decoding as
+well, and when the stream shows again it asks for a keyframe (`REST_AFTER`
+in `stream_worker`) and decodes from it. Discord's client receives a
+watched stream's video while its window shows, wherever its tile is, and
+stops all video after the window has been hidden for 30 seconds
+(`WindowVisibilityVideoManager`); Yapfast saves the decoding sooner, at
+the cost of a keyframe when a stream comes back into sight.
+
+STREAM_CREATE and STREAM_UPDATE name a stream's
+viewers in `viewer_ids`; Yapfast keeps them for the stream it shares and those
 it watches, and shows them over the stream (`ViewerStack`) and as a count in
 the voice panel; a click on it returns to the call. This account's
 own stream has a tile of its own, which opens large as others' do, without
@@ -314,7 +340,8 @@ with a sender Discord accepts. Messages the stream server sends are logged
 too, except those carrying keys.
 
 Watching works the same way in reverse. Clicking someone's LIVE badge, or their
-tile in the call, sends op 20 and starts a worker with a watch job. The worker
+tile in the call, sends op 20 and starts a worker with a watch job, one for
+each stream. The worker
 connects as a viewer, offers AV1, H265, H264 and VP8 for decoding only (H265
 only where it's built, on Linux and Windows), and asks for video with op 15. It
 learns the streamer's SSRCs and codec from op 12 and op 14, then puts RTP

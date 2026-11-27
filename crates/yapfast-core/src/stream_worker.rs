@@ -963,6 +963,11 @@ fn show_stream_picture(
     size
 }
 
+/// How long a watched stream goes unseen before its frames are no longer
+/// decoded: long enough that a tile scrolled past, or a glance at another
+/// window, costs the streamer no keyframe.
+const REST_AFTER: Duration = Duration::from_secs(5);
+
 /// Shows someone's stream: whole frames from the connection, decoded, then
 /// scaled down if they don't fit, and plays its sound.
 fn watch(
@@ -990,6 +995,9 @@ fn watch(
     let (mut scratch, mut turned) = (vec![], vec![]);
     let mut shown = false;
     let mut failures = 0u64;
+    // Since when nothing has shown the pictures, and whether the decoder
+    // rests meanwhile, with when it last asked for the keyframe to wake on.
+    let (mut unseen_since, mut resting, mut asked) = (None::<Instant>, false, None::<Instant>);
     // For the Stream tab: what had come in at the last report, and the
     // pictures decoded and their size since.
     let mut measured = (Instant::now(), ReceivedSoFar::default());
@@ -1032,6 +1040,29 @@ fn watch(
         let Some(frame) = receiver.next(Duration::from_millis(100)) else {
             continue;
         };
+        // Once nothing has shown the stream for a while, its frames aren't
+        // decoded either. When the window takes its last picture again, the
+        // decoder starts again at a keyframe, which it asks for.
+        if shown && writer.unseen() {
+            let since = *unseen_since.get_or_insert_with(Instant::now);
+            if !resting && since.elapsed() >= REST_AFTER {
+                tracing::info!("nothing shows the stream; decoding stops until something does");
+                resting = true;
+            }
+            if resting {
+                continue;
+            }
+        } else {
+            unseen_since = None;
+            if resting && !frame.keyframe {
+                if asked.is_none_or(|asked| asked.elapsed() >= Duration::from_secs(1)) {
+                    receiver.request_keyframe();
+                    asked = Some(Instant::now());
+                }
+                continue;
+            }
+            (resting, asked) = (false, None);
+        }
         if decoder
             .as_ref()
             .is_none_or(|decoder| decoder.codec() != frame.codec)
@@ -1064,8 +1095,8 @@ fn watch(
                 continue;
             }
         };
-        // Decoded all the same, since the frames after it build on it, but
-        // not made into a picture nothing shows.
+        // Decoded all the same until the decoder rests, since the frames
+        // after it build on it, but not made into a picture nothing shows.
         if shown && writer.unseen() {
             continue;
         }

@@ -1149,6 +1149,48 @@ impl Listener for Dropping {
     }
 }
 
+#[tokio::test(flavor = "multi_thread")]
+#[ignore = "starts testing/fake_discord.ts with bun; run scripts/test-fake-discord"]
+async fn two_streams_at_once() {
+    let Fixture {
+        _fake,
+        discord,
+        server,
+        guild,
+        lounge,
+        bob,
+        ..
+    } = Fixture::start("two_streams_at_once").await;
+    let assigned = discord.join(&guild, &lounge).await.unwrap();
+    let _call = timeout(
+        WAIT,
+        Call::connect(&assigned, &guild, &lounge, Arc::new(Quiet)),
+    )
+    .await
+    .expect("timed out connecting to voice")
+    .unwrap();
+    let bobs = stream::key(&guild, &lounge, &bob);
+    let carols = control(server, "POST", "/_control/stream-start?user=carol", "");
+    let carols = carols.trim();
+    // Discord answers each on its own, as a click on Watch all asks at once,
+    // and each gets a connection and its pictures while the other's go on.
+    let (first, second) = tokio::join!(discord.watch(&bobs), discord.watch(carols));
+    let (first, second) = (first.unwrap(), second.unwrap());
+    assert_eq!(first.stream_key, bobs);
+    assert_eq!(second.stream_key, carols);
+    let decodes = || vec![Codec::H264, Codec::Vp8];
+    let watching = |watched: yapfast_discord::stream::StreamServer| {
+        tokio::task::spawn_blocking(move || watch_frames(&watched, decodes(), 12))
+    };
+    let (mine, hers) = tokio::join!(watching(first), watching(second.clone()));
+    assert_eq!(mine.unwrap().len(), 12);
+    assert_eq!(hers.unwrap().len(), 12);
+    // One ending leaves the other watched.
+    discord.end_stream(&bobs);
+    let hers = tokio::task::spawn_blocking(move || watch_frames(&second, decodes(), 12));
+    assert_eq!(hers.await.unwrap().len(), 12);
+}
+
 /// Joins the Lounge, connecting a call that reports to `listener`.
 async fn join_lounge(
     fixture: &Fixture,

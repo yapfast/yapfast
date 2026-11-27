@@ -311,7 +311,8 @@ impl Frames {
 pub struct Writer {
     mapping: Mapping,
     back: u32,
-    /// When it last showed a frame.
+    /// When it showed the first frame the UI hasn't taken since, or the
+    /// last one it did.
     written: Option<Instant>,
 }
 
@@ -380,8 +381,14 @@ impl Writer {
         w.store(width, Ordering::Relaxed);
         h.store(height, Ordering::Relaxed);
         header.times[self.back as usize].store(time_ms, Ordering::Relaxed);
-        self.back = header.middle.swap(self.back | FRESH, Ordering::AcqRel) & !FRESH;
-        self.written = Some(Instant::now());
+        let before = header.middle.swap(self.back | FRESH, Ordering::AcqRel);
+        self.back = before & !FRESH;
+        // The wait for the UI runs from the first frame it left untaken: one
+        // written over another it hasn't taken keeps that one's start, or a
+        // stream's steady frames would never count as unseen.
+        if before & FRESH == 0 || self.written.is_none() {
+            self.written = Some(Instant::now());
+        }
         if let Some(tell) = TELL.get() {
             tell();
         }
@@ -447,5 +454,22 @@ mod tests {
         *frames.wish.lock().unwrap() = Some(((50, 30), Instant::now() - WISH_HOLDS));
         frames.want(20, 15);
         assert_eq!(writer.wanted(), Some((20, 15)), "the large one went");
+    }
+
+    /// Frames the UI leaves untaken count as unseen a while after the first
+    /// of them, however often more come; once it takes one, the wait starts
+    /// again.
+    #[test]
+    fn frames_left_untaken_go_unseen_however_often_they_come() {
+        let frames = Frames::create(4, 2).unwrap();
+        let mut writer = Writer::open(&frames.path().unwrap()).unwrap();
+        writer.write(4, 2, |_| {});
+        assert!(!writer.unseen(), "just written");
+        writer.written = writer.written.map(|written| written - UNSEEN_AFTER);
+        writer.write(4, 2, |_| {});
+        assert!(writer.unseen(), "a newer one keeps the wait's start");
+        assert!(frames.take(|_, _, _| ()).is_some());
+        writer.write(4, 2, |_| {});
+        assert!(!writer.unseen(), "taken, the wait starts again");
     }
 }
