@@ -381,6 +381,18 @@ fn the_share_menus_settings_are_rows_that_open_their_choices_beside_them() {
     use iced::keyboard::{Key, key};
     let spot = Point::new(300.0, 640.0);
     let (mut app, _folder) = share_menu(Size::new(1200.0, 720.0), spot, sources(3), false);
+    assert!(shows(&app, "Quality preset for the GPU encoder"));
+    interact(&mut app, |ui| {
+        ui.click("Higher quality").expect("GPU quality");
+    });
+    app.layout.voice.gpu_encoding = Some(false);
+    assert!(shows(&app, "Sharper, at twice the CPU"));
+    interact(&mut app, |ui| {
+        ui.click("Higher quality").expect("CPU quality");
+    });
+    let quality = app.call.share.as_ref().unwrap().quality;
+    assert!(quality.gpu_high_quality && quality.high_quality);
+    assert!(app.call.share.as_ref().unwrap().side.is_none());
     // Each setting is one row that names what's chosen, and none of the
     // choices show.
     for shown in [

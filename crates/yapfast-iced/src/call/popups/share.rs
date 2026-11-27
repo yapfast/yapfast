@@ -494,8 +494,14 @@ pub(in crate::call) fn share_event(app: &mut App, event: ShareEvent) -> Task<Mes
             }
         }
         ShareEvent::HighQuality => {
+            let gpu = app.layout.voice.gpu_encoding.unwrap_or(true);
             if let Some(share) = &mut app.call.share {
-                share.quality.high_quality = !share.quality.high_quality;
+                let quality = if gpu {
+                    &mut share.quality.gpu_high_quality
+                } else {
+                    &mut share.quality.high_quality
+                };
+                *quality = !*quality;
                 share.side = None;
             }
         }
@@ -637,13 +643,21 @@ pub(super) fn share_menu<'a>(
         );
     }
     if !share.switching {
+        let (hint, quality) = if ctx.layout.voice.gpu_encoding.unwrap_or(true) {
+            (
+                "Quality preset for the GPU encoder",
+                share.quality.gpu_high_quality,
+            )
+        } else {
+            ("Sharper, at twice the CPU", share.quality.high_quality)
+        };
         settings = settings.push(
             mouse_area(crate::call::popups::popup_row(
                 ctx,
                 "Higher quality",
-                Some("Sharper, at twice the CPU".into()),
+                Some(hint.into()),
                 None,
-                Check::Box(share.quality.high_quality),
+                Check::Box(quality),
                 Some(event(ShareEvent::HighQuality)),
             ))
             .on_enter(event(ShareEvent::Side(None))),

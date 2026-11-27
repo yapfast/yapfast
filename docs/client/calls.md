@@ -73,6 +73,8 @@ The call's views and what they do are in `call/`.
   windows are open. Source shows the selected screen's dimensions once known.
   Presets above its height are disabled. A saved preset above that height
   falls back to Source for the current stream.
+  Higher quality controls the encoder selected in Advanced. CPU and GPU
+  quality preferences are remembered independently.
   The audio chosen is the call's at once and is kept
   for the next start; on Windows an application is kept by its program
   and found again by a window it has as the menu opens, and everything

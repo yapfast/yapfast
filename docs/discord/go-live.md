@@ -171,10 +171,9 @@ second.
 
 Before sharing, the share button's menu offers 480p, 720p, 1080p, 1440p, 2160p
 and Source (the screen's own size, capped at 4K), at 15, 30 or 60 fps.
-Its "Higher quality" checkbox, which Discord's client
-doesn't have, has x264 work harder on each frame. Yapfast remembers the choice
-beside the chosen audio devices (`devices.json`), and starts at 1080p30 without
-it. The menu lists every screen, window and camera, and is never taller than
+Yapfast remembers CPU and GPU "Higher quality" separately beside the chosen
+audio devices (`devices.json`). It starts at 1080p30 with both off.
+The menu lists every screen, window and camera, and is never taller than
 the window: where they don't all fit, as with many windows open or the window
 short or zoomed, they scroll above the settings and Go Live, which stay in
 view. Each setting is one row naming what's chosen, whose choices open beside
@@ -461,8 +460,10 @@ asked, and variable bitrate capped at the target over half a second, which
 leaves a calm screen below the cap rather than padding it. NVENC, AMF and
 VA-API change their bitrate as they run, without the IDR frame FFmpeg would
 insert, with a patch to FFmpeg for each (AMF's sets the target, peak and buffer
-on the running encoder). "Higher quality" changes nothing on the GPU: NVENC's
-slowest preset looked no better than p4.
+on the running encoder). GPU "Higher quality" selects NVENC p5, AMF's quality
+preset, or VA-API's quality-oriented compression level where the driver
+supports it. If the encoder fails to open with that preset, the worker tries
+its regular GPU preset before moving on.
 
 Where the GPU's encoder encodes AV1 or H265, the stream offers them too,
 first, AV1 before H265, as Discord's client orders them: each looks better

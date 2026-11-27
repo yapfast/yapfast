@@ -140,6 +140,9 @@ pub struct StreamQuality {
     /// the CPU.
     #[serde(default)]
     pub high_quality: bool,
+    /// A quality-oriented preset on the hardware encoder when available.
+    #[serde(default)]
+    pub gpu_high_quality: bool,
 }
 
 impl Default for StreamQuality {
@@ -148,6 +151,7 @@ impl Default for StreamQuality {
             resolution: Resolution::P1080,
             fps: 30,
             high_quality: false,
+            gpu_high_quality: false,
         }
     }
 }
@@ -881,6 +885,7 @@ mod tests {
                 resolution: Resolution::Source,
                 fps: 60,
                 high_quality: true,
+                gpu_high_quality: true,
             },
             ..Default::default()
         };
@@ -899,6 +904,9 @@ mod tests {
         .unwrap();
         assert_eq!(Chosen::read(&path).quality, StreamQuality::default());
         assert_eq!(Chosen::read(&path).audio, ChosenAudio::All);
+        let before_gpu: StreamQuality =
+            serde_json::from_str(r#"{"resolution":"p1080","fps":30,"high_quality":true}"#).unwrap();
+        assert!(before_gpu.high_quality && !before_gpu.gpu_high_quality);
         std::fs::write(&path, b"not json").unwrap();
         assert!(Chosen::read(&path).speaker.is_none());
     }

@@ -93,6 +93,8 @@ pub enum Job {
         #[serde(default)]
         hardware: bool,
         #[serde(default)]
+        gpu_effort: Effort,
+        #[serde(default)]
         enhanced_preview: bool,
     },
     /// Receives and decodes the stream at `server`, writing pictures that
@@ -488,6 +490,7 @@ fn serve(mut input: Box<dyn BufRead + Send>, report: &mut dyn FnMut(Report)) {
             fps,
             effort,
             hardware,
+            gpu_effort,
             enhanced_preview,
         } => {
             let fps = fps.clamp(1, 60);
@@ -504,7 +507,7 @@ fn serve(mut input: Box<dyn BufRead + Send>, report: &mut dyn FnMut(Report)) {
                 video: None,
                 fps,
                 effort,
-                hardware,
+                hardware: hardware.then_some(gpu_effort),
                 enhanced_preview,
                 next_local_preview: None,
                 preview_scratch: Vec::new(),
@@ -592,7 +595,7 @@ struct Sink {
     video: Option<Video>,
     fps: u32,
     effort: Effort,
-    hardware: bool,
+    hardware: Option<Effort>,
     enhanced_preview: bool,
     next_local_preview: Option<Instant>,
     preview_scratch: Vec<u8>,
@@ -813,7 +816,11 @@ impl Sink {
     fn offers(&self, width: u32, height: u32) -> Result<(Vec<Codec>, Encoder)> {
         let mut offers = vec![];
         let mut first = None;
-        for codec in GPU_CODECS.iter().copied().filter(|_| self.hardware) {
+        for codec in GPU_CODECS
+            .iter()
+            .copied()
+            .filter(|_| self.hardware.is_some())
+        {
             if let Ok(encoder) = self.open(codec, width, height) {
                 offers.push(codec);
                 first.get_or_insert(encoder);
@@ -1661,6 +1668,11 @@ impl Worker {
                 Effort::Light
             },
             hardware: HARDWARE.load(Ordering::Relaxed),
+            gpu_effort: if quality.gpu_high_quality {
+                Effort::High
+            } else {
+                Effort::Light
+            },
             enhanced_preview,
         };
         let (worker, reports) = Self::start(&job)?;
@@ -2165,7 +2177,7 @@ mod tests {
             video: None,
             fps: 30,
             effort: Effort::Light,
-            hardware: true,
+            hardware: Some(Effort::Light),
             enhanced_preview: false,
             next_local_preview: None,
             preview_scratch: Vec::new(),
@@ -2185,7 +2197,7 @@ mod tests {
             "in order"
         );
         assert_eq!(encoder.codec(), offers[0]);
-        sink.hardware = false;
+        sink.hardware = None;
         let (offers, encoder) = sink.offers(320, 180).unwrap();
         assert_eq!((offers, encoder.engine()), (vec![Codec::H264], "x264"));
     }
@@ -2203,7 +2215,7 @@ mod tests {
             video: None,
             fps: 30,
             effort: Effort::Light,
-            hardware: false,
+            hardware: None,
             enhanced_preview: false,
             next_local_preview: None,
             preview_scratch: Vec::new(),
@@ -2270,7 +2282,7 @@ mod tests {
             video: None,
             fps: 30,
             effort: Effort::Light,
-            hardware: false,
+            hardware: None,
             enhanced_preview: false,
             next_local_preview: None,
             preview_scratch: Vec::new(),
@@ -2317,7 +2329,7 @@ mod tests {
             video: None,
             fps: 30,
             effort: Effort::Light,
-            hardware: false,
+            hardware: None,
             enhanced_preview: false,
             next_local_preview: None,
             preview_scratch: Vec::new(),
@@ -2358,7 +2370,7 @@ mod tests {
             video: None,
             fps: 30,
             effort: Effort::Light,
-            hardware: false,
+            hardware: None,
             enhanced_preview: false,
             next_local_preview: None,
             preview_scratch: Vec::new(),
@@ -2391,7 +2403,7 @@ mod tests {
             video: None,
             fps: 30,
             effort: Effort::Light,
-            hardware: false,
+            hardware: None,
             enhanced_preview: false,
             next_local_preview: None,
             preview_scratch: Vec::new(),
@@ -2449,6 +2461,7 @@ mod tests {
             fps: 60,
             effort: Effort::Light,
             hardware: false,
+            gpu_effort: Effort::Light,
             enhanced_preview: false,
         };
         let (input, mut feed) = std::io::pipe().unwrap();
@@ -2500,6 +2513,7 @@ mod tests {
             fps: 30,
             effort: Effort::Light,
             hardware: false,
+            gpu_effort: Effort::Light,
             enhanced_preview: false,
         };
         let (input, mut feed) = std::io::pipe().unwrap();
@@ -2706,6 +2720,7 @@ mod tests {
                 fps: 30,
                 effort: Effort::Light,
                 hardware: false,
+                gpu_effort: Effort::Light,
                 enhanced_preview: false,
             };
             let (input, mut feed) = std::io::pipe().unwrap();
@@ -2765,6 +2780,7 @@ mod tests {
             fps: 30,
             effort: Effort::Light,
             hardware: false,
+            gpu_effort: Effort::Light,
             enhanced_preview: false,
         };
         let (input, mut feed) = std::io::pipe().unwrap();
@@ -2802,6 +2818,7 @@ mod tests {
             fps: 1,
             effort: Effort::Light,
             hardware: false,
+            gpu_effort: Effort::Light,
             enhanced_preview: false,
         };
         let mut reports = Vec::new();
