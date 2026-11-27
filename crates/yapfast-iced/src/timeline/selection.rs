@@ -254,6 +254,7 @@ mod tests {
             body: Arc::new(body_of(&message, 0, 0, 0, |_| false)),
             date: None,
             time: Arc::default(),
+            forward_time: None,
         };
         assert!(look.body.parts.len() > 300, "{}", look.body.parts.len());
         let start = Mark {
@@ -306,6 +307,7 @@ mod tests {
             body: Arc::new(body_of(&message, 0, 0, 0, |_| false)),
             date: None,
             time: Arc::default(),
+            forward_time: None,
         };
         let mark = |row, part| Mark {
             row,

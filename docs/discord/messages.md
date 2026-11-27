@@ -1157,6 +1157,17 @@ doesn't bypass gets the forward alone, as the dialog warns, since the
 second message would wait out the slowmode. `@silent` at the start of the
 message added notifies nobody of either.
 
+Under a forward, a footer says where the original came from, as Discord's
+client words it: from a channel of the same server, its name (`#general`,
+a thread's in quotes); from another server this account is in, or a
+channel of this one it doesn't list, that server's icon and name. Then `•`
+and when the original was sent, from its id's snowflake: the time today,
+`Yesterday at …`, the weekday within the week before, the date alone
+beyond. Clicking it opens the original's conversation at it; one that
+isn't listed is asked for, as a link to a thread is. A forward from a DM,
+or from a listed channel of the same server this account can't read, has
+no footer.
+
 Messages forward as Discord's client allows: those written, by a person or
 an app's command, with no poll, call or activity, and none of the flags it
 doesn't forward, such as an ephemeral answer; forwards and voice messages

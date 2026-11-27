@@ -2739,6 +2739,8 @@ pub struct Application {
     searched: HashSet<String>,
     /// A conversation to open once it's listed, such as a DM just started.
     pending_open: Option<String>,
+    /// A message to jump to once its conversation (`pending_open`) is listed.
+    pending_jump: Option<(String, String)>,
     /// A thread to show beside the selected channel once it's listed.
     pending_aside: Option<String>,
     /// A thread just started, whose first message, its draft, goes once
@@ -3251,7 +3253,11 @@ impl Application {
             .pending_open
             .take_if(|room| self.state.rooms.iter().any(|listed| &listed.id == room))
         {
-            effects.extend(self.dispatch(Action::Open(room.clone())));
+            if let Some((_, item)) = self.pending_jump.take_if(|(target, _)| *target == room) {
+                effects.extend(self.jump_in_room(room.clone(), item));
+            } else {
+                effects.extend(self.dispatch(Action::Open(room.clone())));
+            }
             if std::mem::take(&mut self.pending_call) {
                 effects.extend(self.dispatch(Action::RequestJoinVoice(room)));
             }
