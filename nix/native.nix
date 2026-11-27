@@ -1,16 +1,22 @@
 # The native parts of a Linux build, shared by the dev shell and the package:
 # LiveKit's libwebrtc and the system libraries.
 { pkgs }:
+let
+  arch = if pkgs.stdenv.hostPlatform.isAarch64 then "arm64" else "x64";
+in
 rec {
   webrtcArchive = pkgs.fetchurl {
-    url = "https://github.com/livekit/rust-sdks/releases/download/webrtc-51ef663/webrtc-linux-x64-release.zip";
-    hash = "sha256-3OnZQUzY4syaRxwFRIGFGyV60qh5ESzlvlY2m0/v2u0=";
+    url = "https://github.com/livekit/rust-sdks/releases/download/webrtc-51ef663/webrtc-linux-${arch}-release.zip";
+    hash = {
+      x64 = "sha256-3OnZQUzY4syaRxwFRIGFGyV60qh5ESzlvlY2m0/v2u0=";
+      arm64 = "sha256-tVymLCixjcW7cgpwgq5GjXjyE8o5vMz4QZXy/ljP5xM=";
+    }.${arch};
   };
   webrtc = pkgs.runCommand "talk-libwebrtc-51ef663" {
     nativeBuildInputs = [ pkgs.unzip ];
   } ''
     unzip -q ${webrtcArchive} -d unpacked
-    mv unpacked/linux-x64-release "$out"
+    mv unpacked/linux-${arch}-release "$out"
   '';
   libraries = with pkgs; [
     alsa-lib libpulseaudio fontconfig freetype glib libxkbcommon openssl

@@ -1,0 +1,38 @@
+<Wix xmlns="http://wixtoolset.org/schemas/v4/wxs">
+  <Package Name="Yapfast" Manufacturer="Yapfast" Version="$(var.ProductVersion)"
+           UpgradeCode="D63CFDC4-D286-447D-BB4C-331B0670F096" Scope="perMachine"
+           InstallerVersion="500">
+    <!-- Windows Installer compares only the numeric part of the release version. -->
+    <MajorUpgrade AllowSameVersionUpgrades="yes" Schedule="afterInstallInitialize"
+                  DowngradeErrorMessage="A newer version of Yapfast is already installed." />
+    <MediaTemplate EmbedCab="yes" />
+    <Icon Id="YapfastIcon" SourceFile="$(var.IconPath)" />
+    <Property Id="ARPPRODUCTICON" Value="YapfastIcon" />
+    <Property Id="ARPURLINFOABOUT" Value="https://yapfast.com" />
+    <Property Id="ARPHELPLINK" Value="https://github.com/yapfast/yapfast/issues" />
+
+    <StandardDirectory Id="ProgramFiles64Folder">
+      <Directory Id="INSTALLFOLDER" Name="Yapfast">
+        <Component Id="Program">
+          <File Id="YapfastExe" Source="$(var.Payload)\yapfast.exe" KeyPath="yes">
+            <Shortcut Id="StartMenuShortcut" Directory="ProgramMenuFolder"
+                      Name="Yapfast" Advertise="yes" />
+          </File>
+          <RegistryValue Root="HKLM" Key="Software\Classes\yapfast" Value="URL:Yapfast Protocol" Type="string" />
+          <RegistryValue Root="HKLM" Key="Software\Classes\yapfast" Name="URL Protocol" Value="" Type="string" />
+          <RegistryValue Root="HKLM" Key="Software\Classes\yapfast\DefaultIcon"
+                         Value="&quot;[#YapfastExe]&quot;,0" Type="string" />
+          <RegistryValue Root="HKLM" Key="Software\Classes\yapfast\shell\open\command"
+                         Value="&quot;[#YapfastExe]&quot; --open-link &quot;%1&quot;" Type="string" />
+        </Component>
+      </Directory>
+    </StandardDirectory>
+    <Feature Id="Yapfast" Title="Yapfast">
+      <ComponentRef Id="Program" />
+      <Files Directory="INSTALLFOLDER" Include="$(var.Payload)\**">
+        <Exclude Files="$(var.Payload)\yapfast.exe" />
+        <Exclude Files="$(var.Payload)\README.txt" />
+      </Files>
+    </Feature>
+  </Package>
+</Wix>

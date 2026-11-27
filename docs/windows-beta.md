@@ -1,27 +1,30 @@
 # Windows
 
-The portable package targets Intel/AMD PCs running 64-bit Windows 10 or 11.
+The portable packages target x64 (Intel/AMD) and ARM64 PCs running Windows 10
+or 11.
 It comes in two flavours. The release is Discord-only; the full preview adds
 Matrix, with the homeserver prefilled as `https://matrix.org` and editable,
-and goes out as a separate pre-release. Both install as the same app, so
-installing one replaces the other, and both keep one data folder.
+and goes out as a separate pre-release. Both flavours use the same data folder.
 
 ## Run the package
 
-`target/dist/discord` holds the release's portable ZIP and installer,
-`Yapfast-VERSION-windows-x64-setup.exe`; `target/dist/full` the preview's,
-`Yapfast-VERSION-full-preview-windows-x64-setup.exe`. The installer needs no administrator
+`target/dist/discord` holds the release's packages and `target/dist/full`
+holds the Matrix preview's packages. Choose the ZIP or MSI for your
+architecture. The MSI installs for all users and needs administrator rights.
+On x64, the Inno Setup EXE (`Yapfast-VERSION-windows-x64-setup.exe`) needs no administrator
 rights: it installs for the current user into `%LOCALAPPDATA%\Programs\Yapfast`,
 adds Yapfast to the Start menu, optionally to the desktop, and starts it when
 the person signs in unless they untick that. Settings → Advanced turns that
 on and off later ([the tray](tray.md#starting-at-sign-in)). Uninstalling,
 from Settings → Apps, removes the program and the sign-in entry and keeps the
-data folder. Neither is signed, so SmartScreen warns before either runs.
+data folder. SmartScreen can warn before running packages without an
+Authenticode signature.
 
 For the ZIP:
 
-1. Copy `target/dist/discord/Yapfast-VERSION-windows-x64.zip`, or the full
-   preview's ZIP, to the tester's PC.
+1. Copy `Yapfast-VERSION-windows-x64.zip` or
+   `Yapfast-VERSION-windows-arm64.zip` to the tester's PC. The Matrix preview
+   adds `-full-preview` after the version.
 2. Extract the whole ZIP, then double-click `yapfast.exe` in the extracted folder.
 3. Link Discord by its QR code, or, in the full preview, sign in with a Matrix
    account. Matrix voice needs a homeserver that offers MatrixRTC (see
@@ -222,6 +225,7 @@ On this NixOS host, from the project folder:
 ```sh
 nix develop path:./nix#windows --command scripts/build-windows        # Discord release
 nix develop path:./nix#windows --command scripts/build-windows full   # full preview
+nix develop path:./nix#windows-arm64 --command scripts/build-windows # ARM64 Discord release
 ```
 
 Both flavours build to the same `yapfast.exe`, so each run packages straight
@@ -231,16 +235,18 @@ target, cross-compiles with cargo-xwin and Clang, then packages the executable.
 The first run downloads the Microsoft CRT/SDK and compiles the C++ media
 bindings.
 
-The Windows Nix shell supplies the matching `webrtc-51ef663` archive, LLVM 21,
-cargo-xwin, CMake, Ninja, Protobuf, NASM and Wine. The executable links the C
+The Windows Nix shells supply the matching `webrtc-51ef663` archive, LLVM 21,
+cargo-xwin, CMake, Ninja, Protobuf and NASM. The x64 shell also supplies Wine
+for the Inno Setup EXE. The executable links the C
 runtime statically (`+crt-static` in `scripts/release-env`), as WebRTC does,
 so it needs no separate Visual C++ runtime DLL.
 
-`scripts/build-windows` sources `scripts/release-env x86_64-pc-windows-msvc`
-before `cargo build --release`: it takes `cargo xwin env`'s environment and
+`scripts/build-windows` sources `scripts/release-env` with the selected MSVC
+target before `cargo build --release`. It takes `cargo xwin env`'s environment and
 remaps source paths, so a binary people download names no folder of this
 machine ([Building](building.md#windows)). Source it the same way before any
-Windows binary you hand to someone.
+Windows binary you hand to someone. Use [Windows ZIP and MSI](packaging.md#windows-zip-and-msi)
+to package the portable builds as MSI files on Windows.
 
 A [one-line WebRTC patch](../vendor/webrtc-sys/README.yapfast.md) also fixes an
 MSVC class/struct declaration mismatch, matching the upstream resolution.

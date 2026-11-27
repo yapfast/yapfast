@@ -5,17 +5,19 @@
 On Windows, build, run and test directly with Cargo in PowerShell; see
 [Windows](#windows) for prerequisites. On Linux, Nix brings the pinned
 toolchain and libraries for development, building and testing
-([without Nix](../README.md#without-nix) works too). Three Nix shells cover
-that work:
+([without Nix](../README.md#without-nix) works too). The Nix shells cover
+development and cross-builds:
 
-- `nix develop path:./nix` is the Linux development shell. Run every `cargo` command
+- `nix develop path:./nix` is the x86_64 and aarch64 Linux development shell.
+  Run every `cargo` command
   in it, as `nix develop path:./nix --command cargo ...`. It also provides
   `bun` for the fake Discord.
 - `nix-shell --impure testing/display/shell.nix` adds Weston,
   PulseAudio, the ALSA plugins and FFmpeg to it, for the private display that
   `scripts/ui-session` starts.
-- `nix develop path:./nix#windows` cross-builds for Windows; see the
-  [Windows beta guide](windows-beta.md).
+- On x86_64 Linux, `nix develop path:./nix#windows` and
+  `nix develop path:./nix#windows-arm64` cross-build for Windows x64 and ARM64
+  with MSVC. See [Windows ZIP and MSI](packaging.md#windows-zip-and-msi).
 
 The repository's own `flake.nix` builds no shell, only the package that
 `nix profile add github:yapfast/yapfast#yapfast` installs: the Discord-only
@@ -376,16 +378,16 @@ with nix-direnv, which caches the shell.
 
 ## Windows
 
-The Linux cross-build and portable ZIP route is documented in the
-[Windows beta guide](windows-beta.md). It supplies the matching Windows WebRTC
+The Linux cross-build supplies the matching x64 or ARM64 Windows WebRTC
 archive through the Windows Nix shell. The executable uses static CRT linkage
-to match LiveKit.
+to match LiveKit. See [Windows ZIP and MSI](packaging.md#windows-zip-and-msi)
+for the steps to package both architectures.
 `scripts/build-windows [discord|full] [options]` builds the Discord-only release,
 the default, or the full preview with Matrix, and passes the options to
 `scripts/package-windows.py`, such as `--no-installer`.
 `scripts/package-windows.py`, which `scripts/build-windows` runs, makes the
-flavour's portable ZIP and compiles the installer, `packaging/windows/yapfast.iss`, with
-Inno Setup 7.1.0 under Wine. The first run downloads Inno Setup's installer,
+flavour's portable ZIP. On x64 it also compiles the Inno Setup installer,
+`packaging/windows/yapfast.iss`, with Wine. The first run downloads Inno Setup's installer,
 pinned by SHA-256, and installs it into its own Wine prefix in
 `.local/windows/inno-setup`, under `xvfb-run`, since it opens windows even
 when silent. `--no-installer` makes only the ZIP.
@@ -408,18 +410,17 @@ its linker also writes a RUNPATH of `$PWD/outputs/out/lib` and Nix store
 folders into the binary; the [AppImage](packaging.md#linux-appimage) avoids both by
 building in the Nix sandbox.
 
-On Windows, use native Cargo for development, builds and tests; Nix is not
-required. Published packages are still made by the Linux MSVC cross-build.
-A native development build names this machine's folders and must not be
-shipped. Install these prerequisites before running Cargo:
+On Windows, use native Cargo for development, builds and tests.
+Published packages use the Linux MSVC cross-build, followed by WiX on Windows
+for the MSI files. Install these prerequisites before running Cargo:
 
-- Rust through rustup; `rust-toolchain.toml` pins Rust 1.100. Use the
-  `x86_64-pc-windows-msvc` toolchain.
+- Rust through rustup; `rust-toolchain.toml` pins Rust 1.100. Use the host's
+  MSVC toolchain, `x86_64-pc-windows-msvc` or `aarch64-pc-windows-msvc`.
 - Visual Studio Build Tools with the **Desktop development with C++**
-  workload, including the MSVC x64/x86 build tools and a Windows 10 or 11 SDK.
+  workload, including the MSVC build tools for the target and a Windows 10 or 11 SDK.
   These supply the MSVC linker, headers and libraries; Cargo alone does not.
-- LLVM/Clang for Windows, including `clang-cl`, `libclang.dll`, the x64
-  Rust linker `lld-link.exe`, and preferably `llvm-rc`. Standalone LLVM or
+- LLVM/Clang for Windows, including `clang-cl`, `libclang.dll`, the Rust
+  linker `lld-link.exe`, and preferably `llvm-rc`. Standalone LLVM or
   Visual Studio's **C++ Clang tools for Windows** can supply these tools.
   Ensure `libclang.dll` is installed and `lld-link.exe` is on `PATH`. The SDK's
   `rc.exe` can replace `llvm-rc`.

@@ -1,5 +1,5 @@
 # A nightly release of main, made on demand: Actions > Nightly > Run workflow.
-# It builds the Linux AppImage and the Windows ZIP as the releases are built, and publishes them as a prerelease of the next minor
+# It builds the Linux and Windows packages and publishes them as a prerelease of the next minor
 # version, such as v0.2.0-nightly.20261020.5. See docs/packaging.md.
 name: Nightly
 
@@ -33,7 +33,17 @@ jobs:
 
   linux:
     needs: version
-    runs-on: ubuntu-26.04
+    strategy:
+      matrix:
+        include:
+          - arch: x86_64
+            runner: ubuntu-26.04
+          - arch: aarch64
+            runner: ubuntu-26.04-arm
+    runs-on: ${{ matrix.runner }}
+    env:
+      VERSION: ${{ needs.version.outputs.version }}
+      RELEASE_ARCH: ${{ matrix.arch }}
     steps:
       - name: Free disk space
         run: sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache/CodeQL
@@ -50,20 +60,47 @@ jobs:
       - name: Fetch the toolchain and crates
         run: nix develop path:./nix --command cargo fetch --locked
       - run: scripts/build-appimage
-      # The AppImage's binary as an Arch package, in an Arch container.
       - run: scripts/package-arch
+        if: matrix.arch == 'x86_64'
+      - name: Install packaging tools and Flatpak SDK
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends flatpak rpm
+          flatpak remote-add --user --if-not-exists flathub https://dl.flathub.org/repo/flathub.flatpakrepo
+          flatpak install --user --noninteractive flathub org.freedesktop.Sdk//25.08 org.freedesktop.Platform//25.08
+      - name: Build DEB, RPM and Flatpak
+        run: python3 scripts/package-linux-formats.py "target/dist/linux/Yapfast-$VERSION-$RELEASE_ARCH.AppImage"
+      - name: Check Linux packages
+        run: |
+          dist="$PWD/target/dist/linux"
+          "$dist/Yapfast-$VERSION-$RELEASE_ARCH.AppImage" --appimage-extract-and-run --smoke-test
+          sudo apt-get install -y "$dist"/yapfast_*.deb
+          yapfast --smoke-test
+          docker run --rm -v "$dist:/dist:ro" fedora:44 \
+            bash -ec 'dnf install -y /dist/yapfast-*.rpm && yapfast --smoke-test'
+          flatpak install --user --noninteractive "$dist/Yapfast-$VERSION-$RELEASE_ARCH.flatpak"
+          dbus-run-session -- flatpak run --user --arch="$RELEASE_ARCH" io.github.yapfast.Yapfast//nightly --smoke-test
       - uses: actions/upload-artifact@v7
         with:
-          name: linux
+          name: linux-${{ matrix.arch }}
           path: |
             target/dist/linux/Yapfast-*
             target/dist/linux/yapfast-*.pkg.tar.zst
+            target/dist/linux/yapfast_*.deb
+            target/dist/linux/yapfast-*.rpm
           if-no-files-found: error
           compression-level: 0
 
   windows:
     needs: version
     runs-on: ubuntu-26.04
+    strategy:
+      matrix:
+        include:
+          - arch: x64
+            shell: windows
+          - arch: arm64
+            shell: windows-arm64
     steps:
       - name: Free disk space
         run: sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache/CodeQL
@@ -77,7 +114,7 @@ jobs:
       - uses: actions/cache@v6
         with:
           path: ~/.cache/cargo-xwin
-          key: windows-xwin-${{ hashFiles('nix/flake.lock') }}
+          key: windows-xwin-${{ matrix.arch }}-${{ hashFiles('nix/flake.lock') }}
       - uses: kunobi-ninja/kache-action@061011817fd04b0e460f79d6bb3c115b1fc8f029 # v1
         with:
           version: 2.3.0
@@ -93,12 +130,12 @@ jobs:
             ~/.cargo/registry/index
             ~/.cargo/registry/cache
             ~/.cargo/git/db
-          key: kache-nightly-windows-${{ hashFiles('rust-toolchain.toml', 'nix/flake.lock') }}-${{ github.run_id }}
-          restore-keys: kache-nightly-windows-${{ hashFiles('rust-toolchain.toml', 'nix/flake.lock') }}-
+          key: kache-nightly-windows-${{ matrix.arch }}-${{ hashFiles('rust-toolchain.toml', 'nix/flake.lock') }}-${{ github.run_id }}
+          restore-keys: kache-nightly-windows-${{ matrix.arch }}-${{ hashFiles('rust-toolchain.toml', 'nix/flake.lock') }}-
       - run: scripts/set-version "${{ needs.version.outputs.version }}"
       # Wine doesn't start on the runner (kernel32.dll, c0000135), so Inno
       # Setup can't make the installer there.
-      - run: nix develop path:./nix#windows --command scripts/build-windows discord --no-installer
+      - run: nix develop path:./nix#${{ matrix.shell }} --command scripts/build-windows discord --no-installer
       - name: Trim and stop Kache
         if: ${{ !cancelled() && github.ref == 'refs/heads/main' }}
         run: |
@@ -115,13 +152,74 @@ jobs:
           key: ${{ steps.restore.outputs.cache-primary-key }}
       - uses: actions/upload-artifact@v7
         with:
-          name: windows
+          name: windows-${{ matrix.arch }}
           path: target/dist/discord/Yapfast-*
           if-no-files-found: error
           compression-level: 0
 
+  msi:
+    needs: [version, windows]
+    runs-on: windows-2025
+    env:
+      VERSION: ${{ needs.version.outputs.version }}
+      DOTNET_ROLL_FORWARD: Major
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ needs.version.outputs.commit }}
+      - uses: actions/download-artifact@v8
+        with:
+          pattern: windows-*
+          path: dist
+      - name: Build both MSIs with WiX
+        run: |
+          $wixPath = Join-Path $env:RUNNER_TEMP wix
+          dotnet tool install wix --version 5.0.2 --tool-path $wixPath
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          foreach ($arch in 'x64', 'arm64') {
+            python scripts/package-msi.py "dist/windows-$arch/Yapfast-$env:VERSION-windows-$arch.zip" --output msi --wix "$wixPath/wix.exe"
+            if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          }
+      - uses: actions/upload-artifact@v7
+        with:
+          name: msi
+          path: msi/*.msi
+          if-no-files-found: error
+          compression-level: 0
+
+  windows-smoke:
+    needs: [version, msi]
+    strategy:
+      matrix:
+        include:
+          - arch: x64
+            runner: windows-2025
+          - arch: arm64
+            runner: windows-11-arm
+    runs-on: ${{ matrix.runner }}
+    env:
+      VERSION: ${{ needs.version.outputs.version }}
+      RELEASE_ARCH: ${{ matrix.arch }}
+    steps:
+      - uses: actions/download-artifact@v8
+        with:
+          name: msi
+          path: msi
+      - name: Install and smoke-test the MSI
+        run: |
+          $msi = (Resolve-Path "msi/Yapfast-$env:VERSION-windows-$env:RELEASE_ARCH.msi").Path
+          $log = Join-Path $env:RUNNER_TEMP yapfast-install.log
+          $arguments = '/i "{0}" /qn /norestart /l*v "{1}"' -f $msi, $log
+          $install = Start-Process msiexec.exe -ArgumentList $arguments -Wait -PassThru -WindowStyle Hidden
+          if ($install.ExitCode -ne 0) {
+            Get-Content $log -Tail 100
+            exit $install.ExitCode
+          }
+          $program = Join-Path $env:ProgramFiles 'Yapfast/yapfast.exe'
+          exit (Start-Process $program -ArgumentList '--smoke-test' -Wait -PassThru -WindowStyle Hidden).ExitCode
+
   release:
-    needs: [version, linux, windows]
+    needs: [version, linux, windows, msi, windows-smoke]
     runs-on: ubuntu-26.04
     # Holds the nightly signing key, and gives it only to runs from main.
     environment: nightly
@@ -149,13 +247,19 @@ jobs:
         run: |
           # A failed request must fail the job, not leave the list empty.
           set -o pipefail
-          # Both jobs zip the commit's source; SOURCE.txt and each BUILD.json
+          # The builds zip the commit's source; SOURCE.txt and each BUILD.json
           # name the one file the release carries.
-          cmp "dist/linux/Yapfast-$VERSION-source.zip" "dist/windows/Yapfast-$VERSION-source.zip"
+          source="Yapfast-$VERSION-source.zip"
+          for build in linux-aarch64 windows-x64 windows-arm64; do
+            cmp "dist/linux-x86_64/$source" "dist/$build/$source"
+          done
           mkdir release
-          mv dist/linux/Yapfast-* dist/linux/yapfast-*.pkg.tar.zst release/
-          mv dist/windows/Yapfast-*-windows-x64* release/
-          (cd release && sha256sum Yapfast-* yapfast-*.pkg.tar.zst > SHA256SUMS.txt)
+          cp "dist/linux-x86_64/$source" dist/linux-x86_64/*.pkg.tar.zst dist/msi/*.msi release/
+          for arch in x86_64 aarch64; do
+            cp dist/linux-"$arch"/*.AppImage{,.zsync} dist/linux-"$arch"/*.{deb,rpm,flatpak} release/
+          done
+          cp dist/windows-x64/*-windows-x64.zip dist/windows-arm64/*-windows-arm64.zip release/
+          (cd release && sha256sum * > SHA256SUMS.txt)
           # The updater installs a nightly only with the nightly key's
           # signature, naming its tag. The key has no password: the secret
           # is what guards it.
@@ -182,7 +286,8 @@ jobs:
               echo "All changes: https://github.com/$GH_REPO/compare/$previous...$COMMIT"
               echo
             fi
-            echo "AppImage updaters take the AppImage to the latest stable release, not to newer nightlies."
+            echo "Choose x64 or ARM64 for Windows ZIP/MSI, or x86_64 or aarch64 for Linux AppImage, DEB, RPM and Flatpak."
+            echo "External AppImage updaters use the latest stable release."
             echo
             echo "On Arch Linux, install the .pkg.tar.zst with \`sudo pacman -U\` and its link."
           } > notes.md

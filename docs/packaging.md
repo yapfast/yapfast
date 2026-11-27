@@ -5,20 +5,21 @@ checking Yapfast for development is in [building](building.md).
 
 ## Linux AppImage
 
-`scripts/build-appimage` makes the Linux release in `target/dist/linux`:
-`Yapfast-VERSION-x86_64.AppImage`, its `.zsync` file, the source snapshot and
-`SHA256SUMS.txt`. All four go on the release page. AppImageUpdate, and AppImage
-managers such as Gear Lever, find a newer release through the `.zsync` file,
-named by the update information in the runtime:
-`gh-releases-zsync|yapfast|yapfast|latest|Yapfast-*-x86_64.AppImage.zsync`.
+`scripts/build-appimage` makes the Linux release in `target/dist/linux`.
+Run it on each architecture, x86_64 and aarch64. Each build produces
+`Yapfast-VERSION-ARCH.AppImage`, its `.zsync` file, the source snapshot and
+`SHA256SUMS.txt`. AppImageUpdate and managers such as Gear Lever use the
+runtime's architecture-specific update information,
+`gh-releases-zsync|yapfast|yapfast|latest|Yapfast-*-ARCH.AppImage.zsync`.
 The first build compiles every dependency in the Nix sandbox; packing takes
 about 10 seconds after that.
 
 Nix builds the binary, `nix/package.nix`'s Discord-only release build, and
 `nix/appimage.nix` puts it in an AppDir with the desktop file, the icons and
 the AppStream metainfo, `packaging/linux/io.github.yapfast.Yapfast.metainfo.xml`.
-It sets the binary's interpreter to `/lib64/ld-linux-x86-64.so.2` and removes
-Nix's RUNPATH, so the binary runs on the host's loader, glibc and libstdc++, as
+It sets the binary's interpreter to `/lib64/ld-linux-x86-64.so.2` on x86_64 or
+`/lib/ld-linux-aarch64.so.1` on aarch64, and removes Nix's RUNPATH so the binary
+runs on the host's loader, glibc and libstdc++, as
 one built on a distribution would. That's what lets the host's GPU driver,
 Mesa or NVIDIA's, load into it: a driver needs the glibc it was built for, and
 NVIDIA's must match the kernel module, so neither can come in the AppImage.
@@ -47,6 +48,67 @@ The flake sees only the files Git tracks, so add a new file under `nix/` or
 `packaging/` before building.
 
 Screen sharing hasn't been tried from the AppImage.
+
+## DEB, RPM and Flatpak
+
+Run the packager on the same architecture as the AppImage. It carries the
+AppImage's binary, desktop entry, AppStream metadata, icon, build information
+and notices into all three formats and adds their hashes beside the AppImage.
+Install `dpkg-deb`, `rpmbuild` and `flatpak` for all three formats, or pass
+`--format deb`, `--format rpm` or `--format flatpak` to build selected formats.
+For Flatpak, install the Freedesktop 25.08 SDK and runtime from Flathub first.
+
+```sh
+flatpak remote-add --user --if-not-exists flathub https://dl.flathub.org/repo/flathub.flatpakrepo
+flatpak install --user flathub org.freedesktop.Sdk//25.08 org.freedesktop.Platform//25.08
+scripts/build-appimage
+python3 scripts/package-linux-formats.py target/dist/linux/Yapfast-VERSION-$(uname -m).AppImage
+```
+
+Install a DEB with `sudo apt install ./yapfast_VERSION_ARCH.deb`, an RPM
+with `sudo dnf install ./yapfast-VERSION-1.ARCH.rpm` or a bundle with
+`flatpak install --user ./Yapfast-VERSION-ARCH.flatpak`. DEB uses the names
+`amd64` and `arm64`. RPM and Flatpak use `x86_64` and `aarch64`.
+DEB and RPM use `~` in the package's internal prerelease version so it sorts
+before the corresponding stable version. The files keep the release's SemVer.
+
+Flatpak uses app ID `io.github.yapfast.Yapfast`, with branches `stable`,
+`nightly` and `beta` for other prereleases. The sandbox grants network,
+display, audio, graphics and desktop-service access. Hosts need a portal
+backend for desktop integration. Direct camera access needs a separate Flatpak
+permission. Bundles are distributed on the release page.
+
+## Windows ZIP and MSI
+
+On x86_64 Linux, the Windows Nix shells select the MSVC target and its WebRTC
+archive. Use the same packaging commands for a stable release or nightly.
+
+```sh
+nix develop path:./nix#windows --command scripts/build-windows
+nix develop path:./nix#windows-arm64 --command scripts/build-windows
+```
+
+The files in `target/dist/discord` include the x64 and ARM64 portable ZIPs
+and the x64 Inno Setup EXE. Add `discord --no-installer` to the x64 command to
+skip Inno Setup. For the Matrix preview, pass `full` and use
+`target/dist/full`.
+
+On Windows, build the MSIs from those ZIPs with Python 3 and WiX 5.0.2.
+Set .NET roll-forward if you use a newer .NET runtime:
+
+```powershell
+dotnet tool install --global wix --version 5.0.2
+$env:DOTNET_ROLL_FORWARD = 'Major'
+python scripts/package-msi.py target/dist/discord/Yapfast-VERSION-windows-x64.zip
+python scripts/package-msi.py target/dist/discord/Yapfast-VERSION-windows-arm64.zip
+```
+
+The MSI installs under Program Files for all users and requires elevation.
+It installs a Start menu shortcut and registers `yapfast:` links. To update
+an MSI installation, run the newer MSI. Windows Installer compares the
+numeric version, so MSI builds with the same numeric version can replace one
+another. When switching from a per-user Inno installation, uninstall that
+copy first to avoid two Start menu entries and protocol registrations.
 
 ## Arch Linux packages
 
@@ -82,20 +144,18 @@ commit: `Yapfast 0.2.0-nightly.20261020.5 (396abe2)`. The run number puts two
 nightlies of one day in order, as a commit hash wouldn't, and gives a second
 run on one commit a tag of its own. `scripts/set-version` writes that version
 into `Cargo.toml` and `Cargo.lock` before building, so the app reports it and
-the packages and `SOURCE.txt` name it. One job runs `scripts/build-appimage`
-and `scripts/package-arch`, and another `scripts/build-windows` in the
-Windows shell, with cargo-xwin's MSVC files and the compiled Rust dependencies
-(`Swatinem/rust-cache`) cached between runs. The Linux build has no cache: it
-compiles in the Nix sandbox, which can't reach one. The last job publishes the
-AppImage, its `.zsync` file, the Arch package, the Windows ZIP, the source snapshot,
-`SHA256SUMS.txt` and its signature by the nightly key ([Signing
-releases](#signing-releases)) as a prerelease on that commit. Wine doesn't start on the
-runner, so there's no installer. The release's notes list the commits since the
+the packages and `SOURCE.txt` name it. Native Linux runners build the AppImage,
+DEB, RPM and Flatpak for x86_64 and aarch64, plus the Arch package on x86_64.
+The Windows cross-build matrix produces x64 and ARM64 ZIPs, with cargo-xwin
+and Kache caches per target. A Windows runner turns both ZIPs into MSI packages.
+The workflow installs and smoke-tests each MSI on its own Windows architecture.
+The last job verifies that each build produced the same source snapshot,
+collects one copy, generates checksums for every artifact, signs them with
+the nightly key and publishes the prerelease. See [Signing releases](#signing-releases).
+The release's notes list the commits since the
 previous nightly, or the latest release, each with its author's GitHub account:
 features and fixes by their Conventional Commit type, the rest folded away
-(`.github/nightly-notes.jq`). Every nightly stays on the releases page. Both
-builds zip the source snapshot with the commit's time on every file, so they
-make the same file, and the release carries one. A prerelease is never
+(`.github/nightly-notes.jq`). Every nightly stays on the releases page. A prerelease is never
 `latest`, so the AppImage's update information leaves stable installs on stable
 releases, and takes a nightly AppImage to the latest stable release, not the
 next nightly.
@@ -212,8 +272,9 @@ About's "Install updates automatically" switch stays greyed out and off.
 
 Everything else is left alone, with the reason on the page: a package manager's
 or Flatpak's copy (it updates it), a portable ZIP or a build of one's own, a
-release without the file for this install (nightlies carry no Windows
-installer, so a Windows install is offered View release for them), a release
+release without the file for this install (nightlies carry MSI packages, so
+Inno Setup installs are offered View release for them), an MSI installation,
+a release
 without `SHA256SUMS.txt` or its signature, and a folder that can't be written
 to. Any failure (no network, a signature or sum that doesn't match, a failed
 start-up check) is shown on the page with the old Yapfast still running and
@@ -268,10 +329,12 @@ The trusted comment, which the signature covers, is `yapfast TAG
 SHA256SUMS.txt`, and the app requires the tag of the release it is
 installing, so one release's signed sums can't stand in for another's.
 
-The Nightly workflow signs its own sums. A stable release is signed on the
-maintainer's machine once its sums are final, with `scripts/sign-release DIR
-TAG`, which asks for the key's password and checks the signature against the
-keys in `packaging/keys`. Built elsewhere, say by a workflow that leaves a
+The Nightly workflow signs its own sums. For a stable release, collect the
+packages from both architectures in one clean directory. Compare their source
+ZIPs and include one per flavour. In that directory run `sha256sum * >
+SHA256SUMS.txt` before adding the signature. Then run `scripts/sign-release DIR
+TAG` on the maintainer's machine, which asks for the key's password and checks
+the signature against the keys in `packaging/keys`. Built elsewhere, say by a workflow that leaves a
 draft release, the release is signed the same way: download its
 `SHA256SUMS.txt`, sign it, upload the signature and publish.
 

@@ -12,6 +12,11 @@
 let
   id = "io.github.yapfast.Yapfast";
   native = import ./native.nix { inherit pkgs; };
+  arch = pkgs.stdenv.hostPlatform.parsed.cpu.name;
+  interpreter = {
+    x86_64 = "/lib64/ld-linux-x86-64.so.2";
+    aarch64 = "/lib/ld-linux-aarch64.so.1";
+  }.${arch};
   # The newest glibc and libstdc++ the binary may ask for: Ubuntu 24.04's and
   # Fedora 40's. Nix builds against a newer glibc, so a nixpkgs update can
   # raise what the binary asks for, and this fails the build when it does.
@@ -19,18 +24,21 @@ let
   libstdcxxFloor = "3.4.33";
   # Libraries every desktop distribution installs, so the binary may link them.
   hostLibraries = [
-    "ld-linux-x86-64.so.2" "libc.so.6" "libm.so.6" "libgcc_s.so.1" "libstdc++.so.6"
+    (builtins.baseNameOf interpreter) "libc.so.6" "libm.so.6" "libgcc_s.so.1" "libstdc++.so.6"
     "libglib-2.0.so.0" "libgobject-2.0.so.0" "libgio-2.0.so.0"
     "libpulse.so.0" "libpulse-simple.so.0"
   ];
   # The official runtime, statically linked: it needs FUSE 3's fusermount3
   # but not libfuse, and runs with --appimage-extract-and-run without either.
   runtime = pkgs.fetchurl {
-    url = "https://github.com/AppImage/type2-runtime/releases/download/20251108/runtime-x86_64";
-    sha256 = "0396xi3km1yd0z4329lbjxmv82ddc40gd0x8hca0ylcj7i28pjig";
+    url = "https://github.com/AppImage/type2-runtime/releases/download/20251108/runtime-${arch}";
+    sha256 = {
+      x86_64 = "0396xi3km1yd0z4329lbjxmv82ddc40gd0x8hca0ylcj7i28pjig";
+      aarch64 = "00cbdfcf917cc6c0ff6d3347d59e0ca1f7f45a6df1a428a0d6d8a78664d87444";
+    }.${arch};
   };
   # Where AppImageUpdate and the AppImage managers look for a newer release.
-  updateInformation = "gh-releases-zsync|yapfast|yapfast|latest|Yapfast-*-x86_64.AppImage.zsync";
+  updateInformation = "gh-releases-zsync|yapfast|yapfast|latest|Yapfast-*-${arch}.AppImage.zsync";
   # What scripts/package-linux.py adds to the release's BUILD.json.
   build = builtins.toJSON {
     glibc_floor = glibcFloor;
@@ -53,7 +61,7 @@ pkgs.runCommand "yapfast-appdir-${yapfast.version}" {
   # wrapProgram's wrapper sets Nix's library path; the binary itself is beside it.
   cp ${yapfast}/bin/.yapfast-wrapped "$appdir/usr/bin/yapfast"
   chmod u+w "$appdir/usr/bin/yapfast"
-  patchelf --set-interpreter /lib64/ld-linux-x86-64.so.2 --remove-rpath "$appdir/usr/bin/yapfast"
+  patchelf --set-interpreter ${interpreter} --remove-rpath "$appdir/usr/bin/yapfast"
 
   needed=$(readelf -d "$appdir/usr/bin/yapfast" | sed -n 's/.*(NEEDED).*\[\(.*\)\]/\1/p')
   for library in $needed; do
