@@ -773,11 +773,11 @@ a PNG: 288 by 288 for a decoration, 448 by 84 or 672 by 126 for a plate. The
 client asks for `/animated`, an APNG, or `/video`, a WebM, and Yapfast
 asks for `/animated` (Discord's own client does on Linux and Safari), when
 the [profile switches](#profile-switches) let them animate, as they do
-unless turned off. A decoration plays on a message while the pointer is on the message that starts
-its group, and on the profile card, in the member list, a DM's row and the
-account card while the pointer is on them. Discord's client plays a chat
-decoration while the pointer is on any message of the group, and a card's
-whenever it's open. A nameplate plays while its row is pointed at, and the
+unless turned off. A decoration plays on a message while the pointer is on
+any message of its group, as in Discord's client (`ANIMATE_CHAT_AVATAR`,
+keyed by the group and its author), and on the profile card, in the member
+list, a DM's row and the account card while the pointer is on them.
+Discord's client plays a card's whenever it's open. A nameplate plays while its row is pointed at, and the
 account card's while the card is; a selected row's holds still, as playing
 costs some 7% of a core for as long as it's selected. Everything holds still when Yapfast's window isn't focused
 (`pictures::plays`), and a surface that stops being pointed at goes back to the
@@ -856,6 +856,30 @@ plays the GIF at the same address once it has come, while animations play
 Settings the GIF isn't asked for. A frame's layers and a moving banner go
 when their card closes, as an effect's pictures do, rather than with the
 next trim.
+
+## Animated avatars
+
+A Nitro avatar, a person's own or one they set for a server, has a hash
+that starts with `a_`, and Discord serves it as a GIF beside the PNG at the
+same address (`looks::moving_avatar`). The GIF plays where Discord's client
+plays it, while the pointer is on it: a message's avatar while any message
+of its group is pointed at, a member list's row, a DM's row, and the
+profile card, the DM's panel and the full profile as their decoration does.
+Discord's client (module `45837` in build 676376) plays one while the
+window has the focus and the pointer is on the avatar, or on its row or
+group while `gifAutoPlay` is on and motion isn't reduced; its profile cards play it whenever they're open, its
+member and DM rows while selected too, and it has no switch for avatars of
+their own. Yapfast plays them as Messages' Play GIFs, emoji and stickers
+says (`pictures::plays`), and Never holds them still; a card plays its
+avatar only while pointed at, and a selected row's holds still, as
+decorations do.
+
+The GIF is asked for only while it's to play (`pictures_shown`), at 128
+pixels as other avatars, and decodes the frame showing; its player, which
+keeps the frames it made within the shared 32 MiB
+(`SHARED_FRAME_CACHE_BYTES`), goes with the first view that no longer plays
+it, so the pointer leaving lets the frames go. The GIF's file and first
+frame then go with the next trim, as an avatar off screen does.
 
 ## Display name styles
 

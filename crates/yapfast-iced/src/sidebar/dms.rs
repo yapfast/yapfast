@@ -39,6 +39,7 @@ impl<'a> super::View<'a> {
             .key(Some(&room.id))
             .opacity(opacity)
             .decoration(room.decoration.as_deref(), pointed)
+            .animate(pointed)
             .group(room.group_icon.as_ref().map(GroupIcon::as_face))
             .dot(room.presence.map(|presence| {
                 (
