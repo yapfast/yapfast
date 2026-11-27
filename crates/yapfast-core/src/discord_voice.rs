@@ -946,9 +946,13 @@ pub(crate) async fn call(
                                 watching.opening = false;
                             }
                         }
+                        // The call's details show the first stream watched,
+                        // rather than whichever reported last.
                         WatchEvent::Report(Some(Report::Receiving(stats))) => {
-                            *receiving.lock().unwrap_or_else(|poisoned| poisoned.into_inner()) =
-                                Some((std::time::Instant::now(), stats));
+                            if at == 0 {
+                                *receiving.lock().unwrap_or_else(|poisoned| poisoned.into_inner()) =
+                                    Some((std::time::Instant::now(), stats));
+                            }
                         }
                         WatchEvent::Report(Some(Report::Ended { error })) => stop = Some(error),
                         WatchEvent::Report(Some(
