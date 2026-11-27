@@ -65,6 +65,8 @@ pub struct RowLook {
     /// When it was sent, on the clock Messages' settings chose, shared
     /// with the look it was worked out for.
     pub time: Arc<str>,
+    /// When a forwarded message's original was sent, on the chosen clock.
+    pub forward_time: Option<Arc<str>>,
 }
 
 /// A message's text laid out: its body, which it derefs to, and its
@@ -137,18 +139,20 @@ pub fn row_looks<'a>(
         .enumerate()
         .map(|(index, message)| {
             let before = index.checked_sub(1).map(|before| &*messages[before]);
-            let (item, laid, date, time) = match old(index) {
+            let (item, laid, date, time, forward_time) = match old(index) {
                 Some(look) => (
                     look.item.clone(),
                     look.body.clone(),
                     look.date,
                     look.time.clone(),
+                    look.forward_time.clone(),
                 ),
                 None => (
                     Arc::from(message.item.as_str()),
                     body(index),
                     yapfast_core::clock::date(message.timestamp),
                     clock.sent(message, now).into(),
+                    clock.forwarded(message, now),
                 ),
             };
             let new_day = date.is_some() && (before.is_none() || before_date != date);
@@ -170,6 +174,7 @@ pub fn row_looks<'a>(
                 body: laid,
                 date,
                 time,
+                forward_time,
             }
         })
         .collect::<Vec<_>>()
@@ -424,6 +429,12 @@ pub fn row_height(
     }
     if headed {
         content += AUTHOR_LINE + AUTHOR_GAP;
+    }
+    if message.forwarded {
+        content += LINE_HEIGHT;
+    }
+    if message.forward_origin.is_some() {
+        content += 22.0;
     }
     let gallery = Gallery::of(&message.attachments, Placement::Message, text_width);
     if !gallery.is_empty() {

@@ -21,7 +21,7 @@ use crate::{
     looks::{self, Chip},
     markdown::{FIRST_PART, Look},
     media::Gallery,
-    pictures::{Face, Icon},
+    pictures::{Face, GroupIcon, Icon, room_group_icon},
     piece::Piece,
     style::{CHIP, hex},
     timeline::{AUTHOR_GAP, AUTHOR_LINE, CONTENT_PAD, END_PAD, LINE_HEIGHT, RowLook},
@@ -290,6 +290,11 @@ pub fn message_content<'a>(
     }
     if let Some(failed) = crate::components::bot_failed(ctx, message) {
         content = content.push(failed);
+    }
+    if let Some(origin) = &message.forward_origin
+        && let Some(footer) = forward_footer(ctx, look, origin)
+    {
+        content = content.push(container(footer).padding(Padding::ZERO.top(4)));
     }
     // In bubbles the reactions sit under the bubble, on its side, as
     // Slint's; elsewhere they end the message.
@@ -1681,6 +1686,115 @@ fn delivery_line<'a>(
         );
     }
     Some(line.into())
+}
+
+/// A forwarded message's footer: the origin server's icon (or DM avatar),
+/// its name, `• [timestamp]`, and a right chevron that jumps to the original
+/// message when this account can open that conversation.
+fn forward_footer<'a>(
+    ctx: crate::ctx::Ctx<'a>,
+    look: &'a RowLook,
+    origin: &'a chat::ForwardOrigin,
+) -> Option<Element<'a, Message>> {
+    let theme = ctx.look.theme;
+    let state = ctx.state;
+    let room = state.rooms.iter().find(|room| room.id == origin.room);
+    let server = match room {
+        Some(room) if !room.direct => state
+            .servers
+            .iter()
+            .find(|server| server.channels.contains(&room.id)),
+        Some(_) => None,
+        None => yapfast_core::discord::parse_room(&origin.room)
+            .filter(|(guild, _)| *guild != yapfast_core::discord::DM_GUILD)
+            .and_then(|(guild, _)| {
+                let id = yapfast_core::discord::server_id(guild);
+                state.servers.iter().find(|server| server.id == id)
+            }),
+    };
+    let can_jump = match room {
+        Some(room) => !room.locked,
+        None => server.is_some() && state.discord_online && !state.preview,
+    };
+    let size = theme.type_size("small", 12.0);
+    let font = theme.font("small", MEDIUM);
+    if !can_jump {
+        let time = look.forward_time.as_deref()?;
+        return Some(
+            text(time)
+                .size(size)
+                .font(theme.font("small", REGULAR))
+                .color(theme.muted)
+                .wrapping(text::Wrapping::None)
+                .into(),
+        );
+    }
+    let same_server = server.is_some_and(|server| {
+        state
+            .selected
+            .as_ref()
+            .is_some_and(|open| server.channels.contains(open))
+    });
+    let mut line = row![].spacing(6).align_y(Alignment::Center);
+    if let Some(server) = server {
+        line = line.push(ctx.avatar(server.icon.as_deref(), &server.name, 16.0, 5.0, 1.0));
+        let label = match room {
+            Some(room) if same_server => format!("#{}", room.name),
+            _ => server.name.clone(),
+        };
+        line = line.push(
+            text(label)
+                .size(size)
+                .font(font)
+                .wrapping(text::Wrapping::None),
+        );
+    } else if let Some(room) = room {
+        if room.direct {
+            line = line.push(
+                ctx.face(
+                    Face::new(room.avatar.as_deref(), &room.name, 16.0)
+                        .group(room_group_icon(room).as_ref().map(GroupIcon::as_face)),
+                ),
+            );
+        } else {
+            line = line.push(
+                ctx.look
+                    .glyph(crate::sidebar::room_icon(room), 14, theme.muted),
+            );
+        }
+        line = line.push(
+            text(room.name.as_str())
+                .size(size)
+                .font(font)
+                .wrapping(text::Wrapping::None),
+        );
+    }
+    if let Some(time) = look.forward_time.as_deref() {
+        line = line
+            .push(
+                text("•")
+                    .size(size)
+                    .font(theme.font("small", REGULAR))
+                    .wrapping(text::Wrapping::None),
+            )
+            .push(
+                text(time)
+                    .size(size)
+                    .font(theme.font("small", REGULAR))
+                    .wrapping(text::Wrapping::None),
+            );
+    }
+    line = line.push(ctx.look.glyph(Icon::ChevronRight, 14, theme.muted));
+    Some(
+        button(line)
+            .padding(0)
+            .on_press(Message::Timeline(crate::timeline::Event::JumpInRoom {
+                room: origin.room.clone(),
+                item: origin.item.clone(),
+            }))
+            .style(controls::ink_style(theme.muted, theme.text))
+            .into(),
+    )
 }
 
 /// As Discord's client marks an answer only this account sees.

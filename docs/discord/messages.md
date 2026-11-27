@@ -1150,7 +1150,10 @@ Each forward is `POST /channels/{target}/messages` with no content and a
 channel and server, with `X-Context-Properties` of `{"location":
 "forwarding"}`, as Discord's client sends it. Discord copies the original
 into the new message's `message_snapshots`, which Yapfast shows under
-"Forwarded". Discord takes no text with a forward (error 160011), so the
+"Forwarded" with a footer below naming the origin server's icon and name
+(or the channel name in the same server, or the DM's avatar and name),
+its original timestamp, and a chevron that jumps to the original message
+when this account can open that conversation. Discord takes no text with a forward (error 160011), so the
 message added goes after it as one of its own, with the same location, to
 each conversation the forward reached. A slowmode channel this account
 doesn't bypass gets the forward alone, as the dialog warns, since the

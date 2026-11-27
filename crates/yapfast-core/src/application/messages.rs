@@ -584,7 +584,7 @@ impl Application {
         else {
             return;
         };
-        let sample = |body: String, formatted, attachments, forwarded| {
+        let sample = |body: String, formatted, attachments, forwarded, forward_origin| {
             let item = uuid::Uuid::new_v4().to_string();
             Arc::new(ChatMessage {
                 id: item.clone(),
@@ -597,6 +597,7 @@ impl Application {
                 formatted,
                 attachments,
                 forwarded,
+                forward_origin,
                 ..sample_actions()
             })
         };
@@ -606,9 +607,14 @@ impl Application {
             message.formatted,
             message.attachments.clone(),
             true,
+            Some(crate::chat::ForwardOrigin {
+                room: forwarding.room.clone(),
+                item: forwarding.item.clone(),
+                timestamp: message.timestamp,
+            }),
         ));
         if let Some(note) = note {
-            messages.push(sample(note, true, vec![], false));
+            messages.push(sample(note, true, vec![], false, None));
         }
         if self.state.selected.as_deref() == Some(target) {
             self.state.messages = Arc::new(messages.clone());
@@ -765,7 +771,10 @@ impl Application {
             effects = self.open(room.clone(), true);
         }
         if self.state.selected.as_ref() == Some(&room) {
+            self.pending_jump = None;
             effects.extend(self.jump(item, false));
+        } else if self.pending_open.as_deref() == Some(room.as_str()) {
+            self.pending_jump = Some((room, item));
         }
         effects
     }

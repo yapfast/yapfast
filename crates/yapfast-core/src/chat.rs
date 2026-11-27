@@ -2070,6 +2070,17 @@ pub enum ButtonStyle {
     Premium,
 }
 
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct ForwardOrigin {
+    /// The conversation the original message was sent in (its room id).
+    pub room: String,
+    /// The original message's timeline item (`d:{id}` on Discord).
+    pub item: String,
+    /// When the original message was sent, in seconds since the Unix epoch;
+    /// zero when unknown.
+    pub timestamp: u64,
+}
+
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct ChatMessage {
     /// Stable row key across the local echo and its remote event.
@@ -2107,6 +2118,9 @@ pub struct ChatMessage {
     pub tag: Option<ServerTag>,
     /// Forwarded on Discord: its body, files and embeds are the original's.
     pub forwarded: bool,
+    /// Where a forwarded message came from, when known, so the timeline can
+    /// show its source and jump to the original.
+    pub forward_origin: Option<ForwardOrigin>,
     /// The author joined the server in the last week, which Discord marks
     /// by their name as a new member.
     pub new_member: bool,
