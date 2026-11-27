@@ -233,6 +233,7 @@ pub enum MenuAct {
     /// A server of a folder's Servers list, by its row's `key`: it opens,
     /// as its icon on the rail does.
     GoServer,
+    ViewServerIcon,
     /// Close every open folder on the rail, as Discord's folder menu does.
     CloseFolders,
     /// A change to the notifications of the server in the row's `key`,
@@ -820,6 +821,20 @@ fn carry_out(app: &mut App, row: &MenuRow, ticked: Option<bool>, stays: bool) ->
                 ));
             Task::batch([focus, app.sync()])
         }
+        MenuAct::ViewServerIcon => {
+            let server = app
+                .client
+                .state()
+                .servers
+                .iter()
+                .find(|server| Some(server.id.as_str()) == menu.place.as_deref());
+            let Some((name, icon)) =
+                server.and_then(|server| Some((server.name.clone(), server.icon.clone()?)))
+            else {
+                return focus;
+            };
+            app.image_event(crate::image_viewer::Event::OpenAvatar(name, icon))
+        }
         MenuAct::CloseFolders => {
             // A tree that opens one folder at a time keeps it apart from
             // the rail's open folders, as a click on a folder does.
@@ -999,6 +1014,7 @@ pub fn act(
         // A menu's own, which `carry_out` hands to `sub_act`.
         MenuAct::SearchSort
         | MenuAct::GoServer
+        | MenuAct::ViewServerIcon
         | MenuAct::CloseFolders
         | MenuAct::NotifyServer(_)
         | MenuAct::MentionsFilter

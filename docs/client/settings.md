@@ -24,7 +24,8 @@ recording. Each change is kept at once in
 - My account (`pages/`, a file a page, with the preferences' changes in
   its `mod.rs`): the account's card, where its login is kept,
   Reconnect while offline, Edit profile, the custom status, and Sign out
-  (Back to sign in in the preview).
+  (Back to sign in in the preview). Clicking the account's avatar opens
+  it in the image viewer.
 - Voice & video (`voice.rs`): the microphone, speakers and camera, each a
   dropdown of the devices the core lists (listed again as the page shows),
   the microphone's and speakers' volumes, which play while dragged and are

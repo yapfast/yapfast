@@ -81,6 +81,7 @@ mod bot_modal;
 mod looks;
 mod markdown;
 mod media;
+mod media_zoom;
 mod members;
 mod menus;
 mod message;

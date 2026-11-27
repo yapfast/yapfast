@@ -50,6 +50,7 @@ use crate::app::{App, Message};
 #[derive(Default)]
 pub struct Call {
     pub focus: Option<Focus>,
+    pub stream_zoom: crate::media_zoom::Zoom,
     /// Whose streams were watched as the window last looked, so one
     /// watched in place of another starts large.
     pub watched: Vec<String>,
@@ -148,6 +149,7 @@ pub enum Event {
     /// A tile shown large, by its place, or none.
     Focus(Option<usize>),
     Full(bool),
+    ZoomStream(crate::media_zoom::Change),
     /// The bottom participant strip hidden or shown while a tile is large.
     ToggleMembers,
     Scrolled(f32),
@@ -249,6 +251,12 @@ pub fn update(app: &mut App, event: Event) -> Task<Message> {
             app.call.full = full && app.call.focus.is_some();
             app.call.pointed = None;
             crate::call::stage::place_videos(app);
+            return Task::none();
+        }
+        Event::ZoomStream(change) => {
+            app.call
+                .stream_zoom
+                .change(change, !app.layout.reduce_motion);
             return Task::none();
         }
         Event::ToggleMembers => {
@@ -433,9 +441,11 @@ pub fn call_sync(app: &mut App) {
             && !app.call.watched.contains(only)
         {
             app.call.focus = Some(Focus::Stream(only.clone()));
+            app.call.stream_zoom = crate::media_zoom::Zoom::default();
         } else if matches!(&app.call.focus, Some(Focus::Stream(user)) if app.call.watched.contains(user) && !watching.contains(user))
         {
             app.call.focus = None;
+            app.call.stream_zoom = crate::media_zoom::Zoom::default();
         }
         app.call.watched = watching;
     }

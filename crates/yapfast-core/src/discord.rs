@@ -1608,7 +1608,9 @@ impl PictureLoads {
                 None => return,
             },
         };
-        let (width, height) = if pending.url.contains("/banners/") {
+        let (width, height) = if pending.url.ends_with(chat::VIEW_AVATAR) {
+            (chat::VIEW_AVATAR_SIDE, chat::VIEW_AVATAR_SIDE)
+        } else if pending.url.contains("/banners/") {
             BANNER_SIZE
         } else if pending.url.ends_with(chat::EFFECT_PICTURE) {
             EFFECT_SIZE

@@ -13,7 +13,8 @@ behind another, it shows. Each tile has its pill at the
 rail's edge (open, pointed at, unread), its mentions in a red badge, a
 speaker at its top right, and its name in a tooltip;
 a server out of reach in a Discord outage shows faded, its tooltip "Name
-(unavailable in a Discord outage)".
+(unavailable in a Discord outage)". The server's menu offers View Server
+Icon when it has an icon.
 On the standard left rail, drag a Discord server onto another server to
 create a folder, or onto an existing folder to add it. The dragged icon
 follows the pointer. An outline
@@ -199,7 +200,10 @@ offline), the name and status (the username under the
 pointer), with the account's nameplate filling the card (`PlateRow::account`:
 .4 strong, .6 and playing under the pointer, its palette from .1 to .4), and
 the mic, headphones and Settings. The avatar and the name open the
-status's popover once Discord is linked. The mic and headphones mute and
+status's popover once Discord is linked. Right-click the account avatar
+in the dock or click the larger avatar in the popover to open it in the
+image viewer. Without a linked Discord account, clicking the dock avatar
+opens it directly when an image is available. The mic and headphones mute and
 deafen in a call, greyed while it joins or leaves; out of
 one they set whether the next call starts unmuted or deafened. The carets
 beside the mic and headphones open the input and output menus, and a muted

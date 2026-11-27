@@ -63,6 +63,109 @@ fn closing_the_viewer_lets_go_of_its_picture() {
 }
 
 #[test]
+fn image_zoom_resets_when_stepping_to_the_next_picture() {
+    use crate::{app::Message, image_viewer::Event, media_zoom::Change};
+    let (mut app, _folder) = preview();
+    only(
+        &mut app,
+        ChatMessage {
+            attachments: vec![
+                picture_at("first.png", 400, Placement::Message, false),
+                picture_at("second.png", 400, Placement::Message, false),
+            ],
+            ..Default::default()
+        },
+    );
+    let _ = app.update(Message::Image(Event::Open("i0".into(), 0)));
+    let _ = app.update(Message::Image(Event::Zoom(Change::In)));
+    assert!(shows(&app, "125%"));
+    let _ = app.update(Message::Image(Event::Step(1)));
+    assert!(shows(&app, "second.png"));
+    assert!(shows(&app, "100%"));
+}
+
+#[test]
+fn a_small_picture_expands_into_the_available_viewer_space() {
+    use crate::{app::Message, image_viewer::Event, media_zoom::Change};
+    let (mut app, _folder) = preview();
+    viewing(&mut app);
+    let window = app.shell.frame;
+    let point = iced::Point::new(window.width / 2.0 + 23.0, window.height / 2.0);
+    let on_picture = |app: &crate::app::App| {
+        clicked(app, point, iced::mouse::Button::Right)
+            .iter()
+            .any(|message| matches!(message, Message::Image(Event::Menu(..))))
+    };
+    assert!(!on_picture(&app));
+    let _ = app.update(Message::Image(Event::Zoom(Change::In)));
+    assert!(on_picture(&app));
+}
+
+#[test]
+fn double_click_and_double_tap_toggle_a_pictures_zoom() {
+    use iced::{Event, mouse, touch};
+    let (mut app, _folder) = preview();
+    viewing(&mut app);
+    let window = app.shell.frame;
+    let center = iced::Point::new(window.width / 2.0, window.height / 2.0);
+    super::interact(&mut app, |ui| {
+        ui.point_at(center);
+        let left = mouse::Button::Left;
+        ui.simulate([
+            Event::Mouse(mouse::Event::ButtonPressed(left)),
+            Event::Mouse(mouse::Event::ButtonReleased(left)),
+            Event::Mouse(mouse::Event::ButtonPressed(left)),
+            Event::Mouse(mouse::Event::ButtonReleased(left)),
+        ]);
+    });
+    assert!(shows(&app, "200%"));
+    super::interact(&mut app, |ui| {
+        let id = touch::Finger(0);
+        ui.simulate([
+            Event::Touch(touch::Event::FingerPressed {
+                id,
+                position: center,
+            }),
+            Event::Touch(touch::Event::FingerLifted {
+                id,
+                position: center,
+            }),
+            Event::Touch(touch::Event::FingerPressed {
+                id,
+                position: center,
+            }),
+            Event::Touch(touch::Event::FingerLifted {
+                id,
+                position: center,
+            }),
+        ]);
+    });
+    assert!(shows(&app, "100%"));
+}
+
+#[test]
+fn a_servers_menu_opens_its_icon_in_the_image_viewer() {
+    let (mut app, _folder) = preview();
+    let icon = "https://cdn.discordapp.com/icons/42/a_blue.png?size=128";
+    let mut server = app.client.state().servers[0].as_ref().clone();
+    server.icon = Some(icon.into());
+    let id = server.id.clone();
+    change(&mut app, |state| {
+        state.servers = vec![Arc::new(server)];
+    });
+    let _ =
+        crate::place_menus::open_place_menu(&mut app, &id, iced::Point::new(70.0, 100.0), false);
+    super::interact(&mut app, |ui| {
+        ui.click("View Server Icon").expect("view server icon");
+    });
+    assert!(app.win.menu.is_none());
+    assert!(app.viewer.is_open(app.client.state()));
+    assert!(app.viewer.avatar_urls().any(|url| {
+        url == "https://cdn.discordapp.com/icons/42/a_blue.gif?size=512#avatar-view"
+    }));
+}
+
+#[test]
 fn the_viewer_closes_when_its_message_goes_and_gives_the_keys_back() {
     let (mut app, _folder) = preview();
     viewing(&mut app);
@@ -435,6 +538,30 @@ fn a_full_screen_videos_frames_follow_the_window_layout() {
             height: 282,
         }]
     );
+}
+
+#[test]
+fn a_double_click_zooms_video_without_toggling_playback() {
+    use iced::{Event, mouse};
+    let (mut app, _folder) = preview();
+    a_video_full_screen(&mut app);
+    let window = app.shell.frame;
+    let center = iced::Point::new(window.width / 2.0, window.height / 2.0);
+    super::interact(&mut app, |ui| {
+        ui.point_at(center);
+        let left = mouse::Button::Left;
+        ui.simulate([
+            Event::Mouse(mouse::Event::ButtonPressed(left)),
+            Event::Mouse(mouse::Event::ButtonReleased(left)),
+            Event::Mouse(mouse::Event::ButtonPressed(left)),
+            Event::Mouse(mouse::Event::ButtonReleased(left)),
+        ]);
+    });
+    assert!(shows(&app, "200%"));
+    assert!(matches!(
+        video_commands(&mut app).as_slice(),
+        [yapfast_core::chat::VideoCommand::Size { .. }]
+    ));
 }
 
 #[test]

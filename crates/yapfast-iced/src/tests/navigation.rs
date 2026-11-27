@@ -642,6 +642,31 @@ fn the_account_cards_avatar_opens_the_status_popover_only_with_discord_linked() 
 }
 
 #[test]
+fn right_clicking_the_dock_avatar_opens_the_accounts_image() {
+    use iced::mouse;
+    let (mut app, _folder) = preview();
+    let url = "https://cdn.discordapp.com/avatars/42/own.png?size=128";
+    change(&mut app, |state| {
+        state.account_avatar = Some(url.into());
+        state.discord_linked = true;
+    });
+    let messages: Vec<_> = {
+        let mut ui = account_card(&app);
+        ui.point_at(iced::Point::new(36.0, crate::account::HEIGHT / 2.0));
+        ui.simulate([iced::Event::Mouse(mouse::Event::ButtonPressed(
+            mouse::Button::Right,
+        ))]);
+        ui.into_messages().collect()
+    };
+    for message in messages {
+        let _ = app.update(message);
+    }
+    assert!(app.viewer.is_open(app.client.state()));
+    assert!(app.viewer.avatar_urls().any(|source| source == url));
+    assert!(app.status.popover.is_none());
+}
+
+#[test]
 fn the_account_cards_cog_opens_settings_where_they_were_last() {
     use crate::settings::{Event, Section};
     let (mut app, _folder) = preview();

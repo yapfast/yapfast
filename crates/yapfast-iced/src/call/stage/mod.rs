@@ -17,6 +17,7 @@ use crate::{
     app::{App, Message},
     controls::{self, ROUND, ROUND_GLYPH, bar},
     header,
+    media_zoom::Zoom,
     pictures::Icon,
     style::{faded, fill, hex, rounded},
     theme::rgb,
@@ -183,6 +184,7 @@ pub fn keep_focus(app: &mut App) {
     {
         app.call.focus = None;
         app.call.full = false;
+        app.call.stream_zoom = Zoom::default();
     }
 }
 
@@ -300,7 +302,11 @@ pub fn frames_found(app: &mut App, clip_time: Option<u64>) {
 /// tiles, and none is.
 pub fn focus_tile(app: &mut App, place: Option<usize>) {
     let voice = &app.client.state().voice;
-    app.call.focus = place.and_then(|place| Stage::of(voice).focus_at(place));
+    let focus = place.and_then(|place| Stage::of(voice).focus_at(place));
+    if focus != app.call.focus {
+        app.call.stream_zoom = Zoom::default();
+    }
+    app.call.focus = focus;
     if app.call.focus.is_none() {
         app.call.full = false;
     }
@@ -314,14 +320,42 @@ pub fn frame<'a>(
     key: &str,
     corners: Option<(u32, u32)>,
 ) -> Option<Element<'a, Message>> {
+    zoomed_frame(app, key, corners, Zoom::default())
+}
+
+pub fn zoomed_frame<'a>(
+    app: &'a App,
+    key: &str,
+    corners: Option<(u32, u32)>,
+    zoom: Zoom,
+) -> Option<Element<'a, Message>> {
     app.video.has(key).then(|| {
-        let video = Video::new(&app.video, key, Color::BLACK).scale(app.device_scale());
+        let video = Video::new(&app.video, key, Color::BLACK)
+            .scale(app.device_scale())
+            .zoom(zoom);
         let video = match corners {
             Some((radius, behind)) => video.corners(radius, behind),
             None => video,
         };
         Element::from(video)
     })
+}
+
+fn stream_frame<'a>(
+    app: &'a App,
+    key: &str,
+    corners: Option<(u32, u32)>,
+    large: bool,
+) -> Option<Element<'a, Message>> {
+    if !large {
+        return frame(app, key, corners);
+    }
+    let frame = zoomed_frame(app, key, corners, app.call.stream_zoom)?;
+    Some(crate::media_zoom::media_click(
+        frame,
+        Message::Call(Event::ZoomStream(crate::media_zoom::Change::Toggle)),
+        None,
+    ))
 }
 
 /// A voice channel's view: its header, then its call's stage with the
@@ -711,12 +745,14 @@ fn stage_tile(
     let mut viewers = None;
     let mut on_press = Message::Call(Event::Focus(Some(place)));
     let mut right = None;
+    let mut zoom_controls = false;
     let mut tile = match slot {
         Slot::OwnScreen => {
             let sharing = voice.sharing.as_ref();
             let live = sharing.is_some_and(|sharing| sharing.phase == SharePhase::Live);
             let status = share_status(voice);
-            let framed = frame(app, OWN_SCREEN, corners);
+            let framed = stream_frame(app, OWN_SCREEN, corners, large);
+            zoom_controls = large && framed.is_some();
             let note = (!live && framed.is_some()).then_some(status);
             viewers = sharing.and_then(|sharing| stream_viewers(app, &sharing.viewers, None));
             let content =
@@ -735,8 +771,9 @@ fn stage_tile(
             let content = if let Some(watching) = watched(&person.id) {
                 viewers = watch_viewers(watching);
                 stop = Some(person.id.clone());
-                frame(app, &stream_key(&person.id), corners)
-                    .unwrap_or_else(|| tile::note(app.look(), None, watch_status(watching)))
+                let framed = stream_frame(app, &stream_key(&person.id), corners, large);
+                zoom_controls = large && framed.is_some();
+                framed.unwrap_or_else(|| tile::note(app.look(), None, watch_status(watching)))
             } else {
                 on_press = Message::Call(Event::Watch(person.id.clone()));
                 let column = column![
@@ -773,8 +810,10 @@ fn stage_tile(
             } else if let Some(watching) = watching {
                 viewers = watch_viewers(watching);
                 stop = Some(person.id.clone());
-                let content = frame(app, &stream_key(&person.id), corners)
-                    .unwrap_or_else(|| tile::note(app.look(), None, watch_status(watching)));
+                let framed = stream_frame(app, &stream_key(&person.id), corners, large);
+                zoom_controls = large && framed.is_some();
+                let content =
+                    framed.unwrap_or_else(|| tile::note(app.look(), None, watch_status(watching)));
                 (content, Color::BLACK)
             } else {
                 // Their picture until their camera's first frame, as
@@ -865,6 +904,11 @@ fn stage_tile(
     if let Some(viewers) = viewers {
         tile = tile.top_right(viewers);
     }
+    if zoom_controls {
+        tile = tile.top_right(app.call.stream_zoom.controls(app.look(), |change| {
+            Message::Call(Event::ZoomStream(change))
+        }));
+    }
     // The stream's stop shows on the large tile, and on another while
     // the pointer is on it.
     if let Some(user) = stop
@@ -892,7 +936,9 @@ fn stage_tile(
     }
     if large {
         on_press = Message::Nothing;
-        tile = tile.on_double(Message::Call(Event::Full(!full)));
+        if !zoom_controls {
+            tile = tile.on_double(Message::Call(Event::Full(!full)));
+        }
     }
     if let (Some(user), Some(room)) = (right, voice.room.clone()) {
         tile =

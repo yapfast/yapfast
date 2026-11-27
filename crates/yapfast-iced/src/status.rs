@@ -622,7 +622,7 @@ impl<'a> View<'a> {
         stack![
             Space::new().width(Length::Fill).height(156),
             banner,
-            placed(face, 12.0, 36.0),
+            placed(account.viewable_avatar(face), 12.0, 36.0),
             placed(
                 container(name).height(24).align_y(Alignment::Center),
                 16.0,

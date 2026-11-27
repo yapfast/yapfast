@@ -465,17 +465,32 @@ fn profile_top<'a>(
         pointed,
         inks.ground,
         mode,
-    ))
-    .interaction(if mode.large() {
-        iced::mouse::Interaction::default()
-    } else {
-        iced::mouse::Interaction::Pointer
-    });
-    // The picture opens the full profile.
-    let face = if mode.large() {
-        face
-    } else {
-        face.on_press(Message::Profile(Event::Enlarge(None, mode == Mode::Docked)))
+    ));
+    let view_avatar = profile
+        .avatar
+        .as_ref()
+        .filter(|url| !url.is_empty())
+        .map(|url| {
+            Message::Image(crate::image_viewer::Event::OpenAvatar(
+                profile.name.clone(),
+                url.clone(),
+            ))
+        });
+    let face = match (mode.large(), view_avatar) {
+        (true, Some(view)) => face
+            .on_press(view)
+            .interaction(iced::mouse::Interaction::Pointer),
+        (true, None) => face,
+        (false, view) => {
+            let face = face
+                .on_press(Message::Profile(Event::Enlarge(None, mode == Mode::Docked)))
+                .interaction(iced::mouse::Interaction::Pointer);
+            if let Some(view) = view {
+                face.on_right_press(view)
+            } else {
+                face
+            }
+        }
     };
     let mut top = stack![
         Space::new()

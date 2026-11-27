@@ -26,6 +26,9 @@ pub const PEEK_MESSAGES: usize = 6;
 /// costs at most about 9 MiB while it's open.
 pub const VIEW_WIDTH: u32 = 1920;
 pub const VIEW_HEIGHT: u32 = 1200;
+pub const VIEW_AVATAR_SIDE: u32 = 512;
+/// A larger avatar used only by the image viewer, like the marked profile effects.
+pub const VIEW_AVATAR: &str = "#avatar-view";
 
 /// What someone is doing on Discord: a game, music, a stream or a Hang
 /// status, shared as the gateway parsed it.

@@ -405,3 +405,29 @@ fn asks_once_for_the_pictures_on_screen() {
     );
     assert!(asked(app.dispatch(Action::LoadPictures(vec!["icon.png".into()]))).is_empty());
 }
+
+#[test]
+fn a_closed_avatar_viewer_releases_its_picture_and_ignores_late_downloads() {
+    let mut app = connected();
+    let url = format!(
+        "https://cdn.discordapp.com/avatars/42/example.png?size=512{}",
+        chat::VIEW_AVATAR
+    );
+    let picture = Arc::new(Picture {
+        width: 1,
+        height: 1,
+        rgba: chat::Pixels::new(1, 1, vec![0; 4]),
+        ..Default::default()
+    });
+    let result = || Event::Picture {
+        url: url.clone(),
+        picture: picture.clone(),
+    };
+    app.dispatch(Action::LoadPicturesFirst(vec![url.clone()]));
+    app.apply(result());
+    assert!(app.state.pictures.contains_key(&url));
+    app.dispatch(Action::ReleaseAvatarPicture(url.clone()));
+    assert!(!app.state.pictures.contains_key(&url));
+    app.apply(result());
+    assert!(!app.state.pictures.contains_key(&url));
+}

@@ -273,7 +273,7 @@ impl App {
             Layer::ConfirmDelete => state.confirm_delete.is_some(),
             Layer::SelectMenu => state.select_menu.is_some(),
             Layer::Modal => state.interaction_modal.is_some() && state.select_menu.is_none(),
-            Layer::Viewer => state.viewer.is_some() && self.win.menu.is_none(),
+            Layer::Viewer => self.viewer.is_open(state) && self.win.menu.is_none(),
             Layer::Switcher => state.switcher.is_some(),
             Layer::NewDm => state.new_dm.is_some(),
             Layer::Poll => state.poll_draft.is_some(),

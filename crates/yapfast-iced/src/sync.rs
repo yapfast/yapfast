@@ -1054,6 +1054,9 @@ impl App {
         for url in crate::profile::profile_pictures(self.ctx()) {
             want(Some(&url));
         }
+        for url in self.viewer.avatar_urls() {
+            want(Some(url));
+        }
         for url in self.status.activity_pictures() {
             want(Some(url));
         }

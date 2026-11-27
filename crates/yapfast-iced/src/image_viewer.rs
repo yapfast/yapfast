@@ -10,7 +10,11 @@
 //! Saving a file, from here, a file's card or a menu, asks where with the
 //! system's dialog, suggesting only the file's own name.
 
-use std::path::Path;
+use std::{
+    path::Path,
+    sync::Arc,
+    time::{Duration, Instant},
+};
 
 use iced::{
     Alignment, Color, Element, Length, Padding, Size, Task,
@@ -18,7 +22,7 @@ use iced::{
 };
 use yapfast_core::{
     application::{Action, AppState},
-    chat::Attachment,
+    chat::{self, Attachment, Picture},
     links,
 };
 
@@ -26,6 +30,7 @@ use crate::{
     app::{App, Message},
     ctx::{Ctx, Cx, Focus, Request},
     media::{Fit, Shot},
+    media_zoom::{Change, Zoom},
     menus::{Menu, MenuAct, MenuRow},
     pictures::Icon,
     style::rounded,
@@ -50,8 +55,12 @@ const NOTE_INK: Color = Color::from_rgba(1.0, 1.0, 1.0, 0xd9 as f32 / 255.0);
 pub enum Event {
     /// A message's picture clicked: the message's item, the attachment.
     Open(String, usize),
+    OpenAvatar(String, String),
+    AvatarWaited(Instant),
     Close,
     Step(isize),
+    Zoom(Change),
+    ZoomSettled(Instant),
     /// Save a message's attachment, or copy its picture.
     Save(String, usize),
     Copy(String, usize),
@@ -73,23 +82,122 @@ pub enum Event {
 #[derive(Default)]
 pub struct Viewed {
     pub size: Option<(String, usize, Size)>,
+    zoom: Zoom,
+    avatar: Option<Avatar>,
+}
+
+struct Avatar {
+    title: String,
+    preview: String,
+    url: String,
+    opened: Instant,
+    waited: bool,
+}
+
+fn avatar_url(url: &str) -> String {
+    let Some((base, size)) = url.rsplit_once("?size=") else {
+        return url.to_owned();
+    };
+    if size.parse::<u32>().is_err() || !(base.contains("/avatars/") || base.contains("/icons/")) {
+        return url.to_owned();
+    }
+    let suffix = format!("?size={}", chat::VIEW_AVATAR_SIDE);
+    let large = format!("{base}{suffix}");
+    let image = chat::moving_banner(&large).unwrap_or(large);
+    format!("{image}{}", chat::VIEW_AVATAR)
 }
 
 impl Viewed {
+    pub fn is_open(&self, state: &AppState) -> bool {
+        self.avatar.is_some() || state.viewer.is_some()
+    }
+
+    pub fn avatar_urls(&self) -> impl Iterator<Item = &str> {
+        self.avatar
+            .iter()
+            .flat_map(|avatar| [avatar.url.as_str(), avatar.preview.as_str()])
+    }
+
+    fn close_avatar(&mut self, cx: &mut Cx<'_>) {
+        if let Some(avatar) = self.avatar.take()
+            && avatar.url.ends_with(chat::VIEW_AVATAR)
+        {
+            cx.dispatch(Action::ReleaseAvatarPicture(avatar.url));
+        }
+    }
+
     /// What's done in the viewer; Save and a picture's menu are the
     /// root's (`App::image_event`).
     pub fn update(&mut self, event: Event, cx: &mut Cx<'_>) -> Task<Message> {
         match event {
             Event::Open(item, index) => {
+                self.close_avatar(cx);
+                self.zoom = Zoom::default();
                 cx.dispatch(Action::ViewImage { item, index });
                 return iced::widget::operation::focus(crate::app::NOBODY);
             }
+            Event::OpenAvatar(title, preview) => {
+                self.close_avatar(cx);
+                if cx.state().viewer.is_some() {
+                    cx.dispatch(Action::CloseImage);
+                }
+                self.zoom = Zoom::default();
+                let url = avatar_url(&preview);
+                let opened = Instant::now();
+                let waited = cx.state().preview;
+                cx.dispatch(Action::LoadPicturesFirst(vec![url.clone()]));
+                self.avatar = Some(Avatar {
+                    title,
+                    preview,
+                    url,
+                    opened,
+                    waited,
+                });
+                let focus = iced::widget::operation::focus(crate::app::NOBODY);
+                if waited {
+                    return focus;
+                }
+                return Task::batch([
+                    focus,
+                    crate::after(
+                        Duration::from_secs(12),
+                        Message::Image(Event::AvatarWaited(opened)),
+                    ),
+                ]);
+            }
+            Event::AvatarWaited(opened) => {
+                if let Some(avatar) = self
+                    .avatar
+                    .as_mut()
+                    .filter(|avatar| avatar.opened == opened)
+                {
+                    avatar.waited = true;
+                }
+            }
             Event::Close => {
-                cx.dispatch(Action::CloseImage);
+                if self.avatar.is_some() {
+                    self.close_avatar(cx);
+                } else {
+                    cx.dispatch(Action::CloseImage);
+                }
                 self.size = None;
+                self.zoom = Zoom::default();
                 cx.request(Request::Focus(Focus::Default));
             }
-            Event::Step(step) => cx.dispatch(Action::StepImage(step)),
+            Event::Step(step) => {
+                if self.avatar.is_some() {
+                    return Task::none();
+                }
+                let before = cx.state().viewer.as_ref().map(|viewer| viewer.index);
+                cx.dispatch(Action::StepImage(step));
+                if before != cx.state().viewer.as_ref().map(|viewer| viewer.index) {
+                    self.zoom = Zoom::default();
+                }
+            }
+            Event::Zoom(change) => {
+                self.zoom.change(change, !cx.layout.reduce_motion);
+            }
+            Event::ZoomSettled(start) => self.zoom.settle(start),
             Event::Saved(item, index, path) => {
                 if let Some(path) = path {
                     cx.dispatch(Action::SaveAttachment { item, index, path });
@@ -113,11 +221,15 @@ impl Viewed {
         let state = cx.state();
         let Some(viewer) = state.viewer.as_ref() else {
             self.size = None;
+            if self.avatar.is_none() {
+                self.zoom = Zoom::default();
+            }
             return Task::none();
         };
         if state.message(&viewer.item).is_none() {
             cx.dispatch(Action::CloseImage);
             self.size = None;
+            self.zoom = Zoom::default();
             cx.request(Request::Focus(Focus::Default));
             return Task::none();
         }
@@ -128,6 +240,7 @@ impl Viewed {
         {
             return Task::none();
         }
+        self.size = None;
         let Some(attachment) = state
             .message(&viewer.item)
             .and_then(|message| message.attachments.get(viewer.index))
@@ -192,22 +305,43 @@ pub fn save(item: String, index: usize, state: &AppState) -> Task<Message> {
 pub fn view<'a>(viewed: &'a Viewed, cx: Ctx<'a>) -> Option<Element<'a, Message>> {
     View {
         s: &viewed.size,
+        zoom: viewed.zoom,
         cx,
     }
-    .view()
+    .view(viewed.avatar.as_ref())
 }
 
 /// The size kept and what the viewer reads, as its parts draw them.
 #[derive(Clone, Copy)]
 struct View<'a> {
     s: &'a Option<(String, usize, Size)>,
+    zoom: Zoom,
     cx: Ctx<'a>,
 }
 
 impl<'a> View<'a> {
     /// The picture being viewed, over everything.
-    fn view(self) -> Option<Element<'a, Message>> {
+    fn view(self, avatar: Option<&Avatar>) -> Option<Element<'a, Message>> {
         let state = self.cx.state;
+        if let Some(avatar) = avatar {
+            let full = state.pictures.get(&avatar.url);
+            let picture = full.or_else(|| state.pictures.get(&avatar.preview));
+            let natural = if avatar.url.ends_with(chat::VIEW_AVATAR) {
+                Size::new(chat::VIEW_AVATAR_SIDE as f32, chat::VIEW_AVATAR_SIDE as f32)
+            } else {
+                picture.map_or(Size::new(128.0, 128.0), |picture| {
+                    Size::new(picture.width as f32, picture.height as f32)
+                })
+            };
+            let (picture_view, size) = self.picture(picture, natural);
+            let note = match (picture.is_some(), full.is_some(), avatar.waited) {
+                (false, _, true) => "Avatar unavailable",
+                (_, false, false) => "Loading avatar...",
+                _ => "",
+            };
+            let viewer = self.viewer(picture_view, size, avatar.title.clone(), vec![]);
+            return Some(self.finish(viewer, note));
+        }
         let viewer = state.viewer.as_ref()?;
         let message = state.message(&viewer.item)?;
         let attachment = message.attachments.get(viewer.index)?;
@@ -229,23 +363,8 @@ impl<'a> View<'a> {
             .unwrap_or_else(|| {
                 natural_size(full.map(|full| (full.width, full.height)), attachment)
             });
-        let room = Size::new(
-            (self.cx.look.window.width - SIDES).max(1.0),
-            (self.cx.look.window.height - ENDS).max(1.0),
-        );
-        let scale = 1f32
-            .min(room.width / natural.width)
-            .min(room.height / natural.height);
-        let size = Size::new(
-            (natural.width * scale).round().max(1.0),
-            (natural.height * scale).round().max(1.0),
-        );
         let shown = full.or(attachment.preview.as_ref());
-        let picture = self.cx.shot(Shot {
-            fit: Fit::Contain,
-            ground: false,
-            ..Shot::new(shown, size)
-        });
+        let (picture, viewport) = self.picture(shown, natural);
         let (item, index) = (viewer.item.clone(), viewer.index);
         let picture = RightPress::new(picture, move |_| {
             Message::Image(Event::Menu(item.clone(), index, false))
@@ -258,7 +377,7 @@ impl<'a> View<'a> {
             .map(|(index, _)| index)
             .collect();
         let place = images.iter().position(|index| *index == viewer.index);
-        let mut buttons: Vec<Element<'a, Message>> = Vec::new();
+        let mut buttons = Vec::new();
         if !state.preview {
             buttons.push(
                 self.cx
@@ -273,6 +392,61 @@ impl<'a> View<'a> {
                     .into(),
             );
         }
+        let mut shown = self.viewer(picture.into(), viewport, attachment.name.clone(), buttons);
+        if images.len() > 1
+            && let Some(place) = place
+        {
+            shown = shown
+                .subtitle(format!("{} / {}", place + 1, images.len()))
+                .over(self.step_buttons());
+        }
+        Some(self.finish(shown, note))
+    }
+
+    fn picture(self, shown: Option<&Arc<Picture>>, natural: Size) -> (Element<'a, Message>, Size) {
+        let room = Size::new(
+            (self.cx.look.window.width - SIDES).max(1.0),
+            (self.cx.look.window.height - ENDS).max(1.0),
+        );
+        let scale = 1f32
+            .min(room.width / natural.width.max(1.0))
+            .min(room.height / natural.height.max(1.0));
+        let size = Size::new(
+            (natural.width * scale).round().max(1.0),
+            (natural.height * scale).round().max(1.0),
+        );
+        let growth = self.zoom.picture_scale().max(1.0);
+        let viewport = Size::new(
+            (size.width * growth).min(room.width).max(size.width),
+            (size.height * growth).min(room.height).max(size.height),
+        );
+        let picture = self.cx.zoomed_shot(
+            Shot::new(shown, size).fit(Fit::Contain).bare(),
+            self.zoom,
+            viewport,
+        );
+        (
+            crate::media_zoom::media_click(
+                picture,
+                Message::Image(Event::Zoom(Change::Toggle)),
+                None,
+            ),
+            viewport,
+        )
+    }
+
+    fn viewer(
+        self,
+        picture: Element<'a, Message>,
+        size: Size,
+        title: String,
+        mut buttons: Vec<Element<'a, Message>>,
+    ) -> Viewer<'a, Message> {
+        buttons.insert(
+            0,
+            self.zoom
+                .controls(self.cx.look, |change| Message::Image(Event::Zoom(change))),
+        );
         buttons.push(
             self.cx
                 .look
@@ -286,15 +460,10 @@ impl<'a> View<'a> {
                 .into(),
         );
         let scrim = self.cx.look.theme.token_colour("scrim", GROUND);
-        let mut shown = Viewer::new(scrim, picture, size, Message::Image(Event::Close))
-            .title(attachment.name.clone(), buttons);
-        if images.len() > 1
-            && let Some(place) = place
-        {
-            shown = shown
-                .subtitle(format!("{} / {}", place + 1, images.len()))
-                .over(self.step_buttons());
-        }
+        Viewer::new(scrim, picture, size, Message::Image(Event::Close)).title(title, buttons)
+    }
+
+    fn finish(self, mut shown: Viewer<'a, Message>, note: &'a str) -> Element<'a, Message> {
         if !note.is_empty() {
             shown = shown.over(
                 container(
@@ -312,11 +481,11 @@ impl<'a> View<'a> {
             );
         }
         let shown = shown.view(self.cx.look);
-        Some(crate::theme_art::surface(
+        crate::theme_art::surface(
             shown,
             self.cx,
             yapfast_core::themes::package::art::ArtSurface::Lightbox,
-        ))
+        )
     }
 
     /// The round buttons either side that step to the previous and next

@@ -9,12 +9,12 @@
 use std::sync::Arc;
 
 use iced::{
-    Alignment, Color, Element, Length, Rectangle, Size,
+    Alignment, Color, Element, Length, Rectangle, Size, Vector,
     widget::{Space, container, stack, text},
 };
 use yapfast_core::chat::{self, Attachment, Picture, Placement};
 
-use crate::{app::Message, fonts::BOLD, style::rounded, widgets::Pic};
+use crate::{app::Message, fonts::BOLD, media_zoom::Zoom, style::rounded, widgets::Pic};
 
 /// A gallery's square tiles and the gap between them, as Discord's client
 /// lays out several pictures.
@@ -196,6 +196,23 @@ impl<'a> crate::ctx::Ctx<'a> {
     /// at its own size, else a copy at the box's size (made off the window's
     /// thread, its ground showing until then); a moving one plays.
     pub fn shot(self, shot: Shot<'_>) -> Element<'a, Message> {
+        let size = shot.size;
+        self.shot_in(shot, size, false)
+    }
+
+    /// In the viewer, keep the fitted picture centered in the zoom viewport.
+    pub fn zoomed_shot(self, shot: Shot<'_>, zoom: Zoom, viewport: Size) -> Element<'a, Message> {
+        let picture = self.shot_in(shot, viewport, zoom.needs_picture_scaling());
+        if zoom.needs_picture_scaling() {
+            zoom.picture(picture, |start| {
+                Message::Image(crate::image_viewer::Event::ZoomSettled(start))
+            })
+        } else {
+            picture
+        }
+    }
+
+    fn shot_in(self, shot: Shot<'_>, viewport: Size, zoomed: bool) -> Element<'a, Message> {
         let Shot {
             picture,
             size,
@@ -227,6 +244,27 @@ impl<'a> crate::ctx::Ctx<'a> {
             }
             _ => Rectangle::with_size(size),
         };
+        if zoomed {
+            let Some(picture) = shown else {
+                return Space::new()
+                    .width(viewport.width)
+                    .height(viewport.height)
+                    .into();
+            };
+            let at = at
+                + Vector::new(
+                    (viewport.width - size.width) / 2.0,
+                    (viewport.height - size.height) / 2.0,
+                );
+            let inner: Element<'_, Message> = if picture.animation.is_some() && self.plays {
+                self.pictures
+                    .animated(picture, viewport, at, false, self.media_look())
+                    .into()
+            } else {
+                Pic::new(self.own_size(picture), viewport).at(at).into()
+            };
+            return inner;
+        }
         let (width, height) = (at.width as u32, at.height as u32);
         // The window's pixels it covers, which a copy is made at.
         let pixels = (self.pixels(width), self.pixels(height));

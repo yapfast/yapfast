@@ -192,6 +192,17 @@ fn place_menu(
             row
         })
         .collect();
+    if state
+        .servers
+        .iter()
+        .any(|server| server.id == id && server.icon.as_ref().is_some_and(|icon| !icon.is_empty()))
+    {
+        rows.push(MenuRow {
+            icon: Some(Icon::Image),
+            separated: true,
+            ..MenuRow::plain(MenuAct::ViewServerIcon, "View Server Icon")
+        });
+    }
     if folder && !header {
         rows.extend(folder_rows(app, id, &folder_known, twelve));
     }

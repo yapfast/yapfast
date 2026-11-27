@@ -9,7 +9,7 @@
 use crate::widgets::scroll_view;
 use iced::{
     Alignment, Element, Length, Padding, Point, Rectangle, Size, Task,
-    widget::{button, column, container, opaque, row, stack, text},
+    widget::{button, column, container, mouse_area, opaque, row, stack, text},
 };
 use yapfast_core::{
     application::{Action, Application, Navigation},
@@ -554,6 +554,18 @@ impl<'a> View<'a> {
         let ring = container(icon)
             .center(SERVER_ICON + 2.0 * SERVER_RING)
             .style(move |_| rounded(ground, 22));
+        let ring: Element<'a, Message> =
+            if let Some(url) = server.icon.as_ref().filter(|url| !url.is_empty()) {
+                mouse_area(ring)
+                    .on_press(Message::Image(crate::image_viewer::Event::OpenAvatar(
+                        server.name.clone(),
+                        url.clone(),
+                    )))
+                    .interaction(iced::mouse::Interaction::Pointer)
+                    .into()
+            } else {
+                ring.into()
+            };
         let top = stack![
             column![banner],
             controls::placed(ring, 10.0, SERVER_BANNER - 32.0 - SERVER_RING),

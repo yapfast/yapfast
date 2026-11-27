@@ -366,7 +366,7 @@ pub fn clip_viewer(app: &App) -> Option<Element<'_, Message>> {
             .height(size.height)
             .style(|_| crate::style::fill(Color::BLACK))
     ];
-    if let Some(frame) = crate::call::stage::frame(app, &key, None) {
+    if let Some(frame) = crate::call::stage::zoomed_frame(app, &key, None, app.playback.clip_zoom) {
         screen = screen.push(frame);
     }
     if let Some(error) = &video.error {
@@ -392,9 +392,13 @@ pub fn clip_viewer(app: &App) -> Option<Element<'_, Message>> {
             .center(Length::Fill),
         );
     }
-    let screen = mouse_area(screen.width(size.width).height(size.height))
-        .on_press(Message::Clip(crate::playback::Clip::Toggle))
-        .interaction(iced::mouse::Interaction::Pointer);
+    let screen = crate::media_zoom::media_click(
+        screen.width(size.width).height(size.height),
+        Message::Clip(crate::playback::Clip::Zoom(
+            crate::media_zoom::Change::Toggle,
+        )),
+        Some(Message::Clip(crate::playback::Clip::Toggle)),
+    );
     // A right click offers what the message's menu does for a video.
     let (item, index) = (video.item.clone(), video.index);
     let screen = crate::widgets::RightPress::new(screen, move |_| {
@@ -407,7 +411,9 @@ pub fn clip_viewer(app: &App) -> Option<Element<'_, Message>> {
         .and_then(|message| message.attachments.get(video.index))
         .map(|attachment| attachment.name.clone())
         .unwrap_or_default();
-    let mut buttons: Vec<Element<'_, Message>> = Vec::new();
+    let mut buttons = vec![app.playback.clip_zoom.controls(app.look(), |change| {
+        Message::Clip(crate::playback::Clip::Zoom(change))
+    })];
     if !app.client.state().preview {
         buttons.push(
             app.look()

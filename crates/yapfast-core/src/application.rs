@@ -2007,6 +2007,8 @@ pub enum Action {
     /// first, ahead of those it asked for before: one already on its way moves
     /// up rather than going twice. Nothing on screen changes until they come.
     LoadPicturesFirst(Vec<String>),
+    /// The enlarged avatar in the image viewer is gone.
+    ReleaseAvatarPicture(String),
     /// The emoji picker closed: lets go of the custom emoji pictures in memory
     /// but those the messages on screen show, since the disk cache holds them
     /// and the next look reads them again.
@@ -3506,8 +3508,10 @@ impl Application {
     /// small. They don't count towards when the others go, or the emoji of a
     /// few servers would let thousands of avatars pile up.
     fn keep_picture(&mut self, url: String, picture: Arc<Picture>) {
-        // A custom emoji the picker let go of before it came shows nowhere.
-        if self.let_go_emoji.remove(&url) {
+        // A late result for a closed picker or avatar viewer shows nowhere.
+        if self.let_go_emoji.remove(&url)
+            || (url.ends_with(chat::VIEW_AVATAR) && !self.requested_pictures.contains(&url))
+        {
             return;
         }
         let emoji = is_custom_emoji(&url);
@@ -3548,7 +3552,10 @@ impl Application {
             )
             .map(str::to_owned)
             .collect();
-        let kept = |url: &String| shown.contains(url) || is_custom_emoji(url);
+        // The viewer releases its enlarged avatar as soon as it closes.
+        let kept = |url: &String| {
+            shown.contains(url) || is_custom_emoji(url) || url.ends_with(chat::VIEW_AVATAR)
+        };
         self.state.pictures.retain(|url, _| kept(url));
         let pictures = &self.state.pictures;
         self.requested_pictures
@@ -3826,6 +3833,18 @@ impl Application {
             Action::JumpToPresent => self.jump_to_present(),
             Action::LoadPictures(urls) => self.load_pictures(urls),
             Action::LoadPicturesFirst(urls) => self.load_pictures_first(urls),
+            Action::ReleaseAvatarPicture(url) if url.ends_with(chat::VIEW_AVATAR) => {
+                let requested = self.requested_pictures.remove(&url);
+                if self.state.pictures.remove(&url).is_some() {
+                    self.state.picture_changes += 1;
+                    vec![]
+                } else if requested {
+                    Self::call_off_pictures(vec![url])
+                } else {
+                    vec![]
+                }
+            }
+            Action::ReleaseAvatarPicture(_) => vec![],
             Action::UnloadEmojiPictures => self.unload_emoji_pictures(),
             Action::KeepEmojiPictures(keep) => self.keep_emoji_pictures(keep),
             Action::CacheEmojiPictures => self.cache_emoji_pictures(),

@@ -115,12 +115,15 @@ slash command, where one may write, is written in the composer
   the core's full picture once it
   comes, the preview until then at the size it opened at, fitted beside
   its bars in the current window layout; its name and place among the
-  message's pictures, Save and Close above, round buttons and the arrow
-  keys stepping through them, a note while the full one loads or why it
-  can't; Escape, Close or a click outside closes it, and the core lets go
-  of it. A right click on a picture or video, there or in the timeline,
-  offers Copy Image, Save
-  Image or Video, Copy Link and Open Link, after the message's own rows
+  message's pictures, zoom controls, Save and Close above, round buttons
+  and the arrow keys stepping through them, and a note while the full one
+  loads or why it can't. Escape, Close or a click outside closes it. The
+  minus and plus buttons smoothly zoom from 50% to 400% of the fitted
+  size. Click the percentage to reset to 100%. A double click or tap
+  toggles between 200% and 100%. Reduce Motion applies zoom immediately.
+  A right click on a picture or
+  video, there or in the timeline, offers Copy Image, Save Image or Video,
+  Copy Link and Open Link, after the message's own rows
   (alone when the message has none).
   Saving, from there or a file's card, asks where with the system's
   dialog, offering only the file's own name.
@@ -132,9 +135,11 @@ slash command, where one may write, is written in the composer
   over the mute button under the pointer, the wheel over either turning it
   5 % a step (a touchpad by the part of a step it moved, a turn sideways
   not at all), and the last button shows it full screen in the viewer
-  (`viewer::Viewer`), its name, Save and Exit full screen above it and the
-  same bar below. Its frames follow the viewer's size as the window
-  layout changes. In full screen it takes the keys
+  (`viewer::Viewer`), its name, zoom controls, Save and Exit full screen
+  above it and the same bar below. Its frames follow the viewer's size
+  as the window layout or zoom changes. A double click or tap toggles
+  zoom without interrupting playback. Zoom resets when you leave full screen.
+  In full screen it takes the keys
   (`playback::clip_key`): Space plays or pauses, Left and
   Right move five seconds, Escape brings it back; a right click on it
   opens the video's rows of the menu alone.
