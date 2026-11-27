@@ -481,12 +481,7 @@ pub(crate) fn play(app: &App, sound: Sound) {
     if voice.active() && voice.deafened && !matches!(sound, Sound::Deafen | Sound::Undeafen) {
         return;
     }
-    yapfast_core::sounds::play(
-        app.layout.voice.sound_set,
-        sound,
-        app.layout.voice.sound_gain(sound),
-        voice.speaker.as_deref(),
-    );
+    app.layout.voice.play_sound(sound, voice.speaker.as_deref());
 }
 
 /// Out of a call, the account's toggles mute or deafen the next one, or

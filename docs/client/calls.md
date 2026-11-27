@@ -118,6 +118,7 @@ The call's views and what they do are in `call/`.
   switching calls asks first (Escape cancels, Enter confirms). The DM's
   header starts a call or a video call, its buttons greyed while the call
   can't be joined (Discord offline, another call joining or leaving).
+  Settings → Sounds can replace the incoming ring and the outgoing ringback.
 - While the call isn't on screen, the stream watched last, this account's
   screen or a camera stays in a corner of the window (`call/corner.rs`),
   its title and stop under the pointer; a click returns to the call, a

@@ -49,6 +49,7 @@ mod control_file;
 use yapfast_iced_kit::controls;
 mod conversation;
 mod ctx;
+mod custom_sounds;
 use yapfast_iced_kit::custom_font;
 mod desktop;
 mod slot;

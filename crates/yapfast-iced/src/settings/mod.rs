@@ -221,6 +221,8 @@ pub struct Settings {
     /// Voice's state while it shows: the push-to-talk key being recorded,
     /// the camera being tried, the gate's meter, the entrance sounds.
     pub voice: voice::Voice,
+    /// The source menu, file picker, and preview in Sounds.
+    sound_editor: pages::sounds::Editor,
     /// What Appearance's Font says of the files just chosen that didn't
     /// load, until the next change; none shows the standing note
     /// (`custom_font::note`).
@@ -265,6 +267,7 @@ pub enum Event {
     EditProfile,
     /// A preference changed: see [`pages::Pref`].
     Pref(pages::Pref),
+    Sounds(pages::sounds::Event),
     /// My Account's and the Discord page's buttons.
     Account(pages::AccountEvent),
     Game(pages::GameEvent),
@@ -315,6 +318,9 @@ impl Settings {
         self.record = None;
         if let Some(before) = before.filter(|before| *before != section) {
             leave_new(cx, before);
+        }
+        if before == Some(Section::Sounds) && section != Section::Sounds {
+            self.sound_editor = Default::default();
         }
         if before == Some(Section::Themes) && section != Section::Themes {
             self.cancel_theme(cx);
@@ -373,6 +379,7 @@ impl Settings {
             Event::EditProfile => cx.dispatch(Action::EditProfile),
             Event::Restart => cx.request(Request::Restart),
             Event::Pref(pref) => self.pref(pref, cx),
+            Event::Sounds(event) => return self.sound_event(event, cx),
             Event::Account(event) => self.account_event(event, cx),
             Event::Game(event) => self.game_event(event, cx),
             Event::Voice(event) => self.voice_event(event, cx),
@@ -487,6 +494,7 @@ impl Closes for Settings {
     /// and the key's recording go with its state, and linking Discord from
     /// its page stops.
     fn close(&mut self, cx: &mut Cx<'_>, why: Why) {
+        self.sound_editor = Default::default();
         // The mic test's call hears again, muted as it was.
         self.end_mic_test(cx);
         if let Some(section) = self.section {

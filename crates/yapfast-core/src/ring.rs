@@ -12,7 +12,10 @@ use std::{
 
 use anyhow::{Context, Result};
 
-use crate::audio_io::{Output, RATE};
+use crate::{
+    audio_io::{Output, RATE},
+    sounds::{self, SoundSet},
+};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Tone {
@@ -22,8 +25,12 @@ pub enum Tone {
     Outgoing,
 }
 
-/// One repetition of a tone, mono at 48 kHz: its notes, then a pause.
-fn pattern(tone: Tone) -> Vec<f32> {
+impl Tone {
+    pub const ALL: [Self; 2] = [Self::Incoming, Self::Outgoing];
+}
+
+/// One repetition of a tone, stereo at 48 kHz: its notes, then a pause.
+fn pattern(tone: Tone) -> Arc<[i16]> {
     // Each note: frequency, start and length in seconds.
     let (notes, length, loudness): (&[(f32, f32, f32)], f32, f32) = match tone {
         // A rising arpeggio, twice, as a phone's ring rises.
@@ -42,7 +49,12 @@ fn pattern(tone: Tone) -> Vec<f32> {
         // Two soft notes, then a long wait.
         Tone::Outgoing => (&[(440.0, 0.0, 0.35), (659.25, 0.4, 0.5)], 3.0, 0.16),
     };
-    let mut samples = vec![0.0f32; (length * RATE as f32) as usize];
+    let mut samples: Arc<[i16]> =
+        std::iter::repeat_n(0, (length * RATE as f32) as usize * 2).collect();
+    let frames = Arc::get_mut(&mut samples)
+        .expect("new tone")
+        .as_chunks_mut::<2>()
+        .0;
     for &(frequency, start, duration) in notes {
         let first = (start * RATE as f32) as usize;
         let count = (duration * RATE as f32) as usize;
@@ -52,8 +64,9 @@ fn pattern(tone: Tone) -> Vec<f32> {
             let envelope = (time / 0.01).min(1.0) * (1.0 - index as f32 / count as f32).powi(2);
             let wave = (std::f32::consts::TAU * frequency * time).sin()
                 + 0.25 * (std::f32::consts::TAU * 2.0 * frequency * time).sin();
-            if let Some(sample) = samples.get_mut(first + index) {
-                *sample += loudness * envelope * wave / 1.25;
+            if let Some(pair) = frames.get_mut(first + index) {
+                let sample = (loudness * envelope * wave / 1.25 * f32::from(i16::MAX)) as i16;
+                *pair = [pair[0].saturating_add(sample); 2];
             }
         }
     }
@@ -72,22 +85,46 @@ pub fn set_themed(tone: Tone, samples: Option<Arc<[i16]>>) {
     }
 }
 
-/// One repetition of what rings for `tone`, mono, as [`pattern`] gives it:
-/// a theme's sound, or the tone.
-fn repetition(tone: Tone) -> Vec<f32> {
-    let themed = THEMED
+#[derive(Clone)]
+pub enum CustomTone {
+    Set(SoundSet),
+    File(Arc<[i16]>),
+}
+
+static CUSTOM: std::sync::RwLock<[Option<CustomTone>; 2]> = std::sync::RwLock::new([None, None]);
+
+/// Applies both personal tones for subsequent calls and previews.
+pub fn set_custom(tones: [Option<CustomTone>; 2]) {
+    if let Ok(mut custom) = CUSTOM.write() {
+        *custom = tones;
+    }
+}
+
+fn repetition(tone: Tone) -> (Arc<[i16]>, usize) {
+    let pcm = |sample: f32| (sample * f32::from(i16::MAX)) as i16;
+    let custom = CUSTOM
         .read()
         .ok()
-        .and_then(|themed| themed[tone as usize].clone());
-    match themed {
-        Some(samples) => samples
-            .as_chunks::<2>()
-            .0
-            .iter()
-            .map(|pair| (f32::from(pair[0]) + f32::from(pair[1])) / 2.0 / f32::from(i16::MAX))
-            .collect(),
-        None => pattern(tone),
+        .and_then(|custom| custom[tone as usize].clone());
+    if let Some(custom) = custom {
+        let samples = match custom {
+            CustomTone::Set(set) => sounds::render_ring(set, tone)
+                .into_iter()
+                .map(pcm)
+                .collect(),
+            CustomTone::File(samples) => samples,
+        };
+        let pause = (3 * RATE as usize * 2).saturating_sub(samples.len());
+        return (samples, pause);
     }
+    if let Some(samples) = THEMED
+        .read()
+        .ok()
+        .and_then(|themed| themed[tone as usize].clone())
+    {
+        return (samples, 0);
+    }
+    (pattern(tone), 0)
 }
 
 /// Plays a tone over and over until dropped.
@@ -99,6 +136,15 @@ impl Ringer {
     /// Starts ringing on `speaker`, a device id as in [`crate::voice::State`],
     /// or the default output.
     pub fn start(tone: Tone, speaker: Option<&str>) -> Result<Self> {
+        Self::spawn(tone, speaker, true)
+    }
+
+    /// Plays one repetition, which stops early if the preview is dropped.
+    pub fn preview(tone: Tone, speaker: Option<&str>) -> Result<Self> {
+        Self::spawn(tone, speaker, false)
+    }
+
+    fn spawn(tone: Tone, speaker: Option<&str>, repeat: bool) -> Result<Self> {
         let stop = Arc::new(AtomicBool::new(false));
         let stopped = stop.clone();
         let speaker = speaker.map(str::to_owned);
@@ -114,7 +160,12 @@ impl Ringer {
                     Some(Duration::from_millis(100)),
                 );
                 match output {
-                    Ok(output) => play(&repetition(tone), output, &stopped),
+                    Ok(output) => {
+                        let (samples, pause) = repetition(tone);
+                        if let Err(error) = play(&samples, pause, output, &stopped, repeat) {
+                            tracing::warn!(error = format!("{error:#}"), "stopped ringing");
+                        }
+                    }
                     Err(error) => tracing::warn!(
                         error = format!("{error:#}"),
                         "could not open the speakers to ring"
@@ -133,20 +184,30 @@ impl Drop for Ringer {
 }
 
 /// 20 ms at a time.
-const CHUNK: usize = RATE as usize / 50;
+const CHUNK: usize = RATE as usize / 50 * 2;
 
-fn play(pattern: &[f32], mut output: Output<i16>, stop: &AtomicBool) {
-    let mut stereo = [0i16; CHUNK * 2];
-    for chunk in pattern.chunks(CHUNK).cycle() {
-        if stop.load(Ordering::Relaxed) {
-            break;
+fn play(
+    samples: &[i16],
+    pause: usize,
+    mut output: Output<i16>,
+    stop: &AtomicBool,
+    repeat: bool,
+) -> Result<()> {
+    const QUIET: [i16; CHUNK] = [0; CHUNK];
+    let pause = if repeat { pause } else { 0 };
+    loop {
+        let silence = (0..pause)
+            .step_by(CHUNK)
+            .map(|at| &QUIET[..(pause - at).min(CHUNK)]);
+        let chunks = samples.chunks(CHUNK).chain(silence);
+        for chunk in chunks {
+            if stop.load(Ordering::Relaxed) {
+                return Ok(());
+            }
+            output.write(chunk)?;
         }
-        for (pair, sample) in stereo.as_chunks_mut::<2>().0.iter_mut().zip(chunk) {
-            pair.fill((sample * f32::from(i16::MAX)) as i16);
-        }
-        if let Err(error) = output.write(&stereo[..chunk.len() * 2]) {
-            tracing::warn!(error = format!("{error:#}"), "stopped ringing");
-            break;
+        if !repeat {
+            return output.drain().context("could not finish the ring preview");
         }
     }
 }
@@ -156,17 +217,31 @@ mod tests {
     use super::*;
 
     #[test]
+    fn sound_set_ring_phrases_vary_by_direction_and_instrument() {
+        let incoming = sounds::render_ring(SoundSet::Felt, Tone::Incoming);
+        let outgoing = sounds::render_ring(SoundSet::Felt, Tone::Outgoing);
+        let flute = sounds::render_ring(SoundSet::Flute, Tone::Incoming);
+        assert!(incoming.len() > outgoing.len());
+        assert_ne!(incoming, flute);
+        for phrase in [incoming, outgoing, flute] {
+            assert!(phrase.len() <= 3 * RATE as usize * 2);
+            assert!(phrase.iter().any(|sample| sample.abs() > 0.1));
+        }
+    }
+
+    #[test]
     fn tones_sound_then_pause_without_clipping() {
         for tone in [Tone::Incoming, Tone::Outgoing] {
             let samples = pattern(tone);
-            assert_eq!(samples.len(), 3 * RATE as usize);
+            assert_eq!(samples.len(), 3 * RATE as usize * 2);
             let peak = samples
                 .iter()
-                .fold(0.0f32, |peak, sample| peak.max(sample.abs()));
+                .map(|sample| f32::from(sample.unsigned_abs()) / f32::from(i16::MAX))
+                .fold(0.0f32, f32::max);
             assert!(peak > 0.1 && peak < 1.0, "{tone:?} peaks at {peak}");
-            let tail = &samples[samples.len() - RATE as usize..];
+            let tail = &samples[samples.len() - RATE as usize * 2..];
             assert!(
-                tail.iter().all(|sample| *sample == 0.0),
+                tail.iter().all(|sample| *sample == 0),
                 "{tone:?} ends quiet"
             );
         }

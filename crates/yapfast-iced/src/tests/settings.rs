@@ -36,6 +36,92 @@ fn stored(folder: &tempfile::TempDir) -> serde_json::Value {
     .expect("JSON")
 }
 
+#[test]
+fn custom_sounds_show_call_tones_and_keep_choices_when_turned_off() {
+    use yapfast_core::{sounds::SoundSet, themes::media::SoundSlot};
+
+    use crate::custom_sounds::Choice;
+
+    let (mut app, folder) = preview();
+    open(&mut app, Section::Sounds);
+    assert!(!app.layout.voice.adjust_each_sound);
+    assert!(!shows(&app, "Upload file"));
+    interact(&mut app, |ui| {
+        ui.click("Custom sound set").expect("the switch");
+    });
+    assert!(shows(&app, "Incoming call"));
+    assert!(shows(&app, "Outgoing call"));
+    assert!(!shows(&app, "Upload file"));
+
+    interact(&mut app, |ui| {
+        let row = super::last(ui, "Outgoing call");
+        let source = ui
+            .find(
+                |candidate: iced_test::selector::Candidate<'_>| match candidate {
+                    iced_test::selector::Candidate::Text {
+                        content: "Default",
+                        visible_bounds: Some(bounds),
+                        ..
+                    } if (bounds.center_y() - row.y).abs() < 8.0 => Some(bounds.center()),
+                    _ => None,
+                },
+            )
+            .expect("the outgoing call's source");
+        ui.point_at(source);
+        let _ = ui.simulate(iced_test::simulator::click());
+    });
+    assert!(shows(&app, "Custom"));
+    interact(&mut app, |ui| {
+        let preset = super::last(ui, "Glow");
+        assert!(preset.y > super::last(ui, "Outgoing call").y);
+        ui.point_at(preset);
+        let _ = ui.simulate(iced_test::simulator::click());
+    });
+    assert_eq!(
+        app.layout.voice.sound_choice(SoundSlot::Ringback),
+        Choice::Set(SoundSet::Glow),
+    );
+    interact(&mut app, |ui| {
+        let preset = super::last(ui, "Glow");
+        ui.point_at(preset);
+        let _ = ui.simulate(iced_test::simulator::click());
+    });
+    interact(&mut app, |ui| {
+        ui.click("Custom").expect("the file picker option");
+    });
+    assert!(!shows(&app, "Custom"));
+    assert_eq!(
+        app.layout.voice.sound_choice(SoundSlot::Ringback),
+        Choice::Set(SoundSet::Glow),
+    );
+    crate::custom_sounds::save(folder.path(), SoundSlot::Ring, &[100, -100]).unwrap();
+    interact(&mut app, |ui| {
+        ui.click("Custom sound set")
+            .expect("turn the custom set off");
+    });
+    let mut reopened = start(&folder, true);
+    open(&mut reopened, Section::Sounds);
+    assert!(!reopened.layout.voice.uses_custom_sounds());
+    interact(&mut reopened, |ui| {
+        ui.click("Custom sound set")
+            .expect("turn the custom set back on");
+    });
+    assert!(shows(&reopened, "Uploaded file"));
+    assert!(!shows(&reopened, "Replace file"));
+    assert_eq!(
+        reopened.layout.voice.sound_choice(SoundSlot::Ring),
+        Choice::File
+    );
+    assert_eq!(
+        reopened.layout.voice.sound_choice(SoundSlot::Ringback),
+        Choice::Set(SoundSet::Glow),
+    );
+    reopened.shell.frame.width = 800.0;
+    crate::window_bar::fit_window(&mut reopened);
+    assert!(shows(&reopened, "Outgoing call"));
+    assert!(shows(&reopened, "Uploaded file"));
+}
+
 /// The text glow switch stops a theme's soft edge, and is kept.
 #[test]
 fn the_text_glow_switch_stops_the_soft_edge_and_is_kept() {
