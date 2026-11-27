@@ -100,9 +100,8 @@ those tiles stay at least 120px wide, and past that take tiles at least
 240px wide and scroll, so a row is never cut off at the grid's foot with its
 names under the call's controls. A click on a tile shows it
 large, as Discord's focus does, with the others in rows of small tiles
-beneath; a click beside it shows the grid again. With two or more [streams
-watched](discord/go-live.md) and no tile large, the streams share the room
-above those rows. The large tile goes full
+beneath; a click beside it shows the grid again. [Several streams
+watched](discord/go-live.md) each keep their own tile in it. The large tile goes full
 screen from its button or a double click, over the whole window, until
 Escape. The window keeps which tile is large (`Focus` in
 `crates/yapfast-iced/src/call/stage/layout.rs`), by whose it is, so it stays

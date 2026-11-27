@@ -171,14 +171,22 @@ pub fn corner_view(app: &App) -> Option<Element<'_, Message>> {
     let voice = &app.client.state().voice;
     let (title, status, key, live, stop, viewers) = match pip {
         Pip::None => return None,
-        Pip::Watched => {
-            let watching = voice.watching.as_ref()?;
+        Pip::Watched(index) => {
+            let person = voice.participants.get(index)?;
+            let watching = voice
+                .watching
+                .iter()
+                .find(|watching| watching.user == person.id)?;
             (
                 format!("{}'s screen", watching.name),
-                crate::call::stage::watch_status(app),
-                format!("stream:{}", watching.user),
+                crate::call::stage::watch_status(watching),
+                crate::call::stage::stream_key(&watching.user),
                 false,
-                Some((Icon::X, "Stop watching", Event::StopWatching)),
+                Some((
+                    Icon::X,
+                    "Stop watching",
+                    Event::StopWatching(watching.user.clone()),
+                )),
                 crate::call::stage::stream_viewers(app, &watching.viewers, Some(&watching.user)),
             )
         }

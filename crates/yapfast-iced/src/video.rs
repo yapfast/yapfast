@@ -438,6 +438,14 @@ impl Shared {
         self.newest.lock().expect("video frames").get(key).cloned()
     }
 
+    /// Whether frames are looked for from the source with this key.
+    #[cfg(test)]
+    pub fn looks_at(&self, key: &str) -> bool {
+        let sources = self.sources.lock().expect("video sources");
+        sources.mapped.iter().any(|(id, _)| id == key)
+            || sources.feeds.iter().any(|(id, _)| id == key)
+    }
+
     /// Whether a source has a frame to show.
     pub fn has(&self, key: &str) -> bool {
         self.newest.lock().expect("video frames").contains_key(key)
