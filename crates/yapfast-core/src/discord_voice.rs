@@ -15,7 +15,7 @@ use yapfast_discord::{
     ready::PRIVATE,
     service::{Discord, Live, Snapshot, Status, VoiceServer},
     stream::{self, StreamServer},
-    voice::{Call as DiscordCall, MOVE_GRACE, live_microphone},
+    voice::{Call as DiscordCall, live_microphone},
 };
 
 use crate::{
@@ -554,11 +554,6 @@ pub(crate) async fn call(
         let mut ticks = tokio::time::interval(Duration::from_millis(150));
         ticks.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
         let mut volumes = crate::volume::changes();
-        // The voice connection dropped, and the call ends when `lost` comes
-        // unless Discord says it moved the call meanwhile.
-        let mut dropped = false;
-        let lost = tokio::time::sleep(MOVE_GRACE);
-        tokio::pin!(lost);
         // Alone in a one-to-one call since the last time this became so,
         // and the call ends when `alone_until` comes.
         let mut by_myself = false;
@@ -1081,12 +1076,11 @@ pub(crate) async fn call(
                     // Discord moved the call to another voice server: the
                     // call carries on there.
                     Live::VoiceMoved { guild: moved, server: next } if moved == guild => {
-                        if dropped || next.endpoint != server.endpoint || next.token != server.token {
+                        if next.endpoint != server.endpoint || next.token != server.token || next.session_id != server.session_id {
                             tracing::info!("Discord moved the call to another voice server");
                             match tokio::time::timeout(MOVE_TIMEOUT, call.move_to(&next, &channel)).await {
                                 Ok(Ok(())) => {
                                     server = next;
-                                    dropped = false;
                                 }
                                 Ok(Err(error)) => {
                                     tracing::warn!(error = format!("{error:#}"), "could not follow the call to its new voice server");
@@ -1120,13 +1114,7 @@ pub(crate) async fn call(
                     _ => {}
                 },
                 Some(reason) = endings.recv() => {
-                    // Discord ends the connection when it moves the call,
-                    // perhaps before it says where to.
                     tracing::warn!(%reason, "Discord voice disconnected");
-                    dropped = true;
-                    lost.as_mut().reset(tokio::time::Instant::now() + MOVE_GRACE);
-                }
-                () = &mut lost, if dropped => {
                     bail!("Discord voice disconnected. Join again to reconnect.");
                 }
                 // Discord's client says why in the DM, then leaves.

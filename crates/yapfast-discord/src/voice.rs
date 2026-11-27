@@ -42,7 +42,7 @@ pub trait Listener: Send + Sync + 'static {
     /// Every 20 ms: each speaking user's decoded audio, as interleaved stereo
     /// at 48 kHz, by Discord user id.
     fn tick(&self, voices: &[(u64, &[i16])]);
-    /// The voice connection dropped.
+    /// The call ended after a voice failure, including any wait for a move.
     fn disconnected(&self, reason: &str);
     /// Once, on the call's thread, before it connects. The thread decodes
     /// and mixes what plays, so this can raise its priority.
