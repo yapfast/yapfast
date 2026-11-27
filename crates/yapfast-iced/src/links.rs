@@ -2,12 +2,10 @@
 //! card, a message jumped to, the pins, a Discord link opened in place,
 //! or the browser.
 
-use std::sync::Arc;
-
 use iced::{Task, widget::operation};
 use yapfast_core::application::Action;
 
-use crate::app::{App, Message, Messages};
+use crate::app::{App, Message};
 
 /// What a link in the timeline's text leads to.
 pub const AUTHOR_LINK: &str = "yapfast:author/";
@@ -19,18 +17,12 @@ pub const PINS_LINK: &str = "yapfast:pins";
 /// web address opens in the browser (a masked one once asked).
 pub fn follow_link(app: &mut App, link: &str, at: iced::Point) -> Task<Message> {
     if let Some((item, index)) = yapfast_core::spoiler::target(link) {
-        app.timeline.revealed.insert(format!("{item}/{index}"));
-        let found = |messages: &Messages| messages.iter().position(|message| message.item == item);
-        if let Some(row) = found(&app.timeline.messages)
-            && let Some(body) = crate::timeline::body_for(app, row)
-        {
-            app.timeline.looks[row].body = Arc::new(body);
-        } else if let Some(index) = app.aside.as_ref().and_then(|aside| found(&aside.messages))
-            && let Some(body) = crate::timeline::body_for(app, crate::timeline::ASIDE + index)
-            && let Some(aside) = app.aside.as_mut()
-        {
-            aside.looks[index].body = Arc::new(body);
+        if item == crate::composer::PREVIEW_ITEM {
+            crate::composer::reveal_preview(app, index);
+            return Task::none();
         }
+        app.timeline.revealed.insert(format!("{item}/{index}"));
+        crate::timeline::refresh_body(app, item);
         return Task::none();
     }
     // An emoji opens its card under it.

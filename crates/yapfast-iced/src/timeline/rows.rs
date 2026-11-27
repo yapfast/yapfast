@@ -224,14 +224,17 @@ pub fn body_of(
     mention: u32,
     text: u32,
     muted: u32,
+    show_markup: bool,
     revealed: impl Fn(usize) -> bool,
 ) -> Laid {
     let body = if let Some(notice) = &message.notice {
         markdown::notice(message, notice, text, muted)
+    } else if !show_markup {
+        markdown::source(&message.body)
     } else if !message.formatted {
         markdown::plain(&message.body)
     } else {
-        let mut body = markdown::parse(
+        let mut body = markdown::message(
             &message.body,
             &message.mentions,
             mention,

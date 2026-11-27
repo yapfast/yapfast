@@ -22,6 +22,9 @@ the desktop's primary selection, and a middle click pastes it at the
 pointer, taking no autoscroll; the field that took the keys last, by any
 button, holds them alone.
 
+The eye button (Preview formatting) shows a separate live preview above
+the editor. Enter sends the original text.
+
 Typing with no field focused takes the text reported by the keyboard layout
 into the composer. A dead key waits for the next key to produce text.
 

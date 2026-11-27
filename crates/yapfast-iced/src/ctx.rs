@@ -197,6 +197,8 @@ pub enum Pref {
     /// The timeline's rows look otherwise: text size, link previews,
     /// collapsing long messages.
     Rows,
+    /// Message bodies switch between rendered markup and source.
+    MessageMarkup,
     /// The member list's rows look otherwise: boost gems.
     Roster,
     /// Push to talk's key, the input mode or the Keybinds page's: the

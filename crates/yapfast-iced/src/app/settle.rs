@@ -309,9 +309,14 @@ impl App {
     fn changed(&mut self, pref: Pref) -> Task<Message> {
         let mut task = Task::none();
         match pref {
-            Pref::Clock | Pref::Rows => {
+            Pref::Clock | Pref::Rows | Pref::MessageMarkup => {
                 let none = super::Messages::default();
                 self.measure(&none, true);
+                if matches!(pref, Pref::MessageMarkup) {
+                    self.timeline.selection = None;
+                    self.timeline.selecting = false;
+                    crate::thread::measure_aside(self, &none, true);
+                }
                 self.dirty = true;
             }
             Pref::Roster => self.show_roster(false),

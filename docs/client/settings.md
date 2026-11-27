@@ -82,10 +82,10 @@ recording. Each change is kept at once in
 - Messages: a message as the clock and text size show it; the clock and
   its seconds, the date's order (message times are worked out again for
   each), link previews (hidden ones leave "A card, hidden while link
-  previews are off." where a card was the whole message), long messages
-  folding, boost gems in the member list, sharing that this account types
-  (off, the core's typing commands go nowhere), mentioning those replied
-  to and tracking taken out of links.
+  previews are off." where a card was the whole message), default rendering
+  of message markup, long messages folding, boost gems in the member list,
+  sharing that this account types (off, the core's typing commands go
+  nowhere), mentioning those replied to and tracking taken out of links.
 - Accessibility (`pages/accessibility.rs`), laid out as Discord's page
   with the parts Yapfast has: a preview of two messages at the text size,
   then Text Readability's text size in chat, a slider that stops only at

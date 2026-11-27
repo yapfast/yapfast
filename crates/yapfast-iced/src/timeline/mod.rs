@@ -141,6 +141,8 @@ pub struct Timeline {
     pub found: crate::widgets::Found,
     /// Spoilers clicked, as `item/index`, while Yapfast runs.
     pub revealed: std::collections::HashSet<String>,
+    /// Overrides to the default markup view, by message ID for this session.
+    pub markup: std::collections::HashMap<String, bool>,
     /// The core's last jump and jump to the first unread message that the
     /// timeline went to, and the message tinted for it.
     pub jumped: Option<(String, u64)>,
@@ -187,6 +189,13 @@ pub struct Timeline {
 }
 
 impl Timeline {
+    pub fn shows_markup(&self, item: &str, default: Option<bool>) -> bool {
+        self.markup
+            .get(item)
+            .copied()
+            .unwrap_or(default.unwrap_or(true))
+    }
+
     /// The rows in view, and `margin` beyond.
     pub fn in_view(&self, margin: f32) -> (usize, usize) {
         let top = self.view_top();
@@ -226,6 +235,7 @@ impl Timeline {
             edge: Edge::default(),
             found: Default::default(),
             revealed: Default::default(),
+            markup: Default::default(),
             jumped: None,
             unread_jumped: 0,
             jump_lit: None,
@@ -538,6 +548,42 @@ pub fn unfold(app: &mut App, item: &str) -> Task<Message> {
     Task::none()
 }
 
+pub fn toggle_markup(app: &mut App, item: String) {
+    let default = app.layout.prefs.message_markup;
+    let show = !app.timeline.shows_markup(&item, default);
+    if show == default.unwrap_or(true) {
+        app.timeline.markup.remove(&item);
+    } else {
+        app.timeline.markup.insert(item.clone(), show);
+    }
+    app.timeline.selection = None;
+    app.timeline.selecting = false;
+    refresh_body(app, &item);
+}
+
+pub fn refresh_body(app: &mut App, item: &str) {
+    let position =
+        |messages: &crate::app::Messages| messages.iter().position(|message| message.item == item);
+    if let Some(row) = position(&app.timeline.messages)
+        && let Some(body) = body_for(app, row)
+        && let Some(look) = app.timeline.looks.get_mut(row)
+    {
+        look.body = Arc::new(body);
+    }
+    if let Some(row) = app
+        .aside
+        .as_ref()
+        .and_then(|aside| position(&aside.messages))
+        && let Some(body) = body_for(app, ASIDE + row)
+        && let Some(look) = app
+            .aside
+            .as_mut()
+            .and_then(|aside| aside.looks.get_mut(row))
+    {
+        look.body = Arc::new(body);
+    }
+}
+
 /// Row `index`'s text laid out, as it shows now.
 pub fn body_for(app: &App, index: usize) -> Option<Laid> {
     let message = row_message(app, index)?;
@@ -547,6 +593,8 @@ pub fn body_for(app: &App, index: usize) -> Option<Laid> {
         rgb(app.theme.mention),
         rgb(app.theme.text),
         rgb(app.theme.muted),
+        app.timeline
+            .shows_markup(&message.item, app.layout.prefs.message_markup),
         |spoiler| revealed.contains(&format!("{}/{spoiler}", message.item)),
     ))
 }

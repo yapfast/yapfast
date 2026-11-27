@@ -25,9 +25,48 @@ pub fn target(link: &str) -> Option<(&str, usize)> {
 /// were clicked, which show as written. They count from `first`, for a part of
 /// a message after others with spoilers of their own.
 pub fn mark(markdown: &str, item: &str, first: usize, revealed: impl Fn(usize) -> bool) -> String {
+    marked(markdown, item, first, revealed, spans(markdown))
+}
+
+/// Message spoilers outside CommonMark code blocks and raw HTML.
+pub fn mark_message<'a>(
+    markdown: &'a str,
+    item: &str,
+    first: usize,
+    revealed: impl Fn(usize) -> bool,
+) -> (std::borrow::Cow<'a, str>, usize) {
+    if !markdown.contains("||") {
+        return (markdown.into(), 0);
+    }
+    use pulldown_cmark::{Event, Parser, Tag};
+    let guarded =
+        Parser::new(markdown)
+            .into_offset_iter()
+            .filter_map(|(event, range)| match event {
+                Event::Start(Tag::CodeBlock(_) | Tag::HtmlBlock) | Event::InlineHtml(_) => {
+                    Some(range)
+                }
+                _ => None,
+            });
+    let spans = spans_ignoring(markdown, guarded);
+    let count = spans.len();
+    if count == 0 {
+        (markdown.into(), 0)
+    } else {
+        (marked(markdown, item, first, revealed, spans).into(), count)
+    }
+}
+
+fn marked(
+    markdown: &str,
+    item: &str,
+    first: usize,
+    revealed: impl Fn(usize) -> bool,
+    spans: Vec<Range<usize>>,
+) -> String {
     let mut out = String::with_capacity(markdown.len());
     let mut last = 0;
-    for (index, span) in (first..).zip(spans(markdown)) {
+    for (index, span) in (first..).zip(spans) {
         out.push_str(&markdown[last..span.start]);
         let inner = &markdown[span.start + 2..span.end - 2];
         if revealed(index) {
@@ -68,10 +107,25 @@ pub fn count(markdown: &str) -> usize {
 /// The byte ranges of the spoilers, each with its `||` pair. Pairs inside code
 /// don't count, and neither does an empty pair or one across a paragraph break.
 pub(crate) fn spans(markdown: &str) -> Vec<Range<usize>> {
+    spans_ignoring(markdown, std::iter::empty())
+}
+
+pub(crate) fn spans_ignoring(
+    markdown: &str,
+    guarded: impl IntoIterator<Item = Range<usize>>,
+) -> Vec<Range<usize>> {
+    let mut guarded = guarded.into_iter().peekable();
     let bytes = markdown.as_bytes();
     let mut bars = Vec::new();
     let mut index = 0;
     while index < bytes.len() {
+        while guarded.next_if(|range| range.end <= index).is_some() {}
+        if let Some(range) = guarded.peek()
+            && range.start <= index
+        {
+            index = range.end;
+            continue;
+        }
         match bytes[index] {
             b'`' => {
                 let run = bytes[index..].iter().take_while(|&&b| b == b'`').count();

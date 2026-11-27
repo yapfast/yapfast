@@ -244,6 +244,7 @@ pub struct Prefs {
     pub text_size: Option<i32>,
     pub chat_text_size: Option<u8>,
     pub link_previews: Option<bool>,
+    pub message_markup: Option<bool>,
     pub boost_gems: Option<bool>,
     pub reply_ping: Option<bool>,
     pub strip_tracking: Option<bool>,

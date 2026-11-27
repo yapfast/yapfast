@@ -1,12 +1,11 @@
-//! Message Markdown as Discord's client lays it out, for the timeline and
+//! Message formatting for the timeline and
 //! the header's topic: the core's blocks (headings, subtext, quotes, fenced
 //! code) apart, and in each the inline styles as runs: bold, italic,
 //! strikethrough, inline code, links, mentions in their colour, and
 //! spoilers covered until clicked.
 //!
-//! Discord's rules, not CommonMark's, where they differ: every line break
-//! and blank line shows, and what CommonMark would make a heading, a rule
-//! or indented code beyond Discord's shows as typed. `__text__` is bold.
+//! Chat bodies also support standard Markdown and a subset of HTML.
+//! Every line break and blank line shows, as in Discord.
 //! Custom emoji ([`with_emoji`]) take the room of their picture in the
 //! text, which is drawn there.
 
@@ -40,6 +39,7 @@ pub struct Run {
     pub bold: bool,
     pub italic: bool,
     pub strike: bool,
+    pub underline: bool,
     pub code: bool,
     /// Where a click goes: a web address, a mention's target, a spoiler.
     pub link: Option<String>,
@@ -166,6 +166,7 @@ impl Run {
         self.bold == other.bold
             && self.italic == other.italic
             && self.strike == other.strike
+            && self.underline == other.underline
             && self.code == other.code
             && self.link == other.link
             && self.color == other.color
@@ -232,6 +233,19 @@ impl Body {
     }
 }
 
+mod html;
+
+/// A message's Discord and standard Markdown, with native HTML formatting.
+pub fn message(
+    markdown: &str,
+    mentions: &[Mentioned],
+    link_color: u32,
+    item: &str,
+    revealed: impl Fn(usize) -> bool,
+) -> Body {
+    parse_with(markdown, mentions, link_color, item, revealed, true)
+}
+
 /// `markdown` laid out: mentions linked in their colour (`link_color` for
 /// those without one), spoilers covered but those `revealed` says were
 /// clicked, counted through the message `item`.
@@ -242,7 +256,23 @@ pub fn parse(
     item: &str,
     revealed: impl Fn(usize) -> bool,
 ) -> Body {
-    let split = blocks::split(markdown).unwrap_or_else(|| {
+    parse_with(markdown, mentions, link_color, item, revealed, false)
+}
+
+fn parse_with(
+    markdown: &str,
+    mentions: &[Mentioned],
+    link_color: u32,
+    item: &str,
+    revealed: impl Fn(usize) -> bool,
+    extended: bool,
+) -> Body {
+    let split = if extended {
+        blocks::split_message(markdown)
+    } else {
+        blocks::split(markdown)
+    };
+    let split = split.unwrap_or_else(|| {
         vec![Block {
             kind: Kind::Text,
             quoted: false,
@@ -253,12 +283,21 @@ pub fn parse(
     let mut parts = Vec::with_capacity(split.len());
     for (index, block) in split.iter().enumerate() {
         let typed = block.text(markdown);
-        let runs = if block.kind == Kind::Code {
-            vec![Run {
-                text: typed.into_owned(),
-                code: true,
-                ..Run::default()
-            }]
+        let shape = match block.kind {
+            Kind::Text => Shape::Text,
+            Kind::Heading(level) => Shape::Heading(level),
+            Kind::Subtext => Shape::Subtext,
+            Kind::Code => Shape::Code,
+        };
+        let mut content = if block.kind == Kind::Code {
+            vec![(
+                shape,
+                vec![Run {
+                    text: typed.into_owned(),
+                    code: true,
+                    ..Run::default()
+                }],
+            )]
         } else {
             // The mentions in this block, at their places in its text.
             let here: Vec<Mentioned> = mentions
@@ -275,26 +314,56 @@ pub fn parse(
                     })
                 })
                 .collect();
-            let linked = mention::linked(&typed, &here, link_color);
-            let marked = spoiler::mark(&linked, item, spoilers, &revealed);
-            spoilers += spoiler::count(&linked);
-            inline(&links::mark_masked(&links::linkify(&marked)))
+            let linked = if extended {
+                mention::linked_with_html(&typed, &here, link_color)
+            } else {
+                mention::linked(&typed, &here, link_color).into()
+            };
+            let (marked, count) = if extended {
+                spoiler::mark_message(&linked, item, spoilers, &revealed)
+            } else {
+                (
+                    spoiler::mark(&linked, item, spoilers, &revealed).into(),
+                    spoiler::count(&linked),
+                )
+            };
+            spoilers += count;
+            inline(
+                &links::mark_masked(&links::linkify(&marked)),
+                shape,
+                extended,
+            )
         };
         let (margin, padding) = spacing(&split, index);
-        parts.push(Part {
-            shape: match block.kind {
-                Kind::Text => Shape::Text,
-                Kind::Heading(level) => Shape::Heading(level),
-                Kind::Subtext => Shape::Subtext,
-                Kind::Code => Shape::Code,
-            },
-            quoted: block.quoted,
-            quote_start: block.quoted && !(index > 0 && split[index - 1].quoted),
-            quote_end: block.quoted && !split.get(index + 1).is_some_and(|next| next.quoted),
-            margin,
-            padding,
-            runs,
-        });
+        if content.is_empty() {
+            content.push((shape, Vec::new()));
+        }
+        let last = content.len() - 1;
+        for (at, (shape, runs)) in content.into_iter().enumerate() {
+            parts.push(Part {
+                shape,
+                quoted: block.quoted,
+                quote_start: block.quoted && at == 0 && !(index > 0 && split[index - 1].quoted),
+                quote_end: block.quoted
+                    && at == last
+                    && !split.get(index + 1).is_some_and(|next| next.quoted),
+                margin: if at == 0 {
+                    margin
+                } else if block.quoted {
+                    0.0
+                } else {
+                    4.0
+                },
+                padding: if at == 0 {
+                    padding
+                } else if block.quoted {
+                    4.0
+                } else {
+                    0.0
+                },
+                runs,
+            });
+        }
     }
     let body = Body {
         jumbo: false,
@@ -448,7 +517,18 @@ fn shortcode_at(text: &str) -> Option<(usize, &'static str)> {
 
 /// Text without Markdown, as typed, its web addresses linked.
 pub fn plain(text: &str) -> Body {
-    let runs = inline(&links::linkify(&links::escape_markdown(text)));
+    let runs = legacy_runs(&links::linkify(&links::escape_markdown(text)));
+    text_body(runs)
+}
+
+pub fn source(text: &str) -> Body {
+    text_body(vec![Run {
+        text: text.to_owned(),
+        ..Run::default()
+    }])
+}
+
+fn text_body(runs: Vec<Run>) -> Body {
     Body {
         jumbo: false,
         parts: vec![Part {
@@ -497,7 +577,7 @@ pub fn notice(message: &ChatMessage, notice: &Notice, text: u32, muted: u32) -> 
         _ if notice.text.starts_with('\'') => links::escape_markdown(&notice.text),
         _ => format!(" {}", links::escape_markdown(&notice.text)),
     };
-    let mut runs = inline(&format!("{author}{what}"));
+    let mut runs = legacy_runs(&format!("{author}{what}"));
     runs.push(Run {
         text: format!("  {}", message.time),
         color: Some(muted),
@@ -558,11 +638,26 @@ struct Style {
     strike: u8,
     links: Vec<String>,
     colors: Vec<u32>,
+    html: html::Formatting,
+}
+
+fn legacy_runs(markdown: &str) -> Vec<Run> {
+    inline(markdown, Shape::Text, false)
+        .pop()
+        .map_or_else(Vec::new, |(_, runs)| runs)
 }
 
 /// Inline Markdown as runs. Paragraphs and list items keep the line breaks
 /// between them as typed; block syntax Discord hasn't shows as typed.
-fn inline(markdown: &str) -> Vec<Run> {
+fn inline(markdown: &str, base: Shape, extended: bool) -> Vec<(Shape, Vec<Run>)> {
+    let mut parts = Vec::new();
+    let mut shape = base;
+    let mut cells = 0;
+    let flush = |parts: &mut Vec<_>, shape, runs: &mut Vec<_>| {
+        if !runs.is_empty() {
+            parts.push((shape, std::mem::take(runs)));
+        }
+    };
     let mut runs: Vec<Run> = Vec::new();
     let mut style = Style::default();
     // Where the last paragraph or item ended in `markdown`, for the line
@@ -576,18 +671,20 @@ fn inline(markdown: &str) -> Vec<Run> {
         if text.is_empty() {
             return;
         }
-        let link = style.links.last().cloned();
+        let formatting = style.html.style();
+        let link = style.links.last().or(formatting.link).cloned();
         let run = Run {
             text: String::new(),
-            bold: style.bold > 0,
-            italic: style.italic > 0,
-            strike: style.strike > 0,
-            code,
+            bold: style.bold > 0 || formatting.bold,
+            italic: style.italic > 0 || formatting.italic,
+            strike: style.strike > 0 || formatting.strike,
+            underline: formatting.underline,
+            code: code || formatting.code,
             hidden: link
                 .as_deref()
                 .is_some_and(|link| spoiler::target(link).is_some()),
             link,
-            color: style.colors.last().copied(),
+            color: style.colors.last().copied().or(formatting.color),
             emoji: None,
             highlight: false,
         };
@@ -612,7 +709,10 @@ fn inline(markdown: &str) -> Vec<Run> {
     // Where a block's text ends, before the line breaks it takes in.
     let end =
         |range: &Range<usize>| range.start + markdown[range.clone()].trim_end_matches('\n').len();
-    let options = Options::ENABLE_STRIKETHROUGH;
+    let mut options = Options::ENABLE_STRIKETHROUGH;
+    if extended {
+        options |= Options::ENABLE_TABLES | Options::ENABLE_TASKLISTS;
+    }
     for (event, range) in Parser::new_ext(markdown, options).into_offset_iter() {
         if let Some(shown) = &typed {
             if range.end <= shown.end && range != *shown {
@@ -625,6 +725,49 @@ fn inline(markdown: &str) -> Vec<Run> {
             }
         }
         match event {
+            Event::Start(Tag::Heading { level, .. }) if extended && base == Shape::Text => {
+                flush(&mut parts, shape, &mut runs);
+                ended = None;
+                shape = Shape::Heading(level as u8);
+            }
+            Event::Start(Tag::CodeBlock(_)) if extended && base == Shape::Text => {
+                flush(&mut parts, shape, &mut runs);
+                ended = None;
+                shape = Shape::Code;
+            }
+            Event::End(TagEnd::Heading(_) | TagEnd::CodeBlock) if shape != base => {
+                if shape == Shape::Code
+                    && let Some(last) = runs.last_mut()
+                    && last.text.ends_with('\n')
+                {
+                    last.text.pop();
+                }
+                flush(&mut parts, shape, &mut runs);
+                shape = base;
+            }
+            Event::Start(Tag::HtmlBlock | Tag::Table(_) | Tag::BlockQuote(_)) if extended => {
+                breaks(&mut runs, ended.take(), range.start);
+            }
+            Event::End(TagEnd::HtmlBlock | TagEnd::Table | TagEnd::BlockQuote(_)) if extended => {
+                if !runs.last().is_some_and(|run| run.text.ends_with('\n')) {
+                    ended = Some(end(&range));
+                }
+            }
+            Event::Start(Tag::TableHead | Tag::TableRow) if extended => {
+                cells = 0;
+            }
+            Event::Start(Tag::TableCell) if extended => {
+                if cells != 0 {
+                    push(&mut runs, &style, "  │  ", false);
+                }
+                cells += 1;
+            }
+            Event::End(TagEnd::TableHead | TagEnd::TableRow) if extended => {
+                push(&mut runs, &style, "\n", false);
+            }
+            Event::TaskListMarker(checked) if extended => {
+                push(&mut runs, &style, if checked { "☑ " } else { "☐ " }, false);
+            }
             Event::Start(
                 Tag::Heading { .. }
                 | Tag::CodeBlock(_)
@@ -639,7 +782,11 @@ fn inline(markdown: &str) -> Vec<Run> {
             }
             Event::Rule => {
                 breaks(&mut runs, ended.take(), range.start);
-                let text = markdown[range.clone()].trim_end_matches('\n');
+                let text = if extended {
+                    "────────"
+                } else {
+                    markdown[range.clone()].trim_end_matches('\n')
+                };
                 push(&mut runs, &Style::default(), text, false);
                 ended = Some(end(&range));
             }
@@ -686,13 +833,33 @@ fn inline(markdown: &str) -> Vec<Run> {
                 style.links.pop();
             }
             // An image's text shows as typed, as Discord has none.
-            Event::Start(Tag::Image { .. }) => {
+            Event::Start(Tag::Image { .. }) if !extended => {
                 push(&mut runs, &style, &markdown[range.clone()], false);
                 typed = Some(range);
             }
-            Event::Text(text) => push(&mut runs, &style, &text, false),
-            Event::Code(code) => push(&mut runs, &style, &code, true),
-            Event::SoftBreak | Event::HardBreak => push(&mut runs, &style, "\n", false),
+            Event::Text(text) if !style.html.suppressed() => {
+                push(&mut runs, &style, &text, shape == Shape::Code);
+            }
+            Event::Code(code) if !style.html.suppressed() => push(&mut runs, &style, &code, true),
+            Event::SoftBreak | Event::HardBreak if !style.html.suppressed() => {
+                push(&mut runs, &style, "\n", false);
+            }
+            Event::InlineHtml(fragment) | Event::Html(fragment) if extended => {
+                use html5ever::tokenizer::Token;
+                for token in html::tokens(&fragment) {
+                    match token {
+                        Token::CharacterTokens(text) if !style.html.suppressed() => {
+                            push(&mut runs, &style, &text, false);
+                        }
+                        Token::TagToken(tag) => {
+                            if let Some(text) = style.html.tag(tag, &runs) {
+                                push(&mut runs, &style, &text, false);
+                            }
+                        }
+                        _ => {}
+                    }
+                }
+            }
             Event::InlineHtml(html) | Event::Html(html) => {
                 if let Some(color) = font_color(&html) {
                     style.colors.push(color);
@@ -705,7 +872,8 @@ fn inline(markdown: &str) -> Vec<Run> {
             _ => {}
         }
     }
-    runs
+    flush(&mut parts, shape, &mut runs);
+    parts
 }
 
 /// The colour of a `<font color="#rrggbb">` tag.
@@ -786,7 +954,8 @@ impl<'c> crate::ctx::Ctx<'c> {
         }
         let mut piece = span(run.text.as_str())
             .font(themed)
-            .strikethrough(run.strike);
+            .strikethrough(run.strike)
+            .underline(run.underline);
         if let Some(link) = run.link.as_deref() {
             piece = piece.link(link);
         }

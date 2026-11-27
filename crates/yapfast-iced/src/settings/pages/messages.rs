@@ -62,6 +62,12 @@ impl<'a> Page<'a> {
                 Pref::LinkPreviews,
             ),
             self.flip(
+                "Render message formatting",
+                "Show Markdown and HTML formatting in sent messages. Turn off to see the source.",
+                prefs.message_markup.unwrap_or(true),
+                Pref::MessageMarkup,
+            ),
+            self.flip(
                 "Collapse long messages",
                 "Long messages and code show their first lines, with Show more to see the rest.",
                 self.cx.layout.collapse_long,

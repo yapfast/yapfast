@@ -348,6 +348,7 @@ pub fn thread_sync(app: &mut App) -> Task<Message> {
             app.drafts.aside.reset("");
         }
         app.drafts.aside_known.clear();
+        crate::composer::close_preview(&mut app.composer, Writing::Aside);
         return new_thread_sync(app);
     };
     let width = aside_width(app);
@@ -362,6 +363,7 @@ pub fn thread_sync(app: &mut App) -> Task<Message> {
         let draft = state.aside_draft().to_owned();
         app.drafts.aside.reset(&draft);
         app.drafts.aside_known = draft;
+        crate::composer::close_preview(&mut app.composer, Writing::Aside);
     }
     let name = state
         .aside_room()
@@ -381,6 +383,7 @@ pub fn thread_sync(app: &mut App) -> Task<Message> {
             app.drafts.aside.reset(&draft);
         }
         app.drafts.aside_known = draft;
+        crate::composer::update_preview(app, Writing::Aside);
     }
     let Some(aside) = &mut app.aside else {
         return Task::none();
@@ -433,6 +436,7 @@ fn new_thread_sync(app: &mut App) -> Task<Message> {
                 app.drafts.first.reset("");
                 app.drafts.first_known.clear();
             }
+            crate::composer::close_preview(&mut app.composer, Writing::NewThread);
             app.drafts.name.clear();
             app.drafts.starter = None;
         }
@@ -441,7 +445,7 @@ fn new_thread_sync(app: &mut App) -> Task<Message> {
 }
 
 /// Works out the thread's rows as the timeline's are (`measured_rows`).
-fn measure_aside(app: &mut App, old: &Messages, edge_changed: bool) {
+pub(crate) fn measure_aside(app: &mut App, old: &Messages, edge_changed: bool) {
     let Some(aside) = &app.aside else {
         return;
     };
@@ -757,7 +761,11 @@ impl<'a> SideComposer<'a> {
                 attach,
             )));
         }
-        line = line.push(field);
+        line = line.push(field).push(lift(crate::composer::preview_button(
+            cx,
+            self.which,
+            self.enabled,
+        )));
         if let Some((label, message, lit)) = self.send {
             let tint = if lit { theme.accent } else { theme.secondary };
             line = line.push(lift(crate::composer::composer_button(
@@ -775,7 +783,7 @@ impl<'a> SideComposer<'a> {
         } else {
             10.0.into()
         };
-        let mut inside = column![];
+        let mut inside = column![crate::composer::preview_view(cx, self.which)];
         if let Some(tray) = self.tray {
             inside = inside.push(tray);
         }

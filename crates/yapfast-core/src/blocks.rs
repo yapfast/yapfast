@@ -66,6 +66,15 @@ impl Block {
 /// between blocks keeps its blank lines, less the line break that ends it,
 /// so text of nothing but a line break is an empty line.
 pub fn split(markdown: &str) -> Option<Vec<Block>> {
+    split_with(markdown, false)
+}
+
+/// Separates Discord blocks while leaving standard code and raw HTML intact.
+pub fn split_message(markdown: &str) -> Option<Vec<Block>> {
+    split_with(markdown, true)
+}
+
+fn split_with(markdown: &str, extended: bool) -> Option<Vec<Block>> {
     let maybe = markdown.contains("```")
         || markdown.split('\n').any(|line| {
             let line = line.trim_start_matches(' ');
@@ -75,14 +84,14 @@ pub fn split(markdown: &str) -> Option<Vec<Block>> {
         return None;
     }
     let mut blocks = Vec::new();
-    for part in scan(markdown, true) {
+    for part in scan(markdown, true, extended) {
         match part {
             Part::Block(kind, range) => blocks.push(Block {
                 kind,
                 quoted: false,
                 runs: vec![range],
             }),
-            Part::Quote(lines) => quote(markdown, &lines, &mut blocks),
+            Part::Quote(lines) => quote(markdown, &lines, &mut blocks, extended),
         }
     }
     match blocks.as_slice() {
@@ -94,7 +103,7 @@ pub fn split(markdown: &str) -> Option<Vec<Block>> {
 
 /// A quote's blocks, from its `lines` of `markdown`. An empty quote still
 /// shows, as an empty line.
-fn quote(markdown: &str, lines: &[Range<usize>], blocks: &mut Vec<Block>) {
+fn quote(markdown: &str, lines: &[Range<usize>], blocks: &mut Vec<Block>, extended: bool) {
     // Its text as one, and where each of its lines starts in it.
     let mut text = String::new();
     let mut starts = Vec::with_capacity(lines.len());
@@ -106,7 +115,7 @@ fn quote(markdown: &str, lines: &[Range<usize>], blocks: &mut Vec<Block>) {
         text.push_str(&markdown[line.clone()]);
     }
     let first = blocks.len();
-    for part in scan(&text, false) {
+    for part in scan(&text, false, extended) {
         if let Part::Block(kind, range) = part {
             let runs = lines
                 .iter()
@@ -142,10 +151,30 @@ enum Part {
 }
 
 /// `text`'s parts, with quotes among them where `quotes` allows.
-fn scan(text: &str, quotes: bool) -> Vec<Part> {
+fn scan(text: &str, quotes: bool, extended: bool) -> Vec<Part> {
     let bytes = text.as_bytes();
-    let spoilers = crate::spoiler::spans(text);
+    let guarded = extended.then(|| {
+        use pulldown_cmark::{CodeBlockKind, Event, Parser, Tag};
+        Parser::new(text)
+            .into_offset_iter()
+            .filter_map(|(event, range)| match event {
+                Event::Start(Tag::HtmlBlock | Tag::CodeBlock(CodeBlockKind::Indented))
+                | Event::InlineHtml(_) => Some(range),
+                Event::Start(Tag::CodeBlock(CodeBlockKind::Fenced(_)))
+                    if {
+                        let code = text[range.clone()].trim_start();
+                        code.starts_with("~~~") || code.starts_with("````")
+                    } =>
+                {
+                    Some(range)
+                }
+                _ => None,
+            })
+            .collect::<Vec<_>>()
+    });
+    let spoilers = crate::spoiler::spans_ignoring(text, guarded.iter().flatten().cloned());
     let mut spoilers = spoilers.iter().peekable();
+    let mut guarded = guarded.iter().flatten().peekable();
     let mut parts = Vec::new();
     // Where the text not yet in a part starts.
     let mut start = 0;
@@ -165,6 +194,15 @@ fn scan(text: &str, quotes: bool) -> Vec<Part> {
         }
     };
     while at < text.len() {
+        while guarded.next_if(|range| range.end <= at).is_some() {}
+        if let Some(range) = guarded.peek()
+            && range.start <= at
+        {
+            at = range.end;
+            line_start = bytes.get(at - 1) == Some(&b'\n');
+            fresh = false;
+            continue;
+        }
         while spoilers.next_if(|spoiler| spoiler.end <= at).is_some() {}
         if let Some(spoiler) = spoilers.peek()
             && spoiler.start <= at

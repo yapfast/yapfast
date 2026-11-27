@@ -103,17 +103,61 @@ pub fn target(link: &str) -> Option<Target> {
 /// them: `@Bobby` typed as text isn't Bob's. A mention without a colour of
 /// its own takes `link_color`, `0xrrggbb`: the theme's for links.
 pub fn linked(markdown: &str, mentions: &[Mentioned], link_color: u32) -> String {
-    let escaped = crate::links::escape_html(markdown);
+    link_mentions(
+        markdown,
+        crate::links::escape_html(markdown),
+        mentions,
+        link_color,
+        false,
+    )
+    .into_owned()
+}
+
+/// Links mentions while preserving the message's HTML for a native renderer.
+pub fn linked_with_html<'a>(
+    markdown: &'a str,
+    mentions: &[Mentioned],
+    link_color: u32,
+) -> std::borrow::Cow<'a, str> {
+    link_mentions(markdown, markdown.into(), mentions, link_color, true)
+}
+
+fn link_mentions<'a>(
+    markdown: &str,
+    escaped: std::borrow::Cow<'a, str>,
+    mentions: &[Mentioned],
+    link_color: u32,
+    preserve_html: bool,
+) -> std::borrow::Cow<'a, str> {
     let mut found: Vec<(usize, &Mentioned)> = mentions
         .iter()
         .filter(|mention| !mention.text.is_empty())
         .flat_map(|mention| mention.at.iter().map(move |&at| (at, mention)))
         .collect();
     if found.is_empty() {
-        return escaped.into_owned();
+        return escaped;
     }
     found.sort_by_key(|(at, _)| *at);
     shift(markdown, &escaped, &mut found);
+    if preserve_html {
+        use pulldown_cmark::{Event, Parser, Tag};
+        let mut guarded = Parser::new(markdown)
+            .into_offset_iter()
+            .filter_map(|(event, range)| match event {
+                Event::Start(Tag::HtmlBlock | Tag::CodeBlock(_)) | Event::InlineHtml(_) => {
+                    Some(range)
+                }
+                _ => None,
+            })
+            .peekable();
+        found.retain(|(at, _)| {
+            while guarded.next_if(|range| range.end <= *at).is_some() {}
+            guarded.peek().is_none_or(|range| range.start > *at)
+        });
+    }
+    if found.is_empty() {
+        return escaped;
+    }
     let mut out = String::with_capacity(escaped.len() + 64 * found.len());
     let mut code = false;
     let mut last = 0;
@@ -147,7 +191,7 @@ pub fn linked(markdown: &str, mentions: &[Mentioned], link_color: u32) -> String
         last = at + mention.text.len();
     }
     out.push_str(&escaped[last..]);
-    out
+    out.into()
 }
 
 /// A message's `body` as its author would type it again, to edit: a channel's

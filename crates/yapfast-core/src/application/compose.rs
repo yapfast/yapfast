@@ -506,7 +506,10 @@ impl Application {
 
 /// Preview messages render as Markdown when they contain its punctuation.
 pub(super) fn has_markdown(body: &str) -> bool {
-    body.contains(['*', '_', '`', '~', '['])
+    body.contains([
+        '*', '_', '`', '~', '[', '#', '>', '<', '-', '+', '.', ')', '|', '=', '\\', '&', '\t',
+    ]) || body.starts_with("    ")
+        || body.contains("\n    ")
 }
 
 /// Adds files to a message's, up to as many and as large as it takes:

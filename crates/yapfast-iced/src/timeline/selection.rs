@@ -251,7 +251,7 @@ mod tests {
             last: true,
             group_end: true,
             group: Arc::from(""),
-            body: Arc::new(body_of(&message, 0, 0, 0, |_| false)),
+            body: Arc::new(body_of(&message, 0, 0, 0, true, |_| false)),
             date: None,
             time: Arc::default(),
         };
@@ -303,7 +303,7 @@ mod tests {
             last: true,
             group_end: true,
             group: Arc::from(""),
-            body: Arc::new(body_of(&message, 0, 0, 0, |_| false)),
+            body: Arc::new(body_of(&message, 0, 0, 0, true, |_| false)),
             date: None,
             time: Arc::default(),
         };

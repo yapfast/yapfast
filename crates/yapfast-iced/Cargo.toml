@@ -49,6 +49,7 @@ bytes = "1.10"
 # Messages' local dates, as the core works them out.
 chrono.workspace = true
 # Message Markdown's inline styles, as the core already builds it.
+html5ever = "0.39"
 pulldown-cmark = { version = "0.13", default-features = false }
 # The emoji picker's categories and names.
 emojis = "0.9"

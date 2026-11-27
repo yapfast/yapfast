@@ -53,6 +53,7 @@ pub struct Composer {
     pub draft: crate::field::Draft,
     /// The draft the core last had, to tell its own changes from ours.
     pub draft_known: String,
+    preview: Option<Preview>,
     /// Whether the composer's field has the keys, which its outline shows.
     pub focused: bool,
     /// The message being edited in its row (the core's `edit`), and the
@@ -88,6 +89,7 @@ pub enum Event {
     Suggestion(usize),
     CancelReply,
     TogglePing,
+    TogglePreview(Writing),
     /// The message request's Accept (true) or Ignore.
     Answer(bool),
     /// The +.
@@ -207,6 +209,12 @@ pub fn update(app: &mut App, event: Event) -> Task<Message> {
             app.client
                 .dispatch(Action::ToggleReplyPing { aside: false });
             Task::batch([app.sync(), refocus(app)])
+        }
+        Event::TogglePreview(which) => {
+            if !close_preview(&mut app.composer, which) {
+                app.composer.preview = draft_preview(app, which, Vec::new());
+            }
+            operation::focus(crate::thread::field_id(which))
         }
         Event::Answer(accept) => {
             app.client.dispatch(Action::AnswerRequest(accept));
@@ -654,6 +662,126 @@ pub fn edited(app: &mut App, which: Writing, text: String, caret: usize) {
     crate::suggest::caret_moved(app, which, &kept, caret);
 }
 
+struct Preview {
+    which: Writing,
+    body: crate::markdown::Body,
+    revealed: Vec<usize>,
+}
+
+pub(crate) const PREVIEW_ITEM: &str = "";
+
+fn draft_preview(app: &App, which: Writing, revealed: Vec<usize>) -> Option<Preview> {
+    let ctx = app.ctx();
+    if which == Writing::Draft && ctx.state.command_draft().is_some() {
+        return None;
+    }
+    let draft = writing(ctx, which).text();
+    if draft.trim().is_empty() {
+        return None;
+    }
+    let body = crate::markdown::message(
+        &draft,
+        &[],
+        crate::theme::rgb(app.theme.mention),
+        PREVIEW_ITEM,
+        |index| revealed.contains(&index),
+    );
+    Some(Preview {
+        which,
+        body,
+        revealed,
+    })
+}
+
+impl Composer {
+    fn preview_for(&self, which: Writing) -> Option<&Preview> {
+        self.preview
+            .as_ref()
+            .filter(|preview| preview.which == which)
+    }
+}
+
+pub(crate) fn close_preview(composer: &mut Composer, which: Writing) -> bool {
+    if composer.preview_for(which).is_some() {
+        composer.preview = None;
+        return true;
+    }
+    false
+}
+
+pub(crate) fn update_preview(app: &mut App, which: Writing) {
+    if app.composer.preview_for(which).is_some() {
+        app.composer.preview = draft_preview(app, which, Vec::new());
+    }
+}
+
+pub(crate) fn reveal_preview(app: &mut App, index: usize) {
+    if let Some(mut preview) = app.composer.preview.take() {
+        if preview.revealed.contains(&index) {
+            app.composer.preview = Some(preview);
+            return;
+        }
+        preview.revealed.push(index);
+        app.composer.preview = draft_preview(app, preview.which, preview.revealed);
+    }
+}
+
+pub(crate) fn preview_button(
+    ctx: crate::ctx::Ctx<'_>,
+    which: Writing,
+    enabled: bool,
+) -> Element<'static, Message> {
+    let theme = ctx.look.theme;
+    let shown = ctx.composer.preview_for(which).is_some();
+    composer_button(
+        ctx,
+        if shown { Icon::EyeOff } else { Icon::Eye },
+        if shown {
+            "Hide preview"
+        } else {
+            "Preview formatting"
+        },
+        22,
+        if shown { theme.text } else { theme.secondary },
+        (enabled && !writing(ctx, which).is_empty())
+            .then_some(Message::Write(Event::TogglePreview(which))),
+    )
+}
+
+pub(crate) fn preview_view(ctx: crate::ctx::Ctx<'_>, which: Writing) -> Element<'_, Message> {
+    let Some(preview) = ctx.composer.preview_for(which) else {
+        return Space::new().into();
+    };
+    let theme = ctx.look.theme;
+    let body = ctx.body_view(
+        &preview.body,
+        usize::MAX,
+        crate::markdown::FIRST_PART,
+        crate::markdown::Look {
+            size: crate::message::text_size(ctx),
+            line_height: crate::message::line_height(ctx),
+            ink: theme.text,
+        },
+    );
+    let content = container(
+        crate::widgets::scroll_view(container(body).padding([4, 10]))
+            .style(crate::style::scrollbar(theme)),
+    )
+    .max_height((ctx.look.window.height * 0.25).min(200.0));
+    let panel = container(
+        column![
+            container(text("Preview").size(12).font(BOLD).color(theme.secondary))
+                .padding(Padding::ZERO.left(10)),
+            content,
+        ]
+        .spacing(4),
+    )
+    .width(Length::Fill)
+    .padding([8, 0])
+    .style(move |_| crate::style::outlined(theme.sunken, theme.outline_field, 6.0));
+    container(panel).padding([8, 10]).width(Length::Fill).into()
+}
+
 /// The core's draft or edit takes a field's text.
 fn keep_text(app: &mut App, which: Writing, text: String) {
     match which {
@@ -681,6 +809,7 @@ fn keep_text(app: &mut App, which: Writing, text: String) {
         }
         Writing::NewPost => crate::forum::forum_body(app, text),
     }
+    update_preview(app, which);
 }
 
 /// Puts `text` in a field with the caret at `caret`, and in the core's
@@ -1134,6 +1263,9 @@ fn composer_box<'a>(ctx: crate::ctx::Ctx<'a>, look: &Look) -> Element<'a, Messag
             opens(Tab::Stickers).filter(|_| state.can_pick_stickers()),
         )));
     }
+    if !commanding {
+        buttons = buttons.push(lift(preview_button(ctx, Writing::Draft, look.enabled)));
+    }
     let emoji = buttons.push(lift(keyed_button(
         ctx,
         KeySlot::Emoji,
@@ -1192,7 +1324,7 @@ fn composer_box<'a>(ctx: crate::ctx::Ctx<'a>, look: &Look) -> Element<'a, Messag
         border.width = 0.0;
     }
     let shadow = theme.surface_shadow("composer", iced::Shadow::default());
-    let mut inside = column![];
+    let mut inside = column![preview_view(ctx, Writing::Draft)];
     if let Some(tray) = crate::uploads::tray(ctx) {
         inside = inside.push(tray);
     }

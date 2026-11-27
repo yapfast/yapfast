@@ -53,6 +53,7 @@ pub enum Pref {
     ReducedMotion(bool),
     SyncReducedMotion(bool),
     LinkPreviews(bool),
+    MessageMarkup(bool),
     CollapseLong(bool),
     PeekChannels(bool),
     DmSearchSwitcher(bool),
@@ -186,6 +187,11 @@ impl Settings {
                 prefs.link_previews = Some(on);
                 cx.keep("link_previews", on);
                 cx.request(Request::Changed(Shown::Rows));
+            }
+            Pref::MessageMarkup(on) => {
+                prefs.message_markup = Some(on);
+                cx.keep("message_markup", on);
+                cx.request(Request::Changed(Shown::MessageMarkup));
             }
             Pref::CollapseLong(on) => {
                 cx.layout.collapse_long = on;
