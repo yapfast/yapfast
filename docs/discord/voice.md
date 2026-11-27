@@ -435,6 +435,20 @@ fake server covers all of this. Message requests
 have no call until accepted. A DM call through real Discord, and Go Live in
 one, haven't been checked by hand yet.
 
+As Discord's client does (its `CallIdleManager`), Yapfast leaves a DM's call,
+or a group DM's of one other person, after 3 minutes with nobody else in it,
+whether they left or never answered; someone being rung doesn't count until
+they join. A group DM of more people is never left, and there is no setting.
+The wait starts as the call becomes empty and stops when someone comes.
+Leaving, Clyde says why in the DM, a note only this account sees, which
+Discord never hears of, as its client's `sendBotMessage` makes one: "It
+appears you've been by yourself in this call for more than 3 minutes. The
+bandwidth patrol has asked me to disconnect you to save bandwidth. That stuff
+doesn't grow on trees!" It stays until dismissed or Yapfast closes. The
+timer is in `discord_voice.rs`, the note `Discord::bot_message`;
+`a_dm_call_left_alone_ends_with_a_note` checks both against the fake with a
+shorter wait.
+
 ## Soundboard
 
 The soundboard button, before the camera in the dock and among the call's

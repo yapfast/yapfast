@@ -4363,6 +4363,24 @@ impl Discord {
         });
     }
 
+    /// Shows a note from Clyde in `channel`, as Discord's client's
+    /// `sendBotMessage` does: an ephemeral message made here, which Discord
+    /// never hears of. It shows until dismissed or Yapfast closes.
+    pub fn bot_message(&self, channel: &str, content: &str) {
+        let data = json!({
+            "id": message::nonce(),
+            "type": 0,
+            "flags": message::EPHEMERAL,
+            "channel_id": channel,
+            "content": content,
+            "author": {"id": "1", "username": "Clyde", "discriminator": "0000", "bot": true},
+        });
+        self.write_names().learn_message(None, &data);
+        if let Some(message) = message::parse(&data) {
+            let _ = self.live.send(Live::Created(message));
+        }
+    }
+
     /// Shows others whether this account is muted or deafened, and whether
     /// its camera is on.
     pub fn set_self(&self, guild: &str, channel: &str, mute: bool, deaf: bool, video: bool) {
