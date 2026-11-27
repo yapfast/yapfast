@@ -8,6 +8,9 @@ work in Discord and Matrix calls alike.
 
 Ctrl+/ opens Settings → Keybinds, which also lists the built-in shortcuts
 (Discord's Ctrl+/ shows the same list in a dialog of its own).
+The window embeds [the default keymap](../assets/keybinds/default.json)
+for its shortcut matches and for the list on that page. Widget-specific
+shortcuts are handled by their widgets and appear in the same list.
 They work while the window is focused, require the exact modifiers, ignore
 key repeat, and rest while recording a keybind. Custom watched keybinds take
 priority when they use the same keys, so a toggle runs only once. Chat

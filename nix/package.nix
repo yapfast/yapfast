@@ -20,7 +20,7 @@ rustPlatform.buildRustPackage {
     root = ../.;
     fileset = lib.fileset.unions [
       ../Cargo.toml ../Cargo.lock ../build.rs ../src ../crates ../vendor ../packaging
-      ../assets/fonts ../assets/icons ../assets/sounds ../assets/themes ../assets/twemoji
+      ../assets/fonts ../assets/icons ../assets/keybinds ../assets/sounds ../assets/themes ../assets/twemoji
       # A workspace member, which cargo reads even though the build leaves it out.
       ../testing/hosts/Cargo.toml ../testing/tray_host.rs ../testing/record_host.rs
     ];

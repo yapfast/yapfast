@@ -35,8 +35,9 @@ and the interface icons in `icons/ui/`. The `fonts/` directory is split into
 Screenshots for the README and AppStream are in `images/`, recorded
 instruments in `sounds/instruments/`, Twemoji artwork in `twemoji/`,
 and the built-in template for `yapfast theme new` in `themes/template/`.
-Third-party licences are in `licenses/`. The `keymaps/` and `settings/`
-directories are reserved for data files. Defaults currently come from Rust.
+Third-party licences are in `licenses/`. The window embeds
+`keybinds/default.json` for its [built-in shortcuts](keybinds.md).
+The `settings/` directory is reserved for data files.
 See the attribution
 for [fonts](third-party/fonts.md), [icons](third-party/icons.md) and
 [Twemoji](third-party/twemoji.md).
