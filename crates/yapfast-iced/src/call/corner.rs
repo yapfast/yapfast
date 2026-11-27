@@ -8,7 +8,7 @@
 
 use iced::{
     Alignment, Background, Color, Element, Length, Padding, Point, Rectangle, Size, gradient,
-    widget::{Space, column, container, mouse_area, pin, stack, text},
+    widget::{Space, column, container, mouse_area, pin, row, stack, text},
 };
 use yapfast_core::voice::SharePhase;
 
@@ -31,13 +31,11 @@ use crate::{
 const MARGIN: f32 = 16.0;
 const RADIUS: f32 = 8.0;
 
-/// The widths its grip drags it between, as Discord's picture in picture
-/// for a video (200 to 960 px, and 20 px past that while it's dragged), the
-/// step it settles on when let go (40 px), the shape it keeps (a 16:9
-/// picture, as [`CORNER`] is, 320 px wide as Discord's), and the square of
-/// it its grip takes.
+/// The width its grip drags it to at least (200 px), the step it settles on
+/// when let go (40 px), the shape it keeps (a 16:9 picture, as [`CORNER`]
+/// is, 320 px wide as Discord's), and the square of it its grip takes. How
+/// wide it may grow past 200 px is the window's own room, and nothing else.
 const LEAST: f32 = 200.0;
-const MOST: f32 = 960.0;
 const STEP: f32 = 40.0;
 const SHAPE: f32 = CORNER.height / CORNER.width;
 const GRIP: f32 = 22.0;
@@ -50,18 +48,26 @@ pub fn corner_size(app: &App) -> Size {
     let wanted = app.layout.corner_width.unwrap_or(CORNER.width);
     let room = room(app);
     let width = if app.call.resize.is_some() {
-        wanted.clamp(LEAST, (MOST + 20.0).min(room).max(LEAST))
+        wanted.clamp(LEAST, room.max(LEAST))
     } else {
-        wanted.min(settle(room))
+        wanted.min(settle_most(room))
     };
     let width = on_pixels(app, width);
     Size::new(width, on_pixels(app, width * SHAPE))
 }
 
-/// A width as Discord settles one when its grip is let go: to the nearest
-/// 40 px, within 200 and 960.
+/// A width as Discord settles one when its grip is let go: on the nearest
+/// 40 px step, no narrower than 200 px.
 fn settle(width: f32) -> f32 {
-    ((width / STEP).round() * STEP).clamp(LEAST, MOST)
+    ((width / STEP).round() * STEP).max(LEAST)
+}
+
+/// The widest the picture settles on in a window with `room` to spare: the
+/// last 40 px step within it, no narrower than 200 px.
+fn settle_most(room: f32) -> f32 {
+    ((room / STEP).floor() * STEP)
+        .max(LEAST)
+        .min(room.max(LEAST))
 }
 
 /// A length in the app's units as the window's pixels have it: the picture
@@ -75,7 +81,7 @@ fn on_pixels(app: &App, length: f32) -> f32 {
 
 /// The widest the window has room for: right of the conversation, below
 /// the header.
-fn room(app: &App) -> f32 {
+pub(crate) fn room(app: &App) -> f32 {
     let left = crate::conversation::chat_left(app) + MARGIN;
     let top = header::HEIGHT + MARGIN;
     (app.window.width - MARGIN - left).min((app.window.height - MARGIN - top) / SHAPE)
@@ -148,17 +154,18 @@ pub(super) fn resize_to(app: &mut App, at: Point) {
     } else {
         resize.from.x - at.x
     };
-    app.layout.corner_width = Some((resize.width + across).clamp(LEAST, MOST + 20.0));
+    app.layout.corner_width =
+        Some((resize.width + across).clamp(LEAST, (room(app) + 20.0).max(LEAST)));
 }
 
-/// The grip let go: the picture settles on the nearest 40 px within 200
-/// and 960 and the window's room, as Discord's does; that width is kept
-/// for the next window, and the frames the picture shows are made at it.
+/// The grip let go: the picture settles on the nearest 40 px within 200 px
+/// and the window's room, as Discord's does; that width is kept for the
+/// next window, and the frames the picture shows are made at it.
 pub(super) fn let_go(app: &mut App) {
     let dragged = corner_size(app).width;
     app.call.resize = None;
     if app.layout.corner_width.is_some() {
-        app.layout.corner_width = Some(settle(dragged).min(settle(room(app))));
+        app.layout.corner_width = Some(settle(dragged).min(settle_most(room(app))));
     }
     crate::layout::store(app.client.root(), "corner_width", app.layout.corner_width);
     crate::call::stage::place_videos(app);
@@ -205,6 +212,9 @@ pub fn corner_view(app: &App) -> Option<Element<'_, Message>> {
             )
         }
     };
+    // The picture the window of its own shows, kept before its title takes
+    // it.
+    let popout = key.clone();
     let theme = &app.theme;
     // Round on the chat behind it, as a tile on the stage is on its ground:
     // the picture is drawn square to its corners, and would spill past them
@@ -260,21 +270,29 @@ pub fn corner_view(app: &App) -> Option<Element<'_, Message>> {
         .y(size.height - 34.0)
     ];
     over = over.width(size.width).height(size.height);
+    // Out into a window of its own, and its stop.
+    let mut buttons = row![].spacing(6).push(tile::glass_button(
+        app.look(),
+        Icon::Link,
+        "Open in a window",
+        Message::Call(Event::PopOut(popout)),
+    ));
     if let Some((icon, label, event)) = stop {
-        over = over.push(
-            container(tile::glass_button(
-                app.look(),
-                icon,
-                label,
-                Message::Call(event),
-            ))
+        buttons = buttons.push(tile::glass_button(
+            app.look(),
+            icon,
+            label,
+            Message::Call(event),
+        ));
+    }
+    over = over.push(
+        container(buttons)
             .padding(8)
             .width(Length::Fill)
             .height(Length::Fill)
             .align_x(Alignment::End)
             .align_y(Alignment::End),
-        );
-    }
+    );
     let dragging = app.call.drag.is_some() || app.call.resize.is_some();
     let face: Element<'_, Message> = if dragging {
         base.into()

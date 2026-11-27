@@ -557,6 +557,7 @@ impl App {
             .win
             .menu
             .as_ref()
+            .filter(|menu| menu.window.is_none())
             .filter(|_| !crate::window_bar::inbox_shown(self))
             .and_then(|menu| crate::menus::view(menu, self.ctx()))
         {
@@ -648,6 +649,7 @@ impl App {
                 .win
                 .menu
                 .as_ref()
+                .filter(|menu| menu.window.is_none())
                 .and_then(|menu| crate::menus::view(menu, self.ctx()))
             {
                 layers = layers

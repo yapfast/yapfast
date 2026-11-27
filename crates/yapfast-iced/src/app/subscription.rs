@@ -99,6 +99,14 @@ impl App {
         ) {
             subscriptions.push(iced::time::every(every).map(Message::ThemeAccentTick));
         }
+        // A picture's own window slides its members' block in or out: a frame
+        // every sixtieth of a second while it moves, and nothing else.
+        if self.call.popout_reveal.is_some() {
+            subscriptions.push(
+                iced::time::every(Duration::from_millis(16))
+                    .map(|_| Message::Call(crate::call::Event::RevealTick)),
+            );
+        }
         // A look at the releases every six hours while the check is on.
         if self.layout.prefs.check_for_updates {
             subscriptions.push(

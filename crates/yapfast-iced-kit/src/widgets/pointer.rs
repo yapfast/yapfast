@@ -1,8 +1,8 @@
 //! What the pointer does to a child: the timeline's presses ([`Watch`]),
 //! a right press ([`RightPress`]), what shows under it ([`Hover`]), where a
 //! button is as it's pressed ([`Spot`]), the wheel with Ctrl
-//! ([`CtrlWheel`]), and a child that keeps the pointer's moves over it from
-//! what it floats over ([`Holds`]).
+//! ([`CtrlWheel`]), the wheel over it ([`Turn`]), and a child that keeps the
+//! pointer's moves over it from what it floats over ([`Holds`]).
 
 use iced::{
     Background, Element, Length, Point, Rectangle, Size, Theme, Vector,
@@ -676,6 +676,57 @@ impl<M: Clone, W: Default + 'static> Hooks<M> for CtrlWheel<M, W> {
                 return;
             }
             _ => {}
+        }
+        child.update(shell);
+    }
+}
+
+// ---------------------------------------------------------------------------
+// The wheel over a child
+
+/// How many of a touchpad's pixels come to a notch of the wheel, as a line
+/// of one does.
+const NOTCH: f32 = 50.0;
+
+/// Its child, whose wheel it takes: `on_turn` gets the notches turned over
+/// it, up positive, and where the pointer was on it, from its own top left.
+/// Nothing under the pointer scrolls on that wheel.
+pub struct Turn<M> {
+    on_turn: fn(f32, Point) -> M,
+}
+
+impl<M: Clone> Turn<M> {
+    pub fn new<'a>(
+        child: impl Into<Element<'a, M>>,
+        on_turn: fn(f32, Point) -> M,
+    ) -> Wrap<'a, Self, M> {
+        Wrap::new(child, Self { on_turn })
+    }
+}
+
+impl<M: Clone> Hooks<M> for Turn<M> {
+    type State = Stateless;
+
+    fn update(
+        &mut self,
+        _: &mut Stateless,
+        event: &iced::Event,
+        at: At,
+        shell: &mut Shell<'_, M>,
+        child: &mut Inner<'_, '_, M>,
+    ) {
+        if let iced::Event::Mouse(mouse::Event::WheelScrolled { delta }) = event
+            && let Some(position) = at.cursor.position_in(at.bounds)
+        {
+            let notches = match *delta {
+                mouse::ScrollDelta::Lines { y, .. } => y,
+                mouse::ScrollDelta::Pixels { y, .. } => y / NOTCH,
+            };
+            if notches != 0.0 {
+                shell.publish((self.on_turn)(notches, position));
+                shell.capture_event();
+                return;
+            }
         }
         child.update(shell);
     }

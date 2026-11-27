@@ -60,6 +60,7 @@ pub struct Tile<'a, M> {
     top_left: Option<Element<'a, M>>,
     top_right: Vec<Element<'a, M>>,
     bottom_right: Option<Element<'a, M>>,
+    bottom_left: Option<Element<'a, M>>,
     hovered: Vec<Element<'a, M>>,
     hover_kept: bool,
     on_point: Option<(M, M)>,
@@ -85,6 +86,7 @@ impl<'a, M: Clone + 'a> Tile<'a, M> {
             top_left: None,
             top_right: Vec::new(),
             bottom_right: None,
+            bottom_left: None,
             hovered: Vec::new(),
             hover_kept: false,
             on_point: None,
@@ -150,6 +152,13 @@ impl<'a, M: Clone + 'a> Tile<'a, M> {
     /// Something at its bottom right, as the large tile's full screen.
     pub fn bottom_right(mut self, corner: Element<'a, M>) -> Self {
         self.bottom_right = Some(corner);
+        self
+    }
+
+    /// Something at its bottom left, as the zoom bar over a picture shown on
+    /// its own.
+    pub fn bottom_left(mut self, corner: Element<'a, M>) -> Self {
+        self.bottom_left = Some(corner);
         self
     }
 
@@ -231,6 +240,16 @@ impl<'a, M: Clone + 'a> From<Tile<'a, M>> for Element<'a, M> {
                     .width(width)
                     .height(height)
                     .align_x(Alignment::End)
+                    .align_y(Alignment::End),
+            );
+        }
+        if let Some(corner) = tile.bottom_left {
+            over = over.push(
+                container(corner)
+                    .padding(INSET)
+                    .width(width)
+                    .height(height)
+                    .align_x(Alignment::Start)
                     .align_y(Alignment::End),
             );
         }

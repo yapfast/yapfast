@@ -1560,15 +1560,28 @@ pub fn round_button<'a, M: Clone + 'a>(
     theme: &Theme,
     message: Option<M>,
 ) -> Element<'a, M> {
+    round_button_of(face, label, fill, ROUND, theme, message)
+}
+
+/// As [`round_button`], at `side` px across, for the buttons a window of its
+/// own carries over a picture, a size down from the call's.
+pub fn round_button_of<'a, M: Clone + 'a>(
+    face: crate::widgets::Pic,
+    label: impl text::IntoFragment<'a>,
+    fill: Color,
+    side: f32,
+    theme: &Theme,
+    message: Option<M>,
+) -> Element<'a, M> {
     let lit = crate::theme::mix(fill, theme.overlay, 0.9);
     let enabled = message.is_some();
-    let radius = theme.surface_radius("button", ROUND / 2.0);
-    let border = theme.surface_border("button", ROUND / 2.0, 0.0, Color::TRANSPARENT);
+    let radius = theme.surface_radius("button", side / 2.0);
+    let border = theme.surface_border("button", side / 2.0, 0.0, Color::TRANSPARENT);
     let shadow = theme.surface_shadow("button", Shadow::default());
-    let face = button(face.boxed(ROUND))
+    let face = button(face.boxed(side))
         .padding(0)
-        .width(ROUND)
-        .height(ROUND)
+        .width(side)
+        .height(side)
         .on_press_maybe(message)
         .style(move |_, status| button::Style {
             background: Some(if enabled && lights(status) { lit } else { fill }.into()),

@@ -8,7 +8,7 @@
 
 use crate::widgets::scroll_view;
 use iced::{
-    Element, Length, Padding, Point, Rectangle, Task, Vector,
+    Element, Length, Padding, Point, Rectangle, Size, Task, Vector,
     advanced::widget::{Id, Operation, operation::Scrollable},
     keyboard::key,
     widget::{
@@ -83,6 +83,9 @@ pub struct Menu {
     /// How wide its rows need it, and each row's submenu, measured once
     /// as it first shows: the words don't change while it's open.
     pub fits: std::cell::OnceCell<Vec<f32>>,
+    /// The window of its own it shows in, and that window's room, for a menu
+    /// opened from a picture's window's tile; none in Yapfast's own.
+    pub window: Option<(iced::window::Id, Size)>,
 }
 
 impl Menu {
@@ -108,6 +111,7 @@ impl Menu {
             side_lit: None,
             scrolled: 0.0,
             fits: Default::default(),
+            window: None,
         }
     }
 
@@ -1185,6 +1189,11 @@ struct View<'a> {
 }
 
 impl<'a> View<'a> {
+    /// The room the menu shows in: its own window's, or Yapfast's.
+    fn room(&self) -> Size {
+        self.s.window.map_or(self.cx.look.window, |(_, room)| room)
+    }
+
     fn view(self) -> Option<Element<'a, Message>> {
         let menu = self.s;
         let theme = self.cx.look.theme;
@@ -1285,7 +1294,7 @@ impl<'a> View<'a> {
                 .on_scroll(|viewport| Message::Menu(Event::Scrolled(viewport.absolute_offset().y)))
                 .style(crate::style::scrollbar(theme)),
         )
-        .max_height(self.cx.look.window.height - 2.0 * MENU_MARGIN)
+        .max_height(self.room().height - 2.0 * MENU_MARGIN)
         .style(move |_| container::Style {
             shadow,
             ..Default::default()

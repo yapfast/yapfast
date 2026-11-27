@@ -7,8 +7,9 @@
 
 use crate::widgets::scroll_view;
 use iced::{
-    Alignment, Color, Element, Length, Padding, Rectangle, Size,
+    Alignment, Color, Element, Length, Padding, Point, Rectangle, Size, Vector,
     widget::{Space, button, column, container, mouse_area, pin, row, stack, text},
+    window,
 };
 use yapfast_core::voice::{self, SharePhase};
 
@@ -46,7 +47,43 @@ fn chip_width(name: &str, marks: usize, live: bool) -> f32 {
 }
 
 /// The controls' row under the stage: 8 px over the buttons, 16 under.
-const CONTROLS_HEIGHT: f32 = 8.0 + ROUND + 16.0;
+pub(crate) const CONTROLS_HEIGHT: f32 = 8.0 + ROUND + 16.0;
+
+/// How large the call's controls are drawn: under the stage at the call's
+/// own size, or in a picture's window of its own a size down, as that
+/// window's buttons are.
+#[derive(Clone, Copy)]
+pub(crate) struct ControlsSize {
+    side: f32,
+    glyph: u32,
+    /// The leave button's width, its pill.
+    leave: f32,
+    /// How far the controls stand above the foot they hang from.
+    bottom: f32,
+}
+
+impl ControlsSize {
+    /// The stage's own, under it.
+    const CALL: Self = Self {
+        side: ROUND,
+        glyph: ROUND_GLYPH,
+        leave: 76.0,
+        bottom: 16.0,
+    };
+    /// A picture's window's, under its picture and the members' strip.
+    pub(crate) const WINDOW: Self = Self {
+        side: crate::call::popout::BUTTON,
+        glyph: crate::call::popout::BUTTON_GLYPH,
+        leave: 64.0,
+        // As far in as the window's own buttons at its corner.
+        bottom: crate::call::popout::CORNER,
+    };
+
+    /// The room the controls take under the stage.
+    fn height(self) -> f32 {
+        8.0 + self.side + self.bottom
+    }
+}
 /// The Hide/Show Members capsule (`60 × 32`), 8 px into the strip's top
 /// when shown, and 6 px above the bottom of the stage (14 px over the
 /// controls' buttons) when hidden.
@@ -56,6 +93,11 @@ const MEMBERS_HEIGHT: f32 = 32.0;
 const MEMBERS_GLYPH: u32 = 24;
 const MEMBERS_STRIP_OFFSET: f32 = 8.0;
 const MEMBERS_BOTTOM_GAP: f32 = 6.0;
+/// How wide a tile of the members strip in a picture's own window is: the
+/// widest a tile of the stage's own strip gets, so the two read alike — and
+/// how much air the strip leaves over and under it there.
+const MEMBERS_TILE: f32 = 192.0;
+const MEMBERS_ROOM: f32 = 8.0;
 
 /// The open room is a voice channel: the window shows its call.
 pub fn voice_selected(app: &App) -> bool {
@@ -70,7 +112,7 @@ pub fn voice_selected(app: &App) -> bool {
 
 /// A voice channel is open on its call, not on its chat.
 pub fn voice_panel(app: &App) -> bool {
-    voice_selected(app) && !app.client.state().voice_chat
+    voice_selected(app) && !app.client.state().voice_chat && !crate::call::in_window(app)
 }
 
 /// The open room's call is the one this account is in.
@@ -129,7 +171,7 @@ pub fn stage(app: &App) -> (Vec<Slot>, Option<usize>, Vec<Rectangle>, f32) {
 /// The same on a stage of `size`.
 fn stage_in(app: &App, size: Size) -> (Vec<Slot>, Option<usize>, Vec<Rectangle>, f32) {
     let voice = &app.client.state().voice;
-    let stage = Stage::of(voice);
+    let stage = Stage::of(voice, popped_key(app));
     let slots = stage.slots();
     let focused = app.call.focus.as_ref().and_then(|focus| stage.slot(focus));
     let full = full_shown(app);
@@ -146,7 +188,8 @@ fn stage_in(app: &App, size: Size) -> (Vec<Slot>, Option<usize>, Vec<Rectangle>,
 /// What the corner picture shows while the call is off screen.
 pub fn corner(app: &App) -> Pip {
     let voice = &app.client.state().voice;
-    if app.shell.window.is_none()
+    if crate::call::in_window(app)
+        || app.shell.window.is_none()
         || !crate::signin::workspace(app)
         || !voice.active()
         || stage_shown(app)
@@ -157,7 +200,7 @@ pub fn corner(app: &App) -> Pip {
         .watching
         .as_ref()
         .map(|watching| watching.user.as_str());
-    Stage::of(voice).pip(app.call.focus.as_ref(), watching)
+    Stage::of(voice, popped_key(app)).pip(app.call.focus.as_ref(), watching)
 }
 
 /// The corner's tile, by its place on the stage.
@@ -167,14 +210,14 @@ pub fn corner_place(app: &App) -> Option<usize> {
         .watching
         .as_ref()
         .map(|watching| watching.user.as_str());
-    Stage::of(voice).pip_slot(corner(app), watching)
+    Stage::of(voice, popped_key(app)).pip_slot(corner(app), watching)
 }
 
 /// A tile shown large that's gone (its stream ended, they left) shows
 /// none.
 pub fn keep_focus(app: &mut App) {
     let voice = &app.client.state().voice;
-    let stage = Stage::of(voice);
+    let stage = Stage::of(voice, popped_key(app));
     if app
         .call
         .focus
@@ -186,13 +229,41 @@ pub fn keep_focus(app: &mut App) {
     }
 }
 
+/// The picture a window of its own shows, by its key, or none.
+fn popped_key(app: &App) -> Option<&str> {
+    app.call.popout.as_ref().map(|popout| popout.key.as_str())
+}
+
+/// The room a picture's own window gives its picture, in the window's pixels:
+/// the size the frames it shows are made at.
+fn popout_pixels(app: &App) -> (u32, u32) {
+    let scale = app.device_scale();
+    let size = app.call.popout_seen.get().unwrap_or(Size::new(
+        crate::call::popout::WIDE,
+        crate::call::popout::WIDE * 9.0 / 16.0,
+    ));
+    (
+        (size.width * scale).round().max(2.0) as u32,
+        (size.height * scale).round().max(2.0) as u32,
+    )
+}
+
+/// Whether a picture's own window shows `key`, so the stage leaves it out
+/// and its frames go there, and only there.
+pub fn popped_out(app: &App, key: &str) -> bool {
+    popped_key(app) == Some(key)
+}
+
 /// Tells each camera where its tile shows, or that it doesn't, so frames
 /// are made only for tiles in sight, at their size, and whether it's
 /// large; and has [`video::frames`] look for frames from those that
 /// show: cameras, the stream watched, the screen shared, a message's
-/// video. With the call off screen, the corner's shows there.
+/// video. With the call off screen, the corner's shows there; a picture's own
+/// window takes what it shows, and only it.
 pub fn place_videos(app: &mut App) {
-    let shown = stage_shown(app);
+    // Its tiles show in Yapfast's window, or in the strip under a picture's
+    // window of its own.
+    let shown = stage_shown(app) || crate::call::in_window(app);
     let (slots, focused, tiles, content) = stage(app);
     let height = stage_size(app).height;
     let scrolled = if content <= height + 0.5 {
@@ -227,7 +298,11 @@ pub fn place_videos(app: &mut App) {
             continue;
         };
         let in_corner = corner == Pip::Camera(index);
-        let at = if in_corner {
+        // A camera the window of its own shows is made at that window's
+        // size; the stage's tile keeps their picture instead.
+        let at = if popped_out(app, &person.id) {
+            Some(popout_pixels(app))
+        } else if in_corner {
             Some(corner_pixels)
         } else {
             shown
@@ -240,16 +315,18 @@ pub fn place_videos(app: &mut App) {
             sources.feeds.push((person.id.clone(), feed.clone()));
         }
     }
-    if (shown || corner == Pip::Watched)
-        && let Some(watching) = &voice.watching
+    if let Some(watching) = &voice.watching
         && let Some(frames) = &watching.frames
+        && (shown
+            || corner == Pip::Watched
+            || popped_out(app, &format!("stream:{}", watching.user)))
     {
         sources
             .mapped
             .push((format!("stream:{}", watching.user), frames.clone()));
     }
-    if (shown || corner == Pip::Shared)
-        && let Some(sharing) = &voice.sharing
+    if let Some(sharing) = &voice.sharing
+        && (shown || corner == Pip::Shared || popped_out(app, OWN_SCREEN))
     {
         sources
             .mapped
@@ -284,7 +361,9 @@ pub fn frames_found(app: &mut App, clip_time: Option<u64>) {
 /// tiles, and none is.
 pub fn focus_tile(app: &mut App, place: Option<usize>) {
     let voice = &app.client.state().voice;
-    app.call.focus = place.and_then(|place| Stage::of(voice).focus_at(place));
+    app.call.focus = place.and_then(|place| Stage::of(voice, popped_key(app)).focus_at(place));
+    // Another picture, shown as it comes.
+    app.call.zoom = crate::call::Zoom::default();
     if app.call.focus.is_none() {
         app.call.full = false;
     }
@@ -292,16 +371,216 @@ pub fn focus_tile(app: &mut App, place: Option<usize>) {
 }
 
 /// A frame by its key, fitted into its tile with `corners` cut round
-/// on `behind` (none full screen).
+/// on `behind` (none full screen), its bars and its ground in black.
 pub fn frame<'a>(
     app: &'a App,
     key: &str,
     corners: Option<(u32, u32)>,
 ) -> Option<Element<'a, Message>> {
+    frame_in(app, key, corners, Color::BLACK)
+}
+
+/// The same as the wheel over it last left it, its bars and its ground in
+/// `ground`.
+pub fn frame_zoom<'a>(
+    app: &'a App,
+    key: &str,
+    corners: Option<(u32, u32)>,
+    ground: Color,
+) -> Option<Element<'a, Message>> {
+    frame_at(app, key, corners, ground, Some(app.call.zoom))
+}
+
+/// The same as the wheel over it leaves it: a picture shown on its own comes
+/// closer about the pointer, up a step a notch, and goes back down.
+pub(crate) fn wheeled<'a>(picture: Element<'a, Message>) -> Element<'a, Message> {
+    crate::widgets::Turn::new(picture, |turn, at| Message::Call(Event::Zoom(turn, at))).into()
+}
+
+/// The zoom bar's own: how wide its track draws, how tall the bar is, its
+/// magnifiers across and their glyph.
+pub(crate) const ZOOM_TRACK: f32 = 72.0;
+pub(crate) const ZOOM_BAR: f32 = 30.0;
+/// Its own id, which a test finds it by.
+pub(crate) const ZOOM_BAR_ID: &str = "call-zoom-bar";
+const ZOOM_BUTTON: f32 = 24.0;
+const ZOOM_GLYPH: u32 = 14;
+
+/// The zoom bar over a picture shown on its own, at its bottom left corner:
+/// the magnifiers letting it back and bringing it closer, and the track
+/// between them, at the share of the way it's come (`Event::ZoomTo`). Only
+/// while it has come closer at all: fitted, there's nothing to say and
+/// nothing to take back.
+pub(crate) fn zoom_bar(app: &App) -> Option<Element<'_, Message>> {
+    if app.call.zoom.by <= 1.0 {
+        return None;
+    }
+    let theme = &app.theme;
+    let by = app.call.zoom.by.clamp(1.0, ZOOM_MOST);
+    let percent = (((by - 1.0) / (ZOOM_MOST - 1.0)) * 100.0).round() as u32;
+    let (field, accent, knob) = (theme.field, theme.accent, theme.text);
+    let track = iced::widget::slider(0..=100, percent, |value: u32| {
+        Message::Call(Event::ZoomTo(
+            1.0 + (ZOOM_MOST - 1.0) * value as f32 / 100.0,
+        ))
+    })
+    .step(1u32)
+    .width(ZOOM_TRACK)
+    .height(14)
+    .style(move |_, _| iced::widget::slider::Style {
+        rail: iced::widget::slider::Rail {
+            backgrounds: (accent.into(), field.into()),
+            width: 3.0,
+            border: iced::Border::default().rounded(2),
+        },
+        handle: iced::widget::slider::Handle {
+            shape: iced::widget::slider::HandleShape::Circle { radius: 5.0 },
+            background: knob.into(),
+            border_width: 0.0,
+            border_color: Color::TRANSPARENT,
+        },
+    });
+    let magnifier = |icon: Icon, label: &'static str, by: f32| {
+        let face = app.look().glyph(icon, ZOOM_GLYPH, theme.text);
+        controls::round_button_of(
+            face,
+            label,
+            theme.token_colour("card-button", GLASS),
+            ZOOM_BUTTON,
+            theme,
+            Some(Message::Call(Event::ZoomTo(by))),
+        )
+    };
+    Some(
+        container(
+            row![
+                magnifier(Icon::ZoomOut, "Zoom out", by / ZOOM_STEP),
+                track,
+                magnifier(Icon::ZoomIn, "Zoom in", by * ZOOM_STEP),
+            ]
+            .spacing(6)
+            .align_y(Alignment::Center),
+        )
+        .padding(Padding {
+            top: 3.0,
+            right: 4.0,
+            bottom: 3.0,
+            left: 4.0,
+        })
+        .id(iced::widget::Id::new(ZOOM_BAR_ID))
+        .style(move |_| rounded(GLASS, 15))
+        .into(),
+    )
+}
+
+/// The picture drawn in `room`: fitted to it and in its middle, as
+/// [`video`] draws its frames, or the room whole while no frame has come.
+pub(crate) fn fitted_in(app: &App, key: &str, room: Size) -> Size {
+    let Some((width, height)) = app.video.size(key) else {
+        return room;
+    };
+    let (width, height) = (width.max(1) as f32, height.max(1) as f32);
+    let scale = (room.width / width).min(room.height / height);
+    Size::new(
+        (width * scale).min(room.width),
+        (height * scale).min(room.height),
+    )
+}
+
+/// How much closer a notch of the wheel brings the picture, and how close it
+/// comes at most.
+const ZOOM_STEP: f32 = 1.15;
+const ZOOM_MOST: f32 = 4.0;
+
+/// The wheel over a picture on its own: turned up it comes closer about the
+/// pointer, down it goes back, and its room's size again at the first, its
+/// middle kept over its room.
+pub(crate) fn turn_zoom(app: &mut App, turn: f32, at: Point) {
+    let Some((room, fitted)) = app.call.zoom_seen.get() else {
+        return;
+    };
+    // Nothing of a picture shows in no room at all.
+    if room.width < 1.0 || room.height < 1.0 {
+        return;
+    }
+    let by = app.call.zoom.by * ZOOM_STEP.powf(turn);
+    // Where the pointer stands on the picture, as its share of it, from the
+    // middle, which the turn keeps it over.
+    let off = at - Rectangle::new(Point::ORIGIN, room).center();
+    let (share_x, share_y) = (
+        (off.x - app.call.zoom.pan.x) / (fitted.width * app.call.zoom.by),
+        (off.y - app.call.zoom.pan.y) / (fitted.height * app.call.zoom.by),
+    );
+    let middle = Vector::new(
+        off.x - share_x * fitted.width * by,
+        off.y - share_y * fitted.height * by,
+    );
+    set_zoom(app, by, middle);
+}
+
+/// The zoom bar's own: the picture comes `by` times its room, its middle kept
+/// where it was while it's still larger than the room, and its room's size
+/// again at the first.
+pub(crate) fn zoom_to(app: &mut App, by: f32) {
+    let was = app.call.zoom.by.max(1.0);
+    let middle = app.call.zoom.pan * (by.clamp(1.0, ZOOM_MOST) / was);
+    set_zoom(app, by, middle);
+}
+
+/// The picture as close as `by`, cut at its room with its middle `middle`
+/// from the room's: never further than the room shows it whole, and its
+/// room's size again at the first.
+fn set_zoom(app: &mut App, by: f32, middle: Vector) {
+    use crate::call::Zoom;
+    let Some((room, fitted)) = app.call.zoom_seen.get() else {
+        return;
+    };
+    let by = by.clamp(1.0, ZOOM_MOST);
+    // Nothing of a picture shows in no room at all.
+    if by <= 1.0 || room.width < 1.0 || room.height < 1.0 {
+        app.call.zoom = Zoom::default();
+        return;
+    }
+    // Its own box is what it fills, and never further than that.
+    let (along, down) = (
+        (fitted.width * (by - 1.0) / 2.0).max(0.0),
+        (fitted.height * (by - 1.0) / 2.0).max(0.0),
+    );
+    app.call.zoom = Zoom {
+        by,
+        pan: Vector::new(middle.x.clamp(-along, along), middle.y.clamp(-down, down)),
+    };
+}
+
+/// The same, its bars and its ground in `ground`: a picture standing in on
+/// the ground it shows over takes that ground, so its margins don't read as
+/// a box of their own.
+pub fn frame_in<'a>(
+    app: &'a App,
+    key: &str,
+    corners: Option<(u32, u32)>,
+    ground: Color,
+) -> Option<Element<'a, Message>> {
+    frame_at(app, key, corners, ground, None)
+}
+
+/// The picture of `key` drawn with `corners` round on `behind`, at `zoom`
+/// while it's shown on its own, else fitted as it comes.
+fn frame_at<'a>(
+    app: &'a App,
+    key: &str,
+    corners: Option<(u32, u32)>,
+    ground: Color,
+    zoom: Option<crate::call::Zoom>,
+) -> Option<Element<'a, Message>> {
     app.video.has(key).then(|| {
-        let video = Video::new(&app.video, key, Color::BLACK).scale(app.device_scale());
+        let video = Video::new(&app.video, key, ground).scale(app.device_scale());
         let video = match corners {
             Some((radius, behind)) => video.corners(radius, behind),
+            None => video,
+        };
+        let video = match zoom {
+            Some(zoom) => video.zoom(zoom.by, zoom.pan),
             None => video,
         };
         Element::from(video)
@@ -420,7 +699,7 @@ pub fn call_panel(app: &App) -> Element<'_, Message> {
     } else {
         stage.into()
     };
-    column![line, stage, call_controls(app)]
+    column![line, stage, call_controls(app, ControlsSize::CALL)]
         .height(Length::Fill)
         .into()
 }
@@ -588,7 +867,15 @@ fn stage_at(app: &App, size: Size) -> Element<'_, Message> {
         if bounds.width <= 0.0 || (full && focused != Some(place)) {
             continue;
         }
-        let tile = stage_tile(app, place, *slot, *bounds, focused == Some(place), full);
+        let tile = stage_tile(
+            app,
+            place,
+            *slot,
+            *bounds,
+            focused == Some(place),
+            full,
+            Press::Call,
+        );
         layers = layers.push(pin(tile).x(bounds.x).y(bounds.y));
     }
     let toggle_x = ((size.width - MEMBERS_WIDTH) / 2.0).max(0.0);
@@ -629,7 +916,7 @@ fn has_strip(app: &App) -> bool {
 
 /// The pill toggling the bottom participant strip under a large tile: a
 /// chevron and the users icon on a 60×32 capsule, with its tooltip above.
-fn members_toggle(app: &App) -> Element<'_, Message> {
+pub(crate) fn members_toggle(app: &App) -> Element<'_, Message> {
     let theme = &app.theme;
     let (icon, label) = if crate::call::members_hidden(app) {
         (Icon::ChevronUp, "Show Members")
@@ -673,6 +960,113 @@ fn members_toggle(app: &App) -> Element<'_, Message> {
     .into()
 }
 
+/// What a picture's own window puts in its members' strip: the call's tiles,
+/// the one that window shows large left out, with their places on the stage.
+fn strip_places(app: &App) -> Vec<(usize, Slot)> {
+    let voice = &app.client.state().voice;
+    let large = app.call.popout.as_ref().map(|popout| popout.key.as_str());
+    Stage::of(voice, popped_key(app))
+        .slots()
+        .into_iter()
+        .enumerate()
+        .filter(|(_, slot)| {
+            !large.is_some_and(|key| match *slot {
+                Slot::OwnScreen => key == OWN_SCREEN,
+                Slot::Stream(index) => {
+                    key.strip_prefix("stream:") == Some(voice.participants[index].id.as_str())
+                }
+                Slot::Person(index) => key == voice.participants[index].id,
+            })
+        })
+        .collect()
+}
+
+/// How tall a tile of the members' strip is.
+fn members_tile_height() -> f32 {
+    (MEMBERS_TILE * layout::ASPECT).round()
+}
+
+/// The call's members in a row, as a picture's own window shows them under
+/// it: the stage's tiles, scrolled sideways while the window can't hold them
+/// all; none while the call has no one else in it.
+pub(crate) fn members_strip(app: &App) -> Option<Element<'_, Message>> {
+    let places = strip_places(app);
+    if places.is_empty() {
+        return None;
+    }
+    let strip = Size::new(MEMBERS_TILE, members_tile_height());
+    let window = app.call.popout.as_ref()?.id;
+    let mut tiles = row![].spacing(layout::GAP).align_y(Alignment::Center);
+    for (place, slot) in places {
+        tiles = tiles.push(stage_tile(
+            app,
+            place,
+            slot,
+            Rectangle::new(Point::ORIGIN, strip),
+            false,
+            false,
+            Press::Window(window),
+        ));
+    }
+    // As wide as its tiles, so the middle of the window is where it starts,
+    // and scrolled once they outgrow the window.
+    let tiles = iced::widget::scrollable(tiles)
+        .direction(iced::widget::scrollable::Direction::Horizontal(
+            iced::widget::scrollable::Scrollbar::new()
+                .width(0)
+                .scroller_width(0),
+        ))
+        .width(Length::Shrink)
+        .height(Length::Fixed(strip.height));
+    Some(
+        container(tiles)
+            .width(Length::Fill)
+            .align_x(Alignment::Center)
+            .into(),
+    )
+}
+
+/// The block a picture's own window puts under its picture: the Hide/Show
+/// Members chevron, the call's members in a strip under it while `strip`, and
+/// the call's controls under them — the chevron and the controls alone over
+/// the whole window's picture, under the pointer.
+pub(crate) fn members_block(app: &App, strip: bool) -> Element<'_, Message> {
+    let mut block = column![].push(
+        container(members_toggle(app))
+            .width(Length::Fill)
+            .align_x(Alignment::Center),
+    );
+    if strip && let Some(strip) = members_strip(app) {
+        block = block.push(container(strip).width(Length::Fill).padding(Padding {
+            top: MEMBERS_ROOM,
+            bottom: MEMBERS_ROOM,
+            ..Padding::ZERO
+        }));
+    }
+    block.push(call_controls(app, ControlsSize::WINDOW)).into()
+}
+
+/// How tall [`members_block`] is: the chevron over the strip over the
+/// controls, and the chevron over the controls while the call has nobody else
+/// in it.
+pub(crate) fn members_block_height(app: &App, strip: bool) -> f32 {
+    ControlsSize::WINDOW.height()
+        + MEMBERS_HEIGHT
+        + if strip && !strip_places(app).is_empty() {
+            2.0 * MEMBERS_ROOM + members_tile_height()
+        } else {
+            0.0
+        }
+}
+
+/// Where a tile is drawn: the call's stage, or a picture's window of its own,
+/// whose press shows that picture there.
+#[derive(Clone, Copy)]
+pub(crate) enum Press {
+    Call,
+    Window(window::Id),
+}
+
 /// One tile on the stage.
 fn stage_tile(
     app: &App,
@@ -681,11 +1075,14 @@ fn stage_tile(
     bounds: Rectangle,
     large: bool,
     full: bool,
+    press: Press,
 ) -> Element<'_, Message> {
     let theme = &app.theme;
     let voice = &app.client.state().voice;
     let size = bounds.size();
-    let pointed = app.call.pointed == Some(place);
+    // Full screen the tile is the window: what the pointer does elsewhere
+    // is nothing to say, and its buttons stand over it, the pointer or not.
+    let pointed = full || app.call.pointed == Some(place);
     let corners = (!full).then(|| (tile::RADIUS as u32, rgb(theme.stage)));
     let watch_user = voice
         .watching
@@ -701,12 +1098,24 @@ fn stage_tile(
     let mut viewers = None;
     let mut on_press = Message::Call(Event::Focus(Some(place)));
     let mut right = None;
+    // A picture shown large is the wheel's to bring closer, and the room it
+    // stands in is kept for the turn about the pointer; on a tile of the grid
+    // it comes as it is.
+    let picture = |key: &str| -> Option<Element<'_, Message>> {
+        if !large {
+            return frame(app, key, corners);
+        }
+        app.call
+            .zoom_seen
+            .set(Some((size, fitted_in(app, key, size))));
+        frame_zoom(app, key, corners, Color::BLACK).map(wheeled)
+    };
     let mut tile = match slot {
         Slot::OwnScreen => {
             let sharing = voice.sharing.as_ref();
             let live = sharing.is_some_and(|sharing| sharing.phase == SharePhase::Live);
             let status = share_status(voice);
-            let framed = frame(app, OWN_SCREEN, corners);
+            let framed = picture(OWN_SCREEN);
             let note = (!live && framed.is_some()).then_some(status);
             viewers = sharing.and_then(|sharing| stream_viewers(app, &sharing.viewers, None));
             let content =
@@ -726,7 +1135,7 @@ fn stage_tile(
             let content = if watched {
                 viewers = watch_viewers();
                 stop = Some("Stop watching");
-                frame(app, &format!("stream:{}", person.id), corners)
+                picture(&format!("stream:{}", person.id))
                     .unwrap_or_else(|| tile::note(app.look(), None, watch_status(app)))
             } else {
                 on_press = Message::Call(Event::Watch(person.id.clone()));
@@ -751,19 +1160,21 @@ fn stage_tile(
             right = Some(person.id.clone());
             // Someone who shares without a camera shows the stream in
             // their tile, once it's watched; until then a click watches
-            // it.
-            let streams_here = person.streaming && !person.local && person.video.is_none();
+            // it. A window of its own shows it instead, and their tile
+            // keeps their picture.
+            let streams_here = Stage::of(voice, popped_key(app)).stream_in_tile(person);
             let watched = streams_here && watch_user == Some(person.id.as_str());
             let filmed = person
                 .video
                 .as_ref()
-                .and_then(|_| frame(app, &person.id, corners));
+                .filter(|_| !popped_out(app, &person.id))
+                .and_then(|_| picture(&person.id));
             let (content, ground) = if let Some(filmed) = filmed {
                 (filmed, Color::BLACK)
             } else if watched {
                 viewers = watch_viewers();
                 stop = Some("Stop watching");
-                let content = frame(app, &format!("stream:{}", person.id), corners)
+                let content = picture(&format!("stream:{}", person.id))
                     .unwrap_or_else(|| tile::note(app.look(), None, watch_status(app)));
                 (content, Color::BLACK)
             } else {
@@ -871,21 +1282,40 @@ fn stage_tile(
         } else {
             (Icon::Maximize, "Full screen")
         };
-        tile = tile.bottom_right(tile::glass_button(
+        // The picture out into a window of its own, beside going full screen.
+        let out = tile::glass_button(
             app.look(),
-            icon,
-            label,
-            Message::Call(Event::Full(!full)),
-        ));
+            Icon::Link,
+            "Open in a window",
+            Message::Call(Event::PopoutSlot(slot)),
+        );
+        let size = tile::glass_button(app.look(), icon, label, Message::Call(Event::Full(!full)));
+        tile = tile.bottom_right(row![out, size].spacing(6).into());
+        // The wheel has brought it closer, and the bar says how far and
+        // takes it there, at the other corner.
+        if let Some(bar) = zoom_bar(app) {
+            tile = tile.bottom_left(bar);
+        }
     }
     if large {
         on_press = Message::Nothing;
         tile = tile.on_double(Message::Call(Event::Full(!full)));
     }
     if let (Some(user), Some(room)) = (right, voice.room.clone()) {
-        tile =
-            tile.on_right(move |at| Message::Call(Event::Person(room.clone(), user.clone(), at)));
+        // A window's own press opens the menu there, where the pointer is.
+        tile = tile.on_right(move |at| {
+            Message::Call(match press {
+                Press::Call => Event::Person(room.clone(), user.clone(), at),
+                Press::Window(id) => Event::PersonIn(id, room.clone(), user.clone(), at),
+            })
+        });
     }
+    // In that window a tile shows its picture there, rather than changing
+    // the call's stage behind it.
+    let on_press = match press {
+        Press::Call => on_press,
+        Press::Window(_) => Message::Call(Event::PopoutSlot(slot)),
+    };
     tile.on_press(on_press)
         .on_point(
             Message::Call(Event::Point(place, true)),
@@ -926,8 +1356,8 @@ pub fn stream_viewers<'a>(
 }
 
 /// The call's controls under the stage: mute, deafen, the soundboard, the
-/// camera, share the screen, and leave.
-fn call_controls(app: &App) -> Element<'_, Message> {
+/// camera, share the screen, and leave, at `size`.
+pub(crate) fn call_controls(app: &App, size: ControlsSize) -> Element<'_, Message> {
     let theme = &app.theme;
     let voice = &app.client.state().voice;
     let ready = voice_ready(voice);
@@ -947,9 +1377,9 @@ fn call_controls(app: &App) -> Element<'_, Message> {
     if crate::theme_art::has_gel(app.ctx()) {
         use crate::theme_art::{GelTone, gel_call_button};
         let ctx = app.ctx();
-        let round = (ROUND, ROUND);
+        let round = (size.side, size.side);
         let gel = |icon, label: &'static str, tone, message| {
-            gel_call_button(ctx, icon, ROUND_GLYPH, label, tone, round, message)
+            gel_call_button(ctx, icon, size.glyph, label, tone, round, message)
         };
         let mut row_of = row![].spacing(12).align_y(Alignment::Center);
         row_of = row_of.extend(gel(
@@ -1036,31 +1466,32 @@ fn call_controls(app: &App) -> Element<'_, Message> {
             ROUND_GLYPH,
             "Leave voice",
             GelTone::Danger,
-            (76.0, ROUND),
+            (size.leave, size.side),
             (!leaving).then_some(Message::Call(Event::Leave)),
         ));
         return container(row_of)
             .padding(Padding {
                 top: 8.0,
-                bottom: 16.0,
+                bottom: size.bottom,
                 left: 16.0,
                 right: 16.0,
             })
             .center_x(Length::Fill)
-            .height(CONTROLS_HEIGHT)
+            .height(size.height())
             .into();
     }
     let alert = faded(theme.danger, 0.18);
-    let face = |icon| app.look().glyph(icon, ROUND_GLYPH, theme.text);
+    let face = |icon| app.look().glyph(icon, size.glyph, theme.text);
     let mut controls = row![
-        controls::round_button(
+        controls::round_button_of(
             face(if mic_off { Icon::MicOff } else { Icon::Mic }),
             mic_label,
             if mic_off { alert } else { theme.raised },
+            size.side,
             theme,
             mic_action,
         ),
-        controls::round_button(
+        controls::round_button_of(
             face(if voice.deafened {
                 Icon::HeadphoneOff
             } else {
@@ -1068,6 +1499,7 @@ fn call_controls(app: &App) -> Element<'_, Message> {
             }),
             if voice.deafened { "Undeafen" } else { "Deafen" },
             if voice.deafened { alert } else { theme.raised },
+            size.side,
             theme,
             when(Message::Call(Event::Deafen)),
         ),
@@ -1075,10 +1507,11 @@ fn call_controls(app: &App) -> Element<'_, Message> {
     .spacing(12)
     .align_y(Alignment::Center);
     if voice.soundboard.is_some() {
-        controls = controls.push(app.ctx().spot(controls::round_button(
+        controls = controls.push(app.ctx().spot(controls::round_button_of(
             face(Icon::Soundboard),
             "Open Soundboard",
             theme.raised,
+            size.side,
             theme,
             when(Message::Call(Event::Open(Popup::Soundboard))),
         )));
@@ -1086,7 +1519,7 @@ fn call_controls(app: &App) -> Element<'_, Message> {
     if voice.can_film {
         let on = voice.camera_phase != voice::CameraPhase::Off;
         let starting = voice.camera_phase == voice::CameraPhase::Starting;
-        controls = controls.push(controls::round_button(
+        controls = controls.push(controls::round_button_of(
             face(if on { Icon::Video } else { Icon::VideoOff }),
             if starting {
                 "Starting camera..."
@@ -1100,13 +1533,14 @@ fn call_controls(app: &App) -> Element<'_, Message> {
             } else {
                 theme.raised
             },
+            size.side,
             theme,
             when(Message::Call(Event::Camera)),
         ));
     }
     let sharing = voice.sharing.is_some();
     if can_share(app.ctx()) || sharing {
-        let share = controls::round_button(
+        let share = controls::round_button_of(
             face(if sharing {
                 Icon::ScreenShareOff
             } else {
@@ -1122,6 +1556,7 @@ fn call_controls(app: &App) -> Element<'_, Message> {
             } else {
                 theme.raised
             },
+            size.side,
             theme,
             when(Message::Call(if sharing {
                 Event::StopSharing
@@ -1136,11 +1571,11 @@ fn call_controls(app: &App) -> Element<'_, Message> {
     let opacity = if leaving { 0.5 } else { 1.0 };
     let leave = button(
         app.look()
-            .glyph(Icon::PhoneOff, ROUND_GLYPH, theme.on_danger)
+            .glyph(Icon::PhoneOff, size.glyph, theme.on_danger)
             .boxed(Length::Fill),
     )
-    .width(76)
-    .height(ROUND)
+    .width(size.leave)
+    .height(size.side)
     .padding(0)
     .on_press_maybe((!leaving).then_some(Message::Call(Event::Leave)))
     // In the theme's corners, as Slint's `Look.radius(26px)`: a pill
@@ -1148,7 +1583,7 @@ fn call_controls(app: &App) -> Element<'_, Message> {
     .style(controls::lit_style(
         Some(faded(danger, opacity)),
         faded(danger_hover, opacity),
-        theme.radius(ROUND / 2.0),
+        theme.radius(size.side / 2.0),
     ));
     let leave = iced::widget::tooltip(
         leave,
@@ -1159,12 +1594,12 @@ fn call_controls(app: &App) -> Element<'_, Message> {
     container(controls.push(leave))
         .padding(Padding {
             top: 8.0,
-            bottom: 16.0,
+            bottom: size.bottom,
             left: 16.0,
             right: 16.0,
         })
         .center_x(Length::Fill)
-        .height(CONTROLS_HEIGHT)
+        .height(size.height())
         .into()
 }
 
