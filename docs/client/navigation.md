@@ -108,8 +108,11 @@ Its 2 px stem starts one pixel below the parent row and spans the gaps
 between threads. The arms are 2 px thick and curve into the stem. The
 last arm ends the stem with a taller outer bend. A channel's row under
 the pointer or while selected offers Create invite, to that
-channel, for those who may invite. A capped Discord voice channel shows live
-occupancy and capacity (for example, `3/4`), highlighted when full. A busy
+channel, for those who may invite. A capped Discord voice channel shows
+Discord's limit pill, who is in it against its limit, zero-padded (`03`
+then `04` on a stronger ground), in the subtle ink even when full; not on
+the open channel nor where this account may not connect, a mention badge
+takes its place, and it takes the call's clock's. A busy
 voice channel lists who is in it (the call this
 account is in, in the call's order: this account first; this account in
 the call from another client dimmed until pointed at, without its marks,

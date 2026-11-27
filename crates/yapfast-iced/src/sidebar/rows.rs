@@ -524,7 +524,11 @@ fn room_row(
         muted: room.muted && !room.voice,
         locked: room.locked || room.join_locked,
         voice: room.voice,
-        voice_limit: room.voice_limit.filter(|_| !room.locked),
+        // As Discord's client: not on the open channel, nor where this
+        // account may not connect.
+        voice_limit: room
+            .voice_limit
+            .filter(|_| !selected && !room.locked && !room.join_locked),
         direct: room.direct,
         avatar: room.avatar.clone(),
         group_icon: room_group_icon(room),
