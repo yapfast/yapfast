@@ -122,6 +122,8 @@ pub fn lists_key(state: &yapfast_core::application::AppState, theme: &str) -> u6
     );
     (moving, state.busy, state.online, state.trusted).hash(&mut hasher);
     (state.people_changes, state.reading, theme).hash(&mut hasher);
+    // The DMs someone types in, which their rows show.
+    state.typing_dms.hash(&mut hasher);
     hasher.finish()
 }
 

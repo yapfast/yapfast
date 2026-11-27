@@ -46,10 +46,9 @@ pub const STRIP: f32 = 24.0;
 /// chat's edge, under the avatars; the strip starts at the composer's
 /// gutter.
 pub const EDGE: f32 = 24.0 - crate::composer::GUTTER;
-/// A dot's width, the gap between two, and the three's box.
+/// A dot's width in the strip, and the gap between two.
 const DOT: f32 = 7.0;
 const GAP: f32 = 2.0;
-const DOTS: f32 = 3.0 * DOT + 2.0 * GAP;
 /// From the dots to the words, Discord's 24 px, which puts the words where
 /// the messages' text starts.
 const WORDS_GAP: f32 = 24.0;
@@ -65,6 +64,14 @@ const NOTE_RIGHT: f32 = 16.0 - crate::composer::GUTTER;
 const PULSE: f32 = 1.2;
 const LAG: f32 = 0.15;
 const FRAME: Duration = Duration::from_millis(50);
+/// The typing badge on an avatar, at its stock 16 px dot: Discord's 10 px
+/// status dot drawn two and a half times as wide, in the dot's 3 px ring,
+/// with the dots a quarter of the status dot across each, 1.25 px apart.
+const BADGE_WIDTH: f32 = 31.0;
+const BADGE_HEIGHT: f32 = 16.0;
+const BADGE_RING: f32 = 3.0;
+const BADGE_DOT: f32 = 5.0;
+const BADGE_GAP: f32 = 1.25;
 /// How long a held-back send turns the slowmode's note red.
 const FLASH: Duration = Duration::from_secs(1);
 
@@ -152,6 +159,10 @@ fn line<'a>(ctx: crate::ctx::Ctx<'a>) -> Option<Element<'a, Message>> {
         Dots {
             ink: theme.text,
             plays: ctx.plays,
+            dot: DOT,
+            gap: GAP,
+            height: STRIP,
+            pill: None,
         },
         ctx,
         yapfast_core::themes::package::Slot::Typing,
@@ -275,12 +286,77 @@ pub fn subscription(app: &App) -> Option<Subscription<Message>> {
         .then(|| iced::time::every(Duration::from_secs(1)).map(|_| Message::Nothing))
 }
 
+/// Discord's typing badge on an avatar, in its status dot's place while
+/// someone types (`AvatarStatusTyping`): a pill of `fill`, the status's
+/// colour, ringed in `ring` as the dot is, with the strip's three dots
+/// pulsing in white within, all `scale` times the stock 16 px dot. It's a
+/// layer of the avatar's stack, centred on the dot whose box is 16 px
+/// across at `dot`, and it lays itself out at its own size there, past the
+/// avatar's edge, as the dot's picture draws past it. Like the strip's,
+/// its dots ask for frames only while they're shown and `plays`; a row
+/// shows them only while someone types, so nothing redraws at rest.
+pub fn badge<'a>(
+    fill: Color,
+    ring: Color,
+    plays: bool,
+    scale: f32,
+    dot: iced::Point,
+) -> Element<'a, Message> {
+    let (width, height) = (BADGE_WIDTH * scale, BADGE_HEIGHT * scale);
+    Dots {
+        ink: Color::WHITE,
+        plays,
+        dot: BADGE_DOT * scale,
+        gap: BADGE_GAP * scale,
+        height,
+        pill: Some(Pill {
+            fill,
+            ring,
+            ring_width: BADGE_RING * scale,
+            width,
+            // Centred on the dot, as Discord's widens it either side.
+            at: iced::Point::new(dot.x + 8.0 * scale - width / 2.0, dot.y),
+        }),
+    }
+    .into()
+}
+
 /// Three dots in a row, pulsing in turn while `plays`, as Discord's: each
 /// grows from 80% to full and from a third to full ink and back within
-/// half its 1.2 s, then rests.
+/// half its 1.2 s, then rests. Each is `dot` across, `gap` from the next,
+/// centred in `height`, and in `pill` when it has one.
 struct Dots {
     ink: Color,
     plays: bool,
+    dot: f32,
+    gap: f32,
+    height: f32,
+    pill: Option<Pill>,
+}
+
+/// The pill around the dots on an avatar: `fill` ringed `ring_width` in
+/// `ring`, `width` across and the dots' height tall, at `at` in the
+/// avatar's stack.
+struct Pill {
+    fill: Color,
+    ring: Color,
+    ring_width: f32,
+    width: f32,
+    at: iced::Point,
+}
+
+impl Dots {
+    /// The three's width.
+    fn dots_width(&self) -> f32 {
+        3.0 * self.dot + 2.0 * self.gap
+    }
+
+    /// The width laid out: the pill's, or the three's.
+    fn width(&self) -> f32 {
+        self.pill
+            .as_ref()
+            .map_or_else(|| self.dots_width(), |pill| pill.width)
+    }
 }
 
 struct Started(Instant);
@@ -300,7 +376,7 @@ fn pulse(at: f32) -> f32 {
 
 impl Widget<Message, Theme, Renderer> for Dots {
     fn size(&self) -> Size<Length> {
-        Size::new(Length::Fixed(DOTS), Length::Fixed(STRIP))
+        Size::new(Length::Fixed(self.width()), Length::Fixed(self.height))
     }
 
     fn tag(&self) -> tree::Tag {
@@ -311,22 +387,32 @@ impl Widget<Message, Theme, Renderer> for Dots {
         tree::State::new(Started(Instant::now()))
     }
 
+    /// Its own size, whatever room it's given: the strip has room for it,
+    /// and a pill sits at its place in the avatar's stack, which keeps a
+    /// layer where the layer puts itself.
     fn layout(&mut self, _: &mut Tree, _: &Renderer, _: &layout::Limits) -> layout::Node {
-        layout::Node::new(Size::new(DOTS, STRIP))
+        let node = layout::Node::new(Size::new(self.width(), self.height));
+        match &self.pill {
+            Some(pill) => node.move_to(pill.at),
+            None => node,
+        }
     }
 
     fn update(
         &mut self,
         _tree: &mut Tree,
         event: &iced::Event,
-        _layout: Layout<'_>,
+        layout: Layout<'_>,
         _cursor: mouse::Cursor,
         _renderer: &Renderer,
         _clipboard: &mut dyn Clipboard,
         shell: &mut Shell<'_, Message>,
-        _viewport: &Rectangle,
+        viewport: &Rectangle,
     ) {
+        // Dots scrolled out of sight (a DM row built past the list's
+        // edge) ask for no frames; a scroll that shows them draws again.
         if self.plays
+            && layout.bounds().intersects(viewport)
             && let iced::Event::Window(window::Event::RedrawRequested(now)) = event
         {
             shell.request_redraw_at(*now + FRAME);
@@ -346,17 +432,33 @@ impl Widget<Message, Theme, Renderer> for Dots {
         use iced::advanced::Renderer as _;
         let Started(start) = tree.state.downcast_ref::<Started>();
         let seconds = start.elapsed().as_secs_f32();
-        let bounds = layout.bounds();
+        let mut bounds = layout.bounds();
+        if let Some(pill) = &self.pill {
+            renderer.fill_quad(
+                renderer::Quad {
+                    bounds,
+                    border: iced::Border {
+                        color: pill.ring,
+                        width: pill.ring_width,
+                        radius: (bounds.height / 2.0).into(),
+                    },
+                    ..Default::default()
+                },
+                pill.fill,
+            );
+            // The dots in the pill's middle.
+            bounds.x += (bounds.width - self.dots_width()) / 2.0;
+        }
         for dot in 0..3 {
             let full = if self.plays {
                 pulse(seconds - dot as f32 * LAG)
             } else {
                 1.0
             };
-            let size = DOT * (0.8 + 0.2 * full);
+            let size = self.dot * (0.8 + 0.2 * full);
             let centre = iced::Point::new(
-                bounds.x + dot as f32 * (DOT + GAP) + DOT / 2.0,
-                bounds.y + STRIP / 2.0,
+                bounds.x + dot as f32 * (self.dot + self.gap) + self.dot / 2.0,
+                bounds.y + self.height / 2.0,
             );
             renderer.fill_quad(
                 renderer::Quad {

@@ -137,6 +137,19 @@ taller than the window scrolls, kept inside it. A
 DM's menu mutes it for a time and, for its person, offers what their own
 menu does, with Invite to server and Apps in submenus.
 
+While someone else types in a DM or group DM, its row's avatar shows
+Discord's typing badge in place of the status dot (`typing::badge`): the
+status's colour, or online's green for a group DM, as a pill two and a
+half dots wide in the dot's ring, centred on it and reaching past the
+avatar's edge, with the composer strip's three dots pulsing in white
+within. The core keeps those DMs in `AppState::typing_dms` as each typing
+change comes, so a row looks itself up once. A Discord DM's stays as other
+rooms open, and goes with the account when it's switched or signed out. A
+Matrix one's counts only while its room is open, and goes as it closes,
+since Matrix says who types only there. The dots ask for frames only
+while a row shows them, so a DM list nobody types in draws nothing; while
+moving pictures don't play they stand still.
+
 In a Discord server, channels and categories drag to move them
 (`arrange.rs`): each category and
 each channel showing outside a folded one has a place, as Discord's client
