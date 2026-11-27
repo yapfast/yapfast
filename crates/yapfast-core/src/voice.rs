@@ -105,6 +105,19 @@ pub enum Resolution {
     Source,
 }
 
+impl Resolution {
+    /// The largest outgoing frame. A source of another shape fits inside it.
+    pub const fn bounds(self) -> (u32, u32) {
+        match self {
+            Self::P480 => (854, 480),
+            Self::P720 => (1280, 720),
+            Self::P1080 => (1920, 1080),
+            Self::P1440 => (2560, 1440),
+            Self::P2160 | Self::Source => (3840, 2160),
+        }
+    }
+}
+
 /// Audio shared with Go Live. A window's id means nothing after a restart,
 /// so its application is remembered by its program ([`State::stream_app`]).
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, serde::Deserialize, serde::Serialize)]
@@ -443,9 +456,13 @@ pub enum Command {
     Camera(String),
     /// Turn this account's camera on or off in the call.
     Video(bool),
-    /// Share a screen or window with Discord's Go Live, at this quality,
-    /// which is remembered for next time.
-    GoLive(StreamQuality),
+    /// Share a screen or window with Discord's Go Live.
+    GoLive {
+        /// The quality preference remembered for next time.
+        quality: StreamQuality,
+        /// The resolution applied to this source.
+        effective_resolution: Resolution,
+    },
     /// Change outgoing audio without restarting the video. The choice is
     /// remembered for next time.
     StreamAudio(StreamAudio),

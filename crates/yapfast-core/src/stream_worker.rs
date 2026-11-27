@@ -44,7 +44,7 @@ use crate::{
     frames::{Frames, Writer},
     picture::{I420, Turn},
     stream_audio,
-    voice::{Resolution, StreamAudio, StreamQuality, StreamStats, WatchStats},
+    voice::{StreamAudio, StreamQuality, StreamStats, WatchStats},
 };
 
 /// The argument that starts Yapfast as a stream worker.
@@ -54,11 +54,6 @@ pub const ARGUMENT: &str = "--stream-worker";
 /// so on its reports' line ([`crate::frames::FRAME_LINE`]).
 const FRAME_LINES: &str = "YAPFAST_FRAME_LINES";
 
-/// The largest frame shared at 1080p. Discord's own client trials 1080p at
-/// 30 fps for accounts without Nitro, up to 5 Mbit/s (its "frontier tuning"
-/// experiment); larger screens are scaled down to it.
-pub const SHARE_WIDTH: u32 = 1920;
-pub const SHARE_HEIGHT: u32 = 1080;
 /// The largest preview of the shared screen the UI shows.
 pub const PREVIEW_WIDTH: u32 = 1280;
 pub const PREVIEW_HEIGHT: u32 = 720;
@@ -1200,18 +1195,6 @@ fn test_pattern(
     Ok(())
 }
 
-/// The largest frame shared at `resolution`; screens of another shape fit
-/// inside it.
-fn bounds(resolution: Resolution) -> (u32, u32) {
-    match resolution {
-        Resolution::P480 => (854, 480),
-        Resolution::P720 => (1280, 720),
-        Resolution::P1080 => (SHARE_WIDTH, SHARE_HEIGHT),
-        Resolution::P1440 => (2560, 1440),
-        Resolution::P2160 | Resolution::Source => (3840, 2160),
-    }
-}
-
 /// The size `width` by `height` takes when scaled down to fit `max_width`
 /// by `max_height`, keeping its shape. Codecs want even sizes.
 pub fn fit(width: u32, height: u32, max_width: u32, max_height: u32) -> (u32, u32) {
@@ -1698,7 +1681,7 @@ impl Worker {
         audio: StreamAudio,
     ) -> Result<(Self, Frames, mpsc::UnboundedReceiver<Report>)> {
         let source = picked(source);
-        let (width, height) = bounds(quality.resolution);
+        let (width, height) = quality.resolution.bounds();
         let (preview_width, preview_height) = if enhanced_preview {
             (width, height)
         } else {
@@ -2059,6 +2042,7 @@ impl Drop for Worker {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::voice::Resolution;
 
     #[test]
     fn shows_mobile_streams_upright_when_the_phone_turns() {
@@ -2210,7 +2194,7 @@ mod tests {
             (Resolution::P1440, (2560, 1440)),
             (Resolution::P2160, (3840, 2160)),
         ] {
-            let (width, height) = bounds(resolution);
+            let (width, height) = resolution.bounds();
             assert_eq!(fit(3840, 2160, width, height), expected);
             assert_eq!(fit(640, 360, width, height), (640, 360));
         }
@@ -2279,7 +2263,8 @@ mod tests {
             captured: None,
         };
         // A 1080p picture, mid-grey: luma and chroma halfway.
-        let mut picture = I420Buffer::new(SHARE_WIDTH, SHARE_HEIGHT);
+        let (share_width, share_height) = Resolution::P1080.bounds();
+        let mut picture = I420Buffer::new(share_width, share_height);
         let (y, u, v) = picture.data_mut();
         y.fill(126);
         u.fill(128);
@@ -2299,7 +2284,7 @@ mod tests {
         sink.frame(&mut picture).unwrap();
         assert_eq!(frames.take(|w, h, _| (w, h)), Some((320, 180)));
 
-        let frames = Frames::create(SHARE_WIDTH, SHARE_HEIGHT).unwrap();
+        let frames = Frames::create(share_width, share_height).unwrap();
         frames.want(320, 180);
         sink.writer = Writer::open(&frames.path().unwrap()).unwrap();
         sink.fps = 60;
@@ -2313,7 +2298,7 @@ mod tests {
         sink.frame(&mut picture).unwrap();
         assert_eq!(
             frames.take(|w, h, _| (w, h)),
-            Some((SHARE_WIDTH, SHARE_HEIGHT))
+            Some((share_width, share_height))
         );
     }
 
@@ -2461,7 +2446,8 @@ mod tests {
             lost: None,
             captured: None,
         };
-        let mut picture = I420Buffer::new(SHARE_WIDTH, SHARE_HEIGHT);
+        let (share_width, share_height) = Resolution::P1080.bounds();
+        let mut picture = I420Buffer::new(share_width, share_height);
         let (y, u, v) = picture.data_mut();
         y.fill(16);
         u.fill(128);

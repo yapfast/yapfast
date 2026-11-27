@@ -110,15 +110,10 @@ impl Share {
     }
 
     fn supports(&self, resolution: Resolution) -> bool {
-        let height = match resolution {
-            Resolution::P480 => 480,
-            Resolution::P720 => 720,
-            Resolution::P1080 => 1080,
-            Resolution::P1440 => 1440,
-            Resolution::P2160 => 2160,
-            Resolution::Source => return true,
-        };
-        self.dimensions().is_none_or(|(_, native)| height <= native)
+        resolution == Resolution::Source
+            || self
+                .dimensions()
+                .is_none_or(|(_, native)| resolution.bounds().1 <= native)
     }
 
     fn resolution(&self) -> Resolution {
@@ -133,7 +128,8 @@ impl Share {
         if resolution == Resolution::Source
             && let Some((width, height)) = self.dimensions()
         {
-            let cap = if width > 3840 || height > 2160 {
+            let (max_width, max_height) = resolution.bounds();
+            let cap = if width > max_width || height > max_height {
                 " (up to 4K)"
             } else {
                 ""
@@ -145,6 +141,13 @@ impl Share {
             .find(|(preset, _)| *preset == resolution)
             .map_or("", |(_, label)| *label)
             .into()
+    }
+
+    fn go_live(&self) -> Command {
+        Command::GoLive {
+            quality: self.quality,
+            effective_resolution: self.resolution(),
+        }
     }
 
     /// The settings with a row, in the rows' order: a stream that's live
@@ -510,10 +513,7 @@ pub(in crate::call) fn share_event(app: &mut App, event: ShareEvent) -> Task<Mes
                 yapfast_core::stream_worker::pick(
                     picked.unwrap_or(yapfast_core::stream_worker::Source::Screen),
                 );
-                Some(Command::GoLive(StreamQuality {
-                    resolution: share.resolution(),
-                    ..share.quality
-                }))
+                Some(share.go_live())
             };
             crate::call::popups::close_popup(app);
             if let Some(command) = command {
@@ -884,6 +884,16 @@ mod tests {
         assert!(share.supports(Resolution::P1080));
         assert!(!share.supports(Resolution::P1440));
         assert_eq!(share.resolution(), Resolution::Source);
+        assert!(matches!(
+            share.go_live(),
+            Command::GoLive {
+                quality: StreamQuality {
+                    resolution: Resolution::P1440,
+                    ..
+                },
+                effective_resolution: Resolution::Source,
+            }
+        ));
         share.pick = Some(1);
         assert_eq!(share.resolution(), Resolution::P1440);
     }

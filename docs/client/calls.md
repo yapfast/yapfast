@@ -73,7 +73,8 @@ The call's views and what they do are in `call/`.
   which closes the menu only after. The audio's list scrolls where many
   windows are open. The resolution list shows the selected screen's source
   dimensions when its preview arrives and disables presets above its height.
-  If the saved resolution exceeds that height, the menu uses Source.
+  If the saved resolution exceeds that height, the menu uses Source for
+  that stream and keeps the saved preset for next time.
   The audio chosen is the call's at once and is kept
   for the next start; on Windows an application is kept by its program
   and found again by a window it has as the menu opens, and everything

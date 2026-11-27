@@ -265,7 +265,13 @@ pub fn place_videos(app: &mut App) {
         }
     }
     if let Some(sharing) = &voice.sharing {
-        let visible = shown || corner == Pip::Shared;
+        let in_sight = shown
+            && stage
+                .slot(&Focus::OwnScreen)
+                .and_then(|place| tiles.get(place))
+                .and_then(|&bounds| shown_at(bounds, scrolled, height, scale))
+                .is_some();
+        let visible = in_sight || corner == Pip::Shared;
         sharing
             .frames
             .set_preview_paused(!visible || !app.shell.focused);

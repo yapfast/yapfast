@@ -1475,6 +1475,56 @@ fn everyone_in_a_call_of_nine_shows_by_name_over_the_controls() {
     }
 }
 
+#[test]
+fn the_own_stream_preview_follows_its_tile_and_the_corner() {
+    use crate::call::stage::{self, Focus, OWN_SCREEN, Pip};
+    use std::sync::Arc;
+    use yapfast_core::frames::Frames;
+
+    let (mut app, _folder, _) = in_call();
+    super::change(&mut app, |state| {
+        state.voice.sharing = Some(voice::Sharing {
+            phase: voice::SharePhase::Live,
+            frames: Arc::new(Frames::create(16, 16).unwrap()),
+            viewers: vec![],
+        });
+        let template = state.voice.participants[0].clone();
+        state.voice.participants.extend((0..12).map(|index| {
+            let mut person = template.clone();
+            person.id = format!("person-{index}");
+            person.person = person.id.clone();
+            person.local = false;
+            person.video = None;
+            person.streaming = false;
+            person
+        }));
+    });
+
+    app.call.stage_seen.set(Some(Size::new(640.0, 180.0)));
+    let _ = crate::call::update(&mut app, Event::Focus(None));
+    assert!(app.video.looks_at(OWN_SCREEN));
+    let (_, _, tiles, content) = stage::stage(&app);
+    let scroll = content - stage::stage_size(&app).height;
+    assert!(scroll >= tiles[0].y + tiles[0].height);
+    let _ = crate::call::update(&mut app, Event::Scrolled(scroll));
+    assert!(!app.video.looks_at(OWN_SCREEN));
+    let _ = crate::call::update(&mut app, Event::Scrolled(0.0));
+    assert!(app.video.looks_at(OWN_SCREEN));
+
+    let _ = crate::call::update(&mut app, Event::Focus(Some(2)));
+    assert!(matches!(app.call.focus, Some(Focus::Person(_))));
+    let _ = crate::call::update(&mut app, Event::Full(true));
+    assert!(!app.video.looks_at(OWN_SCREEN));
+    let _ = crate::call::update(&mut app, Event::Focus(Some(0)));
+    assert!(app.video.looks_at(OWN_SCREEN));
+
+    let _ = crate::call::update(&mut app, Event::Full(false));
+    app.client.dispatch(Action::SelectRoom("general".into()));
+    let _ = app.sync();
+    assert_eq!(stage::corner(&app), Pip::Shared);
+    assert!(app.video.looks_at(OWN_SCREEN));
+}
+
 /// Several streams watched at once, as Discord's client allows: one
 /// watched in place of another shows large, one beside it leaves what's
 /// large, one stopped while large leaves the grid; each tile's frames are

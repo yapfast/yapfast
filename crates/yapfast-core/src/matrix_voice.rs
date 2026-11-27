@@ -507,7 +507,7 @@ async fn connected(
                         state.camera_phase = CameraPhase::Off;
                     }
                     Some(Command::StreamAudio(audio)) => { state.share_audio(audio); Chosen::write(remembered, state); },
-                    Some(Command::GoLive(_)) => state.error = Some("Screen sharing works in Discord calls for now.".into()),
+                    Some(Command::GoLive { .. }) => state.error = Some("Screen sharing works in Discord calls for now.".into()),
                     Some(Command::StopLive | Command::SwitchLive | Command::Watch(_) | Command::StopWatching(_) | Command::Soundboard(_) | Command::PreviewSound(_) | Command::FavoriteSound(..) | Command::LeaveStale) => {}
                 },
                 result = camera::opened(&mut opening) => {
