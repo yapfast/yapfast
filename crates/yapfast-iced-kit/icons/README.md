@@ -6,7 +6,7 @@ Bold style unless noted, and run through svgo, which rounds coordinates to two
 decimals. Filled icons are the rule, as in Discord; line icons are kept for
 glyphs such as check, x and chevrons.
 
-- From Solar, unchanged: at-sign (mention-circle), ban (forbidden-circle),
+- From Solar, unchanged: accessibility, at-sign (mention-circle), ban (forbidden-circle),
   bell, bell-off, chart-bar (chart), circle-plus (add-circle), circle-stop
   (stop-circle), clipboard-paste (clipboard), clock (clock-circle), copy,
   copy-plus (copy-add), crown, download (download-minimalistic), ellipsis

@@ -287,7 +287,10 @@ pub(super) fn profile_body<'a>(
             mode.full(),
         ));
     }
-    if mode.large() && !profile.connections.is_empty() {
+    // The floating card shows them too, once Appearance says so.
+    if (mode.large() || (mode == Mode::Card && ctx.layout.prefs.card_connections))
+        && !profile.connections.is_empty()
+    {
         body = body.push(connections(ctx, shown, &inks));
     }
     if mode.large() && look.note_editable {
@@ -532,14 +535,24 @@ pub(super) fn profile_avatar<'a>(
             .height(ring)
             .style(move |_| rounded(ground, ring_radius))
     ];
-    let face: Element<'a, Message> = match profile.avatar.as_deref().and_then(|url| {
+    let at = Rectangle::new(Point::new(6.0, 6.0), Size::new(size, size));
+    let still = profile.avatar.as_deref().and_then(|url| {
         crate::profile::profile_picture(ctx, shown, url, size as u32, size as u32, true)
-    }) {
-        Some(picture) => Pic::new(picture, ring_size)
-            .at(Rectangle::new(Point::new(6.0, 6.0), Size::new(size, size)))
+    });
+    // A Nitro avatar plays while the card is pointed at, as its decoration.
+    let moving = profile
+        .avatar
+        .as_deref()
+        .filter(|_| pointed)
+        .and_then(looks::moving_avatar)
+        .and_then(|url| ctx.moving(&url, ring_size, at, true));
+    let face: Element<'a, Message> = match (moving, still) {
+        (Some(moving), still) => moving.radius(size / 2.0).still(still).into(),
+        (None, Some(picture)) => Pic::new(picture, ring_size)
+            .at(at)
             .radius(size / 2.0)
             .into(),
-        None => container(ctx.avatar(None, &profile.name, size, size / 2.0, 1.0))
+        (None, None) => container(ctx.avatar(None, &profile.name, size, size / 2.0, 1.0))
             .padding(6)
             .into(),
     };

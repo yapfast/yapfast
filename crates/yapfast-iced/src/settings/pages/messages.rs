@@ -1,16 +1,12 @@
 //! Messages: how messages show, the clock and the date.
 
-use iced::{
-    Alignment, Element, Length,
-    widget::{column, container, row, text},
-};
+use iced::{Element, widget::text};
 
-use super::{ANIMATES, Pref, message_size, pref};
+use super::{Pref, message_size, pref};
 use crate::settings::Page;
 use crate::{
     app::Message,
     controls::choices,
-    fonts::BOLD,
     form::{self, switch},
 };
 use yapfast_core::i18n::{self, later, tr};
@@ -25,50 +21,17 @@ impl<'a> Page<'a> {
     pub(in crate::settings) fn messages_page(self) -> Element<'a, Message> {
         let theme = self.cx.look.theme;
         let prefs = &self.cx.layout.prefs;
-        let size = message_size(prefs.text_size);
         let twelve = prefs.twelve_hour_clock;
-        let clock = format!(
-            "{}{}{}",
-            if twelve { "9:41" } else { "21:41" },
-            if prefs.clock_seconds { ":05" } else { "" },
-            if twelve { " PM" } else { "" }
-        );
-        let edge = theme.line;
-        let preview = container(
-            row![
-                container(self.cx.avatar(None, tr("Sam"), 40.0, 20.0, 1.0))
-                    .align_top(Length::Shrink),
-                column![
-                    row![
-                        text(tr("Sam")).size(size).font(BOLD).color(theme.text),
-                        text(clock).size(size - 3.0).color(theme.muted)
-                    ]
-                    .spacing(8)
-                    .align_y(Alignment::Center),
-                    text(tr("Thinking co-op after nine, if people are up for it."))
-                        .size(size)
-                        .color(theme.text)
-                ]
-                .spacing(3)
-                .width(Length::Fill)
-            ]
-            .spacing(16),
-        )
-        .padding(16)
-        .width(Length::Fill)
-        .style(move |_| iced::widget::container::Style {
-            border: crate::style::edge(edge, 8.0),
-            ..Default::default()
-        });
-        let text_size = prefs.text_size.unwrap_or(1).clamp(0, 2) as usize;
+        let preview = self.sample(vec![
+            text(tr("Thinking co-op after nine, if people are up for it."))
+                .size(message_size(prefs))
+                .color(theme.text)
+                .into(),
+        ]);
         let date = prefs
             .date_format
             .and_then(|index| usize::try_from(index).ok())
             .unwrap_or(usize::from(twelve));
-        let animate = ANIMATES
-            .iter()
-            .position(|kind| *kind == prefs.animate)
-            .unwrap_or(0);
         let networks = if cfg!(feature = "matrix") && self.linked() {
             tr("Discord and Matrix show")
         } else if cfg!(feature = "matrix") {
@@ -78,13 +41,7 @@ impl<'a> Page<'a> {
         };
         form::page([
             form::title(theme, tr("Messages")),
-            preview.into(),
-            form::group([
-                form::heading(theme, tr("TEXT SIZE")),
-                choices(theme, &[tr("Small"), tr("Default"), tr("Large")], text_size, |index| {
-                    pref(Pref::TextSize(index))
-                }),
-            ]),
+            preview,
             form::group([
                 form::heading(theme, tr("CLOCK")),
                 choices(theme, &[tr("24-hour"), tr("12-hour")], usize::from(twelve), |index| {
@@ -101,15 +58,6 @@ impl<'a> Page<'a> {
                 choices(theme, &DATE_FORMATS.map(tr), date, |index| {
                     pref(Pref::DateFormat(index))
                 }),
-            ]),
-            form::group([
-                form::heading(theme, tr("PLAY GIFS, EMOJI AND STICKERS")),
-                choices(
-                    theme,
-                    &[tr("While Yapfast is focused"), tr("Always"), tr("Never")],
-                    animate,
-                    |index| pref(Pref::Animate(index)),
-                ),
             ]),
             form::rule(theme),
             self.flip(

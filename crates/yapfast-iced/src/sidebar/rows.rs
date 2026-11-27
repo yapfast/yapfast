@@ -59,6 +59,9 @@ pub struct Room {
     /// A DM with a call going on, and a DM pinned to the top.
     pub call: bool,
     pub pinned: bool,
+    /// A DM someone else is typing in, whose avatar shows Discord's typing
+    /// dots in place of its status dot.
+    pub typing: bool,
     /// A thread under its channel, and whether another of its follows.
     pub thread: bool,
     pub thread_continues: bool,
@@ -581,6 +584,7 @@ fn room_row(
             }),
         call: room.direct && !room.people.is_empty(),
         pinned: room.direct && state.pinned.contains(&room.id),
+        typing: room.direct && state.typing_dms.contains(&room.id),
         thread: room.parent.is_some(),
         thread_continues: false,
         has_threads: false,

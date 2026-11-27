@@ -500,9 +500,10 @@ pub fn windows_command(
     }
     // Inno Setup's own switches: no pages, no message boxes, no restart, and
     // the running program closed (it has quit already, so it's belt and braces).
+    // Skip the startup task so the installer preserves the user's Run entry.
     let log_switch = format!("/LOG={log}");
     Some(format!(
-        "start \"\" /wait {installer} /SILENT /SUPPRESSMSGBOXES /NORESTART /CLOSEAPPLICATIONS {log_switch} & start \"\" {program} & del /q {installer}"
+        "start \"\" /wait {installer} /SILENT /SUPPRESSMSGBOXES /NORESTART /CLOSEAPPLICATIONS /MERGETASKS=\"!startonsignin\" {log_switch} & start \"\" {program} & del /q {installer}"
     ))
 }
 
@@ -518,7 +519,7 @@ pub fn run_installer(installer: &Path, program: &Path, arguments: &[String]) -> 
     ))?;
     // `/S` makes `cmd` strip the outer quotes only, leaving the inner ones.
     std::process::Command::new("cmd.exe")
-        .args(["/D", "/S", "/C"])
+        .args(["/D", "/V:OFF", "/S", "/C"])
         .raw_arg(format!("\"{line}\""))
         .creation_flags(CREATE_NO_WINDOW)
         .stdin(std::process::Stdio::null())
@@ -723,7 +724,7 @@ mod tests {
         .unwrap();
         assert_eq!(
             line,
-            "start \"\" /wait \"C:\\Temp\\yapfast-update\\Setup.exe\" /SILENT /SUPPRESSMSGBOXES /NORESTART /CLOSEAPPLICATIONS /LOG=\"C:\\Temp\\yapfast-update\\Setup.log\" & start \"\" \"C:\\Users\\Jörg Müller\\AppData\\Local\\Programs\\Yapfast\\yapfast.exe\" & del /q \"C:\\Temp\\yapfast-update\\Setup.exe\""
+            "start \"\" /wait \"C:\\Temp\\yapfast-update\\Setup.exe\" /SILENT /SUPPRESSMSGBOXES /NORESTART /CLOSEAPPLICATIONS /MERGETASKS=\"!startonsignin\" /LOG=\"C:\\Temp\\yapfast-update\\Setup.log\" & start \"\" \"C:\\Users\\Jörg Müller\\AppData\\Local\\Programs\\Yapfast\\yapfast.exe\" & del /q \"C:\\Temp\\yapfast-update\\Setup.exe\""
         );
         for odd in [r"C:\100%\yapfast.exe", "C:\\a\"b\\yapfast.exe"] {
             assert_eq!(

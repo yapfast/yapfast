@@ -40,6 +40,7 @@ impl<'a> super::View<'a> {
             .key(Some(&room.id))
             .opacity(opacity)
             .decoration(room.decoration.as_deref(), pointed)
+            .animate(pointed)
             .group(room.group_icon.as_ref().map(GroupIcon::as_face))
             .dot(room.presence.map(|presence| {
                 (
@@ -47,7 +48,13 @@ impl<'a> super::View<'a> {
                     crate::theme::rgb(row_ground),
                     Point::new(20.0, 20.0),
                 )
-            }));
+            }))
+            // Someone else typing here: Discord's dots where the dot goes,
+            // a group DM's too, which has none.
+            .typing(
+                room.typing
+                    .then(|| (crate::theme::rgb(row_ground), Point::new(20.0, 20.0))),
+            );
         let marked = self.cx.themes.marked(
             &theme.id,
             yapfast_core::themes::chrome::Place::Channel,

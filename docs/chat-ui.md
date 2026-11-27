@@ -334,7 +334,7 @@ errors make it taller than the minimum window. SSO and OAuth are still pending.
   still on the frame they were showing, and go on from there when the
   window has the focus again. Animated emoji stop too when nobody has
   touched the window for 15 seconds and while it is minimised, and go on
-  from the frame they stopped on. Settings' "Play GIFs, emoji and stickers",
+  from the frame they stopped on. Accessibility's "Play GIFs, emoji and stickers",
   at Always, plays them unfocused, but not while minimised, and at Never
   keeps them all still. An animated custom emoji plays in message text,
   in its reaction, in the quick reactions over a message and in its menu,
@@ -679,7 +679,7 @@ The window follows Discord's arrangement:
   and whose channel line under them opens the call, as Discord's does (see
   [The call's channel line](discord/voice.md#the-calls-channel-line)); then
   the account panel with avatar, status, mute and deafen during a call, and settings (account,
-  theme, audio devices, message text size, clock, link previews, folding long messages and peeking, notifications,
+  theme, accessibility (text size, reduced motion and animations), audio devices, clock, link previews, folding long messages and peeking, notifications,
   sounds, reconnect, sign out). A caret beside mute and deafen opens a
   device menu (see [Persistent voice channels](voice.md)); the input menu
   shows a local level meter. While you speak in

@@ -570,7 +570,9 @@ pub fn view<'a>(ctx: crate::ctx::Ctx<'a>) -> Element<'a, Message> {
 
 /// The avatar in the green ring while the microphone carries voice, and,
 /// with no Discord presence to show, a dot saying whether the account
-/// syncs: the accent in the preview, green online, grey offline.
+/// syncs: the accent in the preview, green online, grey offline. The ring
+/// goes under the avatar, so the presence dot and its cutout sit over it,
+/// as in Discord.
 fn ring_and_dot<'a>(
     ctx: crate::ctx::Ctx<'a>,
     account: &Account,
@@ -582,7 +584,7 @@ fn ring_and_dot<'a>(
     if account.speaking {
         let ring = theme.live;
         let side = AVATAR + 6.0;
-        layers = layers.push(
+        layers = layers.push_under(
             pin(container(Space::new())
                 .width(side)
                 .height(side)

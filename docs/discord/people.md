@@ -29,6 +29,20 @@ presence, and a crown on whoever made it (the channel's `owner_id`), named
 "Group Owner", as a server's member list crowns its owner. Yapfast downloads the pictures of the first
 150 DMs listed; the rest keep their initials.
 
+While someone other than this account types in a DM or group DM, its row's
+avatar shows typing dots in place of the status dot, as Discord's DM list
+does (its `PrivateChannel` row's `isTyping`, from the `TypingStore`): in a
+one-to-one DM the other person typing, in a group DM anyone but this
+account. Discord colours the pill as the person's status; a group DM's,
+which has no status of its own, is online's green. It shows in muted DMs and
+in the open one too, as Discord's does. TYPING_START comes for every
+channel, so a DM's dots show and stop whatever conversation is open: ten
+seconds after the last, or when that person's message comes. Blocked
+people never light a row here, since Yapfast drops their typing; Discord's
+row still would. Switching or signing out of the account clears every
+Discord DM's dots, as Discord's own list of typers empties when it
+connects.
+
 Friend requests, message requests and spam have their own screen. A
 "Requests" entry below Friends at the top of the DM list opens it in place of the
 conversation, with a badge counting the people waiting for an answer: an
@@ -377,7 +391,12 @@ profile once each time the open DM changes to someone else. Yapfast fetches it
 from `GET /users/{id}/profile` with the open server's id, so the server's
 nickname, avatar, banner, bio and pronouns win over the person's own, and the
 profile lists their roles in role order, when they joined Discord and the server,
-and the servers and friends the account shares with them. The full profile,
+and the servers and friends the account shares with them. It also carries the
+accounts they linked (`connected_accounts`), which the full profile lists under
+Connections. The small card leaves them to the full profile, unless Settings ›
+Appearance's "Show connections on profile cards" is on (off by default): then
+it lists them too, from the same answer, asking for nothing more. The full
+profile,
 the DM's panel and the profile editor's preview show the dates under "Member
 Since" in one row, as the client does: the Discord logo and the account's
 date, then a bullet, the server's icon (its initial without one) and the date
@@ -754,11 +773,11 @@ a PNG: 288 by 288 for a decoration, 448 by 84 or 672 by 126 for a plate. The
 client asks for `/animated`, an APNG, or `/video`, a WebM, and Yapfast
 asks for `/animated` (Discord's own client does on Linux and Safari), when
 the [profile switches](#profile-switches) let them animate, as they do
-unless turned off. A decoration plays on a message while the pointer is on the message that starts
-its group, and on the profile card, in the member list, a DM's row and the
-account card while the pointer is on them. Discord's client plays a chat
-decoration while the pointer is on any message of the group, and a card's
-whenever it's open. A nameplate plays while its row is pointed at, and the
+unless turned off. A decoration plays on a message while the pointer is on
+any message of its group, as in Discord's client (`ANIMATE_CHAT_AVATAR`,
+keyed by the group and its author), and on the profile card, in the member
+list, a DM's row and the account card while the pointer is on them.
+Discord's client plays a card's whenever it's open. A nameplate plays while its row is pointed at, and the
 account card's while the card is; a selected row's holds still, as playing
 costs some 7% of a core for as long as it's selected. Everything holds still when Yapfast's window isn't focused
 (`pictures::plays`), and a surface that stops being pointed at goes back to the
@@ -837,6 +856,30 @@ plays the GIF at the same address once it has come, while animations play
 Settings the GIF isn't asked for. A frame's layers and a moving banner go
 when their card closes, as an effect's pictures do, rather than with the
 next trim.
+
+## Animated avatars
+
+A Nitro avatar, a person's own or one they set for a server, has a hash
+that starts with `a_`, and Discord serves it as a GIF beside the PNG at the
+same address (`looks::moving_avatar`). The GIF plays where Discord's client
+plays it, while the pointer is on it: a message's avatar while any message
+of its group is pointed at, a member list's row, a DM's row, and the
+profile card, the DM's panel and the full profile as their decoration does.
+Discord's client (module `45837` in build 676376) plays one while the
+window has the focus and the pointer is on the avatar, or on its row or
+group while `gifAutoPlay` is on and motion isn't reduced; its profile cards play it whenever they're open, its
+member and DM rows while selected too, and it has no switch for avatars of
+their own. Yapfast plays them as Messages' Play GIFs, emoji and stickers
+says (`pictures::plays`), and Never holds them still; a card plays its
+avatar only while pointed at, and a selected row's holds still, as
+decorations do.
+
+The GIF is asked for only while it's to play (`pictures_shown`), at 128
+pixels as other avatars, and decodes the frame showing; its player, which
+keeps the frames it made within the shared 32 MiB
+(`SHARED_FRAME_CACHE_BYTES`), goes with the first view that no longer plays
+it, so the pointer leaving lets the frames go. The GIF's file and first
+frame then go with the next trim, as an avatar off screen does.
 
 ## Display name styles
 
@@ -1165,9 +1208,11 @@ Disconnects and CLOSE are read while an image lookup is in flight, so closing
 an application restores the previous RPC activity without waiting for HTTP
 or the game detector's next scan. Completed clients are removed before queued
 updates are applied. If no RPC activity remains, the process detector verifies
-its fallback immediately; a closed application needs no second periodic scan
-before another running application takes its place. Local cards follow this,
-subject to the snapshot publisher's 100 ms batching; sending the update to other users still
+its fallback immediately, and what shows stays until that scan replaces
+it. A closed application needs no second periodic scan before another running
+application takes its place. The local Playing label is reserved for
+activities of type Playing. Local cards follow these changes with the snapshot publisher's
+100 ms batching. Sending the update to other users still
 obeys the Gateway limit of five presence updates per 20 seconds. At most four
 commands and 64 KiB of payload wait behind an in-flight lookup per client;
 exceeding that bound closes the connection.
@@ -1245,7 +1290,9 @@ rules that need arguments. It never reads CPU, memory, environments or
 threads, and drops the process list after each scan. A process seen before and unchanged
 isn't matched again. Wine and Proton processes match by the Windows program
 in their command line, and runtime helpers, crash reporters and anti-cheat
-services don't count. The game started last shows and stays while it runs.
+services don't count. Automatic detection also skips Wallpaper Engine's
+executables and processes running from its `wallpaper_engine` folder.
+The game started last shows and stays while it runs.
 One that ended clears after two scans without it, up to 30 s. Only the
 game's name, its application id and when it started go to Discord.
 

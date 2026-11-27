@@ -257,6 +257,49 @@ fn the_search_popout_answers_a_filter_and_keeps_the_search_in_history() {
     );
 }
 
+/// The popout suggests the places the word names, as the regular client's
+/// box does, and picking one jumps there and ends the search instead of
+/// looking for messages. Enter alone still searches.
+#[test]
+fn the_search_popout_suggests_places_and_a_pick_jumps_to_one() {
+    use crate::search::Event;
+    use crate::search_popout::{self, PopoutEvent, Row, Shown};
+    let (mut app, _folder) = in_general();
+    in_search_box(&mut app, &|ui| {
+        ui.typewrite("lou");
+    });
+    // Where the box lies, which the popout hangs under.
+    app.searching.spot.set(iced::Rectangle::new(
+        iced::Point::new(600.0, 8.0),
+        iced::Size::new(240.0, 28.0),
+    ));
+    assert!(search_popout::open(&app.searching), "open while typing");
+    assert!(shows(&app, "Jump to"), "the suggestions lead");
+    assert!(shows(&app, "Channel"), "the place's kind beside it");
+    let state = app.client.state();
+    let Some(Shown::Rows(groups)) = search_popout::shown(&app.searching, state, &[]) else {
+        panic!("rows");
+    };
+    assert!(
+        matches!(&groups[0].rows[0], Row::Jump { name, .. } if name == "Lounge"),
+        "the place first"
+    );
+    assert!(
+        matches!(&groups[1].rows[0], Row::SearchFor(query) if query == "lou"),
+        "the search under it"
+    );
+    assert_eq!(app.searching.lit, None, "Enter still searches");
+    let _ = app.update(Message::Search(Event::Popout(PopoutEvent::Pick(0))));
+    let state = app.client.state();
+    assert_eq!(
+        state.selected.as_deref(),
+        Some("discord:10:14"),
+        "it went there"
+    );
+    assert_eq!(app.searching.text, "", "the search ended");
+    assert!(state.search_shown().is_none(), "no message search ran");
+}
+
 /// The box's filters as Discord's pills: keys and list-picked answers go
 /// whole under Backspace; a person's name is edited a letter at a time.
 #[test]

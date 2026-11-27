@@ -338,6 +338,15 @@ pub fn animated_url(url: &str) -> String {
     }
 }
 
+/// The address of a Nitro avatar's GIF: Discord serves an avatar whose hash
+/// starts with `a_` as a GIF beside its PNG, a person's own or one they set
+/// for a server. None for any other picture, a still avatar's included.
+pub fn moving_avatar(url: &str) -> Option<String> {
+    url.contains("/avatars/")
+        .then(|| yapfast_core::chat::moving_banner(url))
+        .flatten()
+}
+
 /// A display name style, on a dark or a light theme.
 #[derive(Clone, Debug, PartialEq)]
 pub struct NameLook {
@@ -702,6 +711,32 @@ mod tests {
     };
 
     use super::{MemberLine, member_lines};
+
+    /// A Nitro avatar's GIF is at its PNG's address, for a person's own
+    /// avatar or a server's; a still avatar, a banner or a server icon has
+    /// none.
+    #[test]
+    fn only_a_nitro_avatar_has_a_moving_one() {
+        let cdn = "https://cdn.discordapp.com";
+        assert_eq!(
+            super::moving_avatar(&format!("{cdn}/avatars/5/a_abc.png?size=128")),
+            Some(format!("{cdn}/avatars/5/a_abc.gif?size=128"))
+        );
+        assert_eq!(
+            super::moving_avatar(&format!(
+                "{cdn}/guilds/1/users/5/avatars/a_abc.png?size=128"
+            )),
+            Some(format!("{cdn}/guilds/1/users/5/avatars/a_abc.gif?size=128"))
+        );
+        for still in [
+            format!("{cdn}/avatars/5/abc.png?size=128"),
+            format!("{cdn}/embed/avatars/2.png"),
+            format!("{cdn}/banners/5/a_abc.png?size=600"),
+            format!("{cdn}/icons/1/a_abc.png?size=128"),
+        ] {
+            assert_eq!(super::moving_avatar(&still), None, "{still}");
+        }
+    }
 
     /// A gradient role name runs from its colour at the first letter to
     /// the second at the last.

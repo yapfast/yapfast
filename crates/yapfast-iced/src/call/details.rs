@@ -61,6 +61,8 @@ pub enum LinkEvent {
     Pointed(bool),
     Tab(Tab),
     Copy,
+    /// Everything the details show, as text for a bug report.
+    Diagnostics,
     CopiedDone,
 }
 
@@ -98,6 +100,27 @@ pub(super) fn link_event(app: &mut App, event: LinkEvent) -> Task<Message> {
             app.call.details.copied = true;
             return Task::batch([
                 iced::clipboard::write(code.join(" ")),
+                crate::after(
+                    COPIED_FOR,
+                    Message::Call(Event::Link(LinkEvent::CopiedDone)),
+                ),
+            ]);
+        }
+        // Read from the call as it is now, not the copy the tab shows.
+        LinkEvent::Diagnostics => {
+            let Some(stats) = app
+                .client
+                .state()
+                .voice
+                .link
+                .as_ref()
+                .map(|link| link.read())
+            else {
+                return Task::none();
+            };
+            app.call.details.copied = true;
+            return Task::batch([
+                iced::clipboard::write(words::diagnostics(&app.build.summary, &stats)),
                 crate::after(
                     COPIED_FOR,
                     Message::Call(Event::Link(LinkEvent::CopiedDone)),
@@ -275,7 +298,7 @@ pub(super) fn link_card<'a>(ctx: crate::ctx::Ctx<'a>) -> Element<'a, Message> {
     let empty = LinkStats::default();
     let stats = details.stats.as_ref().unwrap_or(&empty);
     let code = privacy_code(ctx);
-    let streaming = stats.stream.is_some();
+    let streaming = stats.stream.is_some() || stats.watching.is_some();
     // Connection shows while the one picked isn't there.
     let shown = match details.tab {
         Tab::Privacy if code.is_some() => Tab::Privacy,
@@ -405,26 +428,45 @@ fn connection_page<'a>(ctx: crate::ctx::Ctx<'a>, stats: &LinkStats) -> Element<'
         .into()
 }
 
+/// The Stream tab: how the screen this account shares goes out, how the
+/// stream it watches comes in, each under its name when there are both, and
+/// a button that copies it all for a bug report.
 fn stream_page<'a>(ctx: crate::ctx::Ctx<'a>, stats: &LinkStats) -> Element<'a, Message> {
-    let Some(stream) = &stats.stream else {
-        return Space::new().into();
-    };
-    column![
-        detail_row(ctx, tr("Encoder:"), words::encoder(&stream.engine)),
-        detail_row(ctx, tr("Codec:"), stream.codec.clone()),
-        detail_row(ctx, tr("Resolution:"), words::picture(stream)),
-        detail_row(ctx, tr("Sending:"), words::rate(stream.sent_kbps)),
-        detail_row(ctx, tr("Aiming for:"), words::rate(stream.target_kbps)),
-        detail_row(
-            ctx,
-            tr("Keyframes viewers asked for:"),
-            stream.keyframe_requests.to_string()
+    let theme = ctx.look.theme;
+    let both = stats.stream.is_some() && stats.watching.is_some();
+    let sections = [
+        (tr("Sharing"), stats.stream.as_ref().map(words::sharing_rows)),
+        (
+            tr("Watching"),
+            stats.watching.as_ref().map(words::watching_rows),
         ),
-        detail_row(ctx, tr("Packets resent:"), stream.resent.to_string()),
-        detail_note(tr(STREAM_NOTE).to_owned(), ctx.look.theme.muted),
-    ]
-    .spacing(8)
-    .into()
+    ];
+    let mut page = column![].spacing(8);
+    for (title, rows) in sections {
+        let Some(rows) = rows else { continue };
+        if both {
+            page = page.push(text(title).size(15).font(BOLD).color(theme.text));
+        }
+        for (label, value) in rows {
+            page = page.push(detail_row(ctx, label, value));
+        }
+    }
+    if stats.stream.is_some() {
+        page = page.push(detail_note(tr(STREAM_NOTE).to_owned(), theme.muted));
+    }
+    let copy = controls::action(
+        theme,
+        if ctx.call.details.copied {
+            tr("Copied")
+        } else {
+            tr("Copy diagnostics")
+        },
+        Kind::Plain,
+        Some(Message::Call(Event::Link(LinkEvent::Diagnostics))),
+    )
+    .small()
+    .icon(ctx.look.icon(Icon::Copy, 16, crate::theme::rgb(theme.text)));
+    page.push(container(copy).center_x(Length::Fill)).into()
 }
 
 fn privacy_page<'a>(ctx: crate::ctx::Ctx<'a>, code: Vec<String>) -> Element<'a, Message> {

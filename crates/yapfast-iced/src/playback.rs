@@ -523,7 +523,7 @@ pub fn voice_card<'a>(
         .is_some_and(|(open, count)| open == item && *count > 0);
     if ctx.pointed.voice.as_ref() == Some(item)
         || volume_open
-        || ctx.layout.prefs.animate == crate::layout::Animate::Never
+        || ctx.layout.animate() == crate::layout::Animate::Never
     {
         let tuning = state.voice_tuning;
         let (rest, lit, text_ink) = (theme.raised, theme.hover, theme.text);

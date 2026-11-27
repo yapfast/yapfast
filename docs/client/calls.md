@@ -28,7 +28,14 @@ The call's views and what they do are in `call/`.
   `tile::Tile`: a camera, a stream or the avatar (a camera shows the
   avatar until its first frame, and keeps its last if frames stop), a green ring while the
   person speaks, their name and marks, LIVE and how many watch. A stream
-  not watched offers Watch stream; a watched one shows large with Stop
+  not watched offers Watch stream, and while another is watched the eye
+  with a plus beside it (Start watching multiple streams), which watches
+  it beside the others; a plain click watches it in place of the one
+  watched, unless two or more are, and Shift and a click beside them
+  ([Go Live](../discord/go-live.md)). Each watched stream keeps its own
+  tile, with its own Stop watching under the pointer, and its pictures are
+  looked for only while the tile is in sight. A watched one shows large
+  with Stop
   watching and the full-screen button under the pointer, and a double click
   goes full screen too, the stage over the whole window and the window
   full screen on the desktop until Escape, the button, a double click, or
@@ -95,8 +102,11 @@ The call's views and what they do are in `call/`.
   ping and the packets lost; Privacy, while the call is end-to-end
   encrypted with someone else in it, the voice privacy code in groups of
   five with Copy; Stream, while this account's screen is live, its
-  encoder, codec, size, bitrate sent and aimed for, keyframes asked for and
-  packets resent; and how the call is secured. What they show is copied
+  encoder, codec, what's captured, size, bitrate sent and aimed for,
+  keyframes asked for and packets sent and resent, and while it watches
+  streams, the first one's decoder, codec, size, bitrate received, packets lost and
+  resent and frames dropped, with "Copy diagnostics" for all of it as text;
+  and how the call is secured. What they show is copied
   out of the call only while they or the tooltip show, again each second.
   Their words and graph are the core's `call_details`.
 - A DM's call (`call/dm.rs`) shows above its messages, taking more room
@@ -108,7 +118,7 @@ The call's views and what they do are in `call/`.
   switching calls asks first (Escape cancels, Enter confirms). The DM's
   header starts a call or a video call, its buttons greyed while the call
   can't be joined (Discord offline, another call joining or leaving).
-- While the call isn't on screen, the stream watched, this account's
+- While the call isn't on screen, the stream watched last, this account's
   screen or a camera stays in a corner of the window (`call/corner.rs`),
   its title and stop under the pointer; a click returns to the call, a
   drag moves it to the nearest corner. A drag at its grip, the corner of

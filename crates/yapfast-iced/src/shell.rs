@@ -137,6 +137,23 @@ pub enum Event {
     Zoom(keyboard::Key, key::Physical),
     /// Ctrl and the wheel.
     ZoomStep(zoom::Step),
+    /// Whether the desktop asks for reduced motion, as read off the
+    /// window's thread; none where it doesn't say.
+    SystemMotion(Option<bool>),
+}
+
+/// Reads whether the desktop asks for reduced motion, off the window's
+/// thread, as its settings may take a moment over D-Bus.
+pub fn read_system_motion() -> Task<Message> {
+    Task::perform(
+        async {
+            tokio::task::spawn_blocking(|| desktop::desktop().reduced_motion())
+                .await
+                .ok()
+                .flatten()
+        },
+        |reduce| Message::Shell(Event::SystemMotion(reduce)),
+    )
 }
 
 impl App {
@@ -206,7 +223,14 @@ impl App {
                     return crate::peek::follow(self);
                 }
                 if focused {
-                    return window::request_user_attention(id, None);
+                    // The desktop's reduced motion may have changed while
+                    // Yapfast was in the background.
+                    let motion = if self.layout.sync_reduced_motion {
+                        read_system_motion()
+                    } else {
+                        Task::none()
+                    };
+                    return Task::batch([window::request_user_attention(id, None), motion]);
                 }
                 window::is_minimized(id)
                     .map(|min| Message::Bar(crate::window_bar::Event::Minimized(min)))
@@ -299,6 +323,16 @@ impl App {
             Event::GlassBaked(baked) => {
                 if let Some(baked) = baked {
                     self.themes.glass_baked(baked);
+                }
+                Task::none()
+            }
+            Event::SystemMotion(reduce) => {
+                if let Some(reduce) = reduce
+                    && reduce != self.layout.system_reduced_motion
+                {
+                    tracing::info!(reduce, "the desktop's reduced motion");
+                    let mut cx = crate::ctx::cx!(self);
+                    crate::settings::system_motion(&mut cx, reduce);
                 }
                 Task::none()
             }

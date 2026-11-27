@@ -844,6 +844,10 @@ pub fn profile_pictures(ctx: crate::ctx::Ctx<'_>) -> Vec<String> {
         urls.extend(decoration.map(str::to_owned));
         if pointed || shown.look.view.large {
             urls.extend(decoration.map(looks::animated_url));
+            // A Nitro avatar's GIF, only while it would play.
+            if ctx.plays {
+                urls.extend(profile.avatar.as_deref().and_then(looks::moving_avatar));
+            }
         }
         urls.extend(cosmetic::effect_pictures(state, shown, pointed));
         urls.extend(cosmetic::frame_pictures(state, shown));

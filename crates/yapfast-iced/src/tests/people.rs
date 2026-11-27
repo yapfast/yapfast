@@ -1640,3 +1640,53 @@ fn someone_in_voice_wears_their_server_tag() {
     assert!(shows(&app, "Riley"), "Riley under Party");
     assert!(shows(&app, "GUYS"), "with her server tag");
 }
+
+#[test]
+fn a_nitro_avatar_in_the_member_list_plays_only_while_its_row_is_pointed_at() {
+    let (mut app, _folder) = preview();
+    let still = "https://cdn.discordapp.com/avatars/3/a_riley.png?size=128";
+    let gif = "https://cdn.discordapp.com/avatars/3/a_riley.gif?size=128";
+    let party = super::animated_emoji();
+    let mut riley = String::new();
+    change(&mut app, |state| {
+        for members in state.members.iter_mut().flatten() {
+            for member in Arc::make_mut(members).iter_mut() {
+                if member.name == "Riley" {
+                    member.avatar = Some(still.into());
+                    riley = member.id.clone();
+                }
+            }
+        }
+        state.pictures.insert(gif.into(), party.clone());
+    });
+    app.show_roster(false);
+    app.layout.prefs.animate = crate::layout::Animate::Always;
+    let plays = |app: &App| {
+        super::redraw(app);
+        let at = Arc::as_ptr(&party) as usize;
+        app.win
+            .pictures
+            .players
+            .keys()
+            .iter()
+            .any(|key| key.0 == at)
+    };
+    let wanted = |app: &App| app.pictures_shown(false).iter().any(|url| url == gif);
+    assert!(
+        !wanted(&app) && !plays(&app),
+        "held still and not asked for"
+    );
+    let _ = app.update(Message::Members(crate::members::Event::Point(
+        riley.clone(),
+        true,
+    )));
+    assert!(wanted(&app), "asked for while pointed at");
+    assert!(plays(&app), "playing while pointed at");
+    // Animate's Never holds it still, and nothing asks for it.
+    app.layout.prefs.animate = crate::layout::Animate::Never;
+    assert!(!wanted(&app) && !plays(&app));
+    app.layout.prefs.animate = crate::layout::Animate::Always;
+    let _ = app.update(Message::Members(crate::members::Event::Point(riley, false)));
+    assert!(!wanted(&app), "let go once the pointer leaves");
+    assert!(!plays(&app), "and its player with it");
+}

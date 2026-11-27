@@ -186,18 +186,25 @@ opt-level = 3
 [profile.dev.package.rustfft]
 opt-level = 3
 
-# No LTO: on one source, thin LTO grew the Linux binary from 216.5 MiB to
-# 226.6 (zstd 60.8 to 63.1) and the Windows installer from 57.0 MiB to 60.8,
-# by inlining more, for CPU and memory that measured the same. "off", as
-# false still runs LTO within each crate.
+# Thin LTO with one codegen unit per crate. On one source, on Linux, it took
+# the stripped binary from 131.0 MiB to 115.9 (zstd 43.6 to 42.7) and the
+# cold build from 5 min 39 s to 11 min 19 s. Thin LTO with the default 16
+# units had made the binary bigger. No panic = "abort": the catch_unwind
+# guards around theme fonts and sounds need unwinding.
 [profile.release]
-lto = "off"
+codegen-units = 1
+lto = "thin"
 strip = true
 
 # Optimized like release, with symbols and incremental builds: for
-# measurements and profiling. Builds people use stay release.
+# measurements and profiling. Builds people use stay release. LTO and codegen
+# units stay as they were, so local builds stay quick: "off", as false still
+# runs LTO within each crate, and 256 is rustc's default for incremental
+# builds.
 [profile.measure]
 inherits = "release"
+codegen-units = 256
+lto = "off"
 strip = false
 incremental = true
 

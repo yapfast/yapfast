@@ -23,6 +23,21 @@ fn a_channel_clicked_in_the_list_opens() {
 }
 
 #[test]
+fn a_short_server_rail_recovers_from_a_stale_viewport() {
+    let (mut app, _folder) = preview();
+    // A newly laid out rail can still carry the old window's scroll offset.
+    app.rail.scroll.offset = 2000.0;
+    assert!(!shows(&app, "CC"));
+    interact(&mut app, |ui| {
+        ui.simulate([iced::Event::Window(iced::window::Event::RedrawRequested(
+            std::time::Instant::now(),
+        ))]);
+    });
+    assert_eq!(app.rail.scroll.offset, 0.0);
+    assert!(shows(&app, "CC"), "the Co-op crew server tile");
+}
+
+#[test]
 fn an_unread_dm_shows_on_the_rail_above_the_servers_and_opens() {
     use crate::rail::{Event, Kind};
     let (mut app, _folder) = preview();
@@ -551,6 +566,59 @@ fn the_account_cards_avatar_rings_while_its_microphone_carries_voice() {
 }
 
 #[test]
+fn the_account_cards_presence_dot_sits_over_the_speaking_ring() {
+    use yapfast_core::voice::{Participant, Phase};
+    let (mut app, _folder) = preview();
+    phase(&mut app, Phase::Connected);
+    change(&mut app, |state| {
+        state.preview = false;
+        state.discord_online = true;
+        state.discord_presence = Some("dnd".into());
+        state.voice.participants = vec![Participant {
+            id: "me".into(),
+            user: "me".into(),
+            person: "me".into(),
+            local: true,
+            muted: false,
+            deafened: false,
+            server_muted: false,
+            speaking_blocked: false,
+            server_deafened: false,
+            speaking: true,
+            connected: true,
+            problem: None,
+            streaming: false,
+            video: None,
+            avatar: None,
+        }];
+    });
+    assert!(app.ctx().account.speaking, "the ring is on");
+    let (width, _, pixels) = super::drawn(&mut account_card(&app));
+    let scale = 2.0;
+    let live = app.look().theme.live;
+    let green = |x: f32, y: f32| {
+        let at = (((y * scale) as usize) * width as usize + (x * scale) as usize) * 4;
+        let drawn = &pixels[at..at + 3];
+        let near = |drawn: u8, want: f32| (drawn as f32 / 255.0 - want).abs() < 0.1;
+        near(drawn[0], live.r) && near(drawn[1], live.g) && near(drawn[2], live.b)
+    };
+    // The avatar is 16 px in, centred down the card; its dot's 16 px sit
+    // 26 px into it, where the ring crosses its lower right.
+    let top = (crate::account::HEIGHT - 40.0) / 2.0;
+    assert!(
+        green(13.5, top + 20.0),
+        "the ring still shows left of the avatar"
+    );
+    for step in 29..=39 {
+        let t = step as f32;
+        assert!(
+            !green(16.0 + t, top + t),
+            "the ring shows through the dot {t} px into the avatar"
+        );
+    }
+}
+
+#[test]
 fn the_account_cards_avatar_opens_the_status_popover_only_with_discord_linked() {
     let (mut app, _folder) = preview();
     let click_avatar = |app: &App| -> Vec<Message> {
@@ -665,6 +733,85 @@ fn a_dms_nameplate_fills_its_row_to_the_edges() {
     assert_eq!(red(right - 20.0), 42.0);
     assert!(red(right - 3.0) >= 39.0, "to the edge");
     assert_eq!(red(right + 2.0), 0.0, "and no further");
+}
+
+#[test]
+fn a_dm_someone_types_in_shows_typing_dots_in_place_of_its_status_dot() {
+    use yapfast_core::chat::Presence;
+    let (mut app, _folder) = preview();
+    // Still dots, so one pixel says which is drawn.
+    app.layout.prefs.animate = crate::layout::Animate::Never;
+    let _ = app.update(Message::Rail(crate::rail::Event::Home));
+    // Sam is online; someone types in their DM or doesn't.
+    let typing = |app: &mut App, typing: bool| {
+        change(app, |state| {
+            let room = state
+                .rooms
+                .iter_mut()
+                .find(|room| room.direct && room.name == "Sam")
+                .expect("Sam's DM");
+            Arc::make_mut(room).presence = Some(Presence::Online);
+            let id = room.id.clone();
+            if typing {
+                state.typing_dms.insert(id);
+            } else {
+                state.typing_dms.remove(&id);
+            }
+        });
+    };
+    // Pixels at `x` across the avatar's middle row of the dot, 28 px down
+    // its 32 px face, which sits 12 px before the name and centred on it.
+    // The dot's middle is at 28; the badge, 31 px wide with its 3 px ring,
+    // is centred there, from 12.5 to 43.5.
+    let pixels_at = |app: &mut App, xs: &[f32]| {
+        let mut ui =
+            iced_test::Simulator::with_size(iced::Settings::default(), app.shell.frame, app.view());
+        let name = ui
+            .find("Sam")
+            .expect("Sam's row")
+            .visible_bounds()
+            .expect("in view");
+        let (left, y) = (name.x - 12.0 - 32.0, name.center_y() - 16.0 + 28.0);
+        let (width, _, pixels) = super::drawn(&mut ui);
+        xs.iter()
+            .map(|x| {
+                let at = (((y * 2.0) as usize) * width as usize + ((left + x) * 2.0) as usize) * 4;
+                [pixels[at], pixels[at + 1], pixels[at + 2]]
+            })
+            .collect::<Vec<_>>()
+    };
+    let live = app.look().theme.live;
+    let near = |drawn: u8, want: f32| (drawn as f32 / 255.0 - want).abs() < 0.08;
+    let green =
+        |pixel: [u8; 3]| near(pixel[0], live.r) && near(pixel[1], live.g) && near(pixel[2], live.b);
+    // In the pill's fill each side of the dots (its ring ends at 15.5 and
+    // 40.5, the dots run 19.25 to 36.75), the middle dot, and past it.
+    let xs = [17.0, 28.0, 39.0, 45.0];
+    typing(&mut app, false);
+    let at_rest = pixels_at(&mut app, &xs);
+    assert!(green(at_rest[1]), "the online dot: {:?}", at_rest[1]);
+    typing(&mut app, true);
+    let typing_now = pixels_at(&mut app, &xs);
+    assert!(
+        typing_now[1].iter().all(|&channel| channel > 230),
+        "the badge's white middle dot: {:?}",
+        typing_now[1]
+    );
+    // The pill's green each side of the dots, as wide as Discord's, and
+    // the row's own ground past its end, as at rest.
+    assert!(green(typing_now[0]), "the pill's left: {:?}", typing_now[0]);
+    assert!(
+        green(typing_now[2]),
+        "the pill's right: {:?}",
+        typing_now[2]
+    );
+    assert_eq!(typing_now[3], at_rest[3], "the row past the pill");
+    typing(&mut app, false);
+    assert_eq!(
+        pixels_at(&mut app, &xs),
+        at_rest,
+        "the dot again once they stop"
+    );
 }
 
 #[test]

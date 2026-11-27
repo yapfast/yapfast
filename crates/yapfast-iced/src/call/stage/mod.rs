@@ -24,7 +24,7 @@ use crate::{
     video::{self, Video},
     widgets::Spot,
 };
-use yapfast_core::i18n::{self, tr};
+use yapfast_core::i18n::{self, later, tr};
 
 mod layout;
 pub use layout::{
@@ -38,6 +38,9 @@ pub const CONTROLS: f32 = 111.0;
 const CHIP_ROOM: f32 = 40.0;
 /// How wide the Watch stream pill draws, its 13 px bold words and padding.
 const WATCH_PILL: f32 = 112.0;
+/// What Start watching multiple streams takes beside it: its 32 px button
+/// and the gap.
+const ALONGSIDE: f32 = 40.0;
 
 /// About how wide a tile's name chip draws: 14 px bold, a mark's 20 px each,
 /// LIVE's 44, and its padding. Enough to tell whether Watch stream fits
@@ -154,21 +157,18 @@ pub fn corner(app: &App) -> Pip {
     {
         return Pip::None;
     }
-    let watching = voice
+    let watching: Vec<&str> = voice
         .watching
-        .as_ref()
-        .map(|watching| watching.user.as_str());
-    Stage::of(voice).pip(app.call.focus.as_ref(), watching)
+        .iter()
+        .map(|watching| watching.user.as_str())
+        .collect();
+    Stage::of(voice).pip(app.call.focus.as_ref(), &watching)
 }
 
 /// The corner's tile, by its place on the stage.
 pub fn corner_place(app: &App) -> Option<usize> {
     let voice = &app.client.state().voice;
-    let watching = voice
-        .watching
-        .as_ref()
-        .map(|watching| watching.user.as_str());
-    Stage::of(voice).pip_slot(corner(app), watching)
+    Stage::of(voice).pip_slot(corner(app))
 }
 
 /// A tile shown large that's gone (its stream ended, they left) shows
@@ -190,8 +190,10 @@ pub fn keep_focus(app: &mut App) {
 /// Tells each camera where its tile shows, or that it doesn't, so frames
 /// are made only for tiles in sight, at their size, and whether it's
 /// large; and has [`video::frames`] look for frames from those that
-/// show: cameras, the stream watched, the screen shared, a message's
-/// video. With the call off screen, the corner's shows there.
+/// show: cameras, each stream watched whose tile is in sight, the screen
+/// shared, a message's video. With the call off screen, the corner's
+/// shows there. A stream watched that shows nowhere has its frames left
+/// untaken, so its worker makes it no pictures.
 pub fn place_videos(app: &mut App) {
     let shown = stage_shown(app);
     let (slots, focused, tiles, content) = stage(app);
@@ -241,13 +243,27 @@ pub fn place_videos(app: &mut App) {
             sources.feeds.push((person.id.clone(), feed.clone()));
         }
     }
-    if (shown || corner == Pip::Watched)
-        && let Some(watching) = &voice.watching
-        && let Some(frames) = &watching.frames
-    {
-        sources
-            .mapped
-            .push((format!("stream:{}", watching.user), frames.clone()));
+    let stage = Stage::of(voice);
+    for watching in &voice.watching {
+        let Some(frames) = &watching.frames else {
+            continue;
+        };
+        let streamer = voice
+            .participants
+            .iter()
+            .position(|person| person.id == watching.user);
+        let in_corner = streamer.is_some_and(|person| corner == Pip::Watched(person));
+        let in_sight = shown
+            && stage
+                .slot(&Focus::Stream(watching.user.clone()))
+                .and_then(|place| tiles.get(place))
+                .and_then(|&bounds| shown_at(bounds, scrolled, height, scale))
+                .is_some();
+        if in_corner || in_sight {
+            sources
+                .mapped
+                .push((stream_key(&watching.user), frames.clone()));
+        }
     }
     if (shown || corner == Pip::Shared)
         && let Some(sharing) = &voice.sharing
@@ -367,20 +383,31 @@ pub fn call_view(app: &App) -> Element<'_, Message> {
 /// (unless it's full screen), and the controls.
 pub fn call_panel(app: &App) -> Element<'_, Message> {
     let theme = &app.theme;
-    let line = container(
-        text(voice_description(app))
-            .size(14)
-            .color(theme.muted)
-            .align_x(Alignment::Center)
-            .width(Length::Fill),
-    )
-    .padding(Padding {
-        top: 16.0,
-        left: 16.0,
-        right: 16.0,
-        bottom: 0.0,
-    })
-    .height(CONTROLS - CONTROLS_HEIGHT);
+    let description = voice_description(app);
+    let hint = [tr(CALL_HINT), tr(VOICE_HINT)].contains(&description.as_str());
+    let words: Element<'_, Message> = if hint && app.layout.hide_voice_hint {
+        Space::new().width(Length::Fill).into()
+    } else {
+        let words = text(description).size(14).color(theme.muted);
+        if hint {
+            row![words, hint_close(app)]
+                .spacing(4)
+                .align_y(Alignment::Center)
+                .into()
+        } else {
+            words.align_x(Alignment::Center).width(Length::Fill).into()
+        }
+    };
+    let line = container(words)
+        .align_x(Alignment::Center)
+        .width(Length::Fill)
+        .padding(Padding {
+            top: 16.0,
+            left: 16.0,
+            right: 16.0,
+            bottom: 0.0,
+        })
+        .height(CONTROLS - CONTROLS_HEIGHT);
     // The stage takes the height left between the line and the controls,
     // so the controls always sit under the tiles, whatever shows above.
     let stage: Element<'_, Message> = if full_shown(app) {
@@ -415,6 +442,36 @@ pub fn call_panel(app: &App) -> Element<'_, Message> {
         .into()
 }
 
+/// The line over a DM's call, and a voice channel's, once others are in
+/// it; its close button hides it for good.
+const CALL_HINT: &str = later("The call stays connected while you browse other conversations.");
+const VOICE_HINT: &str = later("Voice stays connected while you browse other conversations.");
+
+/// The hint's close button, which hides it for good.
+fn hint_close(app: &App) -> Element<'_, Message> {
+    let theme = &app.theme;
+    let hover = theme.hover;
+    let face = crate::widgets::Hover::new(
+        app.look().glyph(Icon::X, 14, theme.muted).boxed(20),
+        app.look().glyph(Icon::X, 14, theme.text).boxed(20),
+    );
+    let close = button(face)
+        .padding(0)
+        .on_press(Message::Call(Event::HideHint))
+        .style(move |_, status| iced::widget::button::Style {
+            background: controls::lights(status).then(|| hover.into()),
+            border: crate::style::round(4),
+            ..Default::default()
+        });
+    iced::widget::tooltip(
+        close,
+        controls::tip(theme, "Don't show again"),
+        iced::widget::tooltip::Position::Top,
+    )
+    .gap(6)
+    .into()
+}
+
 /// What the line over the stage, or a channel's Join, says of the call.
 pub fn voice_description(app: &App) -> String {
     let state = app.client.state();
@@ -435,14 +492,14 @@ pub fn voice_description(app: &App) -> String {
         } else if voice.participants.len() == 1 {
             tr("Nobody else is in the call yet.").into()
         } else {
-            tr("The call stays connected while you browse other conversations.").into()
+            tr(CALL_HINT).into()
         };
     }
     if voice_here(app) {
         return if voice.participants.len() == 1 {
             tr("You're here alone. Stay as long as you like; others can join later.").into()
         } else {
-            tr("Voice stays connected while you browse other conversations.").into()
+            tr(VOICE_HINT).into()
         };
     }
     let join = if joins_muted(app) {
@@ -649,15 +706,9 @@ fn stage_tile(
     let size = bounds.size();
     let pointed = app.call.pointed == Some(place);
     let corners = (!full).then(|| (tile::RADIUS as u32, rgb(theme.stage)));
-    let watch_user = voice
-        .watching
-        .as_ref()
-        .map(|watching| watching.user.as_str());
-    let watch_viewers = || {
-        voice
-            .watching
-            .as_ref()
-            .and_then(|watching| stream_viewers(app, &watching.viewers, Some(&watching.user)))
+    let watched = |id: &str| voice.watching.iter().find(|watching| watching.user == id);
+    let watch_viewers = |watching: &'_ voice::Watching| {
+        stream_viewers(app, &watching.viewers, Some(&watching.user))
     };
     let mut stop = None;
     let mut viewers = None;
@@ -683,18 +734,17 @@ fn stage_tile(
         }
         Slot::Stream(index) => {
             let person = &voice.participants[index];
-            let watched = watch_user == Some(person.id.as_str());
             right = Some(person.id.clone());
-            let content = if watched {
-                viewers = watch_viewers();
-                stop = Some(tr("Stop watching"));
-                frame(app, &format!("stream:{}", person.id), corners)
-                    .unwrap_or_else(|| tile::note(app.look(), None, watch_status(app)))
+            let content = if let Some(watching) = watched(&person.id) {
+                viewers = watch_viewers(watching);
+                stop = Some(person.id.clone());
+                frame(app, &stream_key(&person.id), corners)
+                    .unwrap_or_else(|| tile::note(app.look(), None, watch_status(watching)))
             } else {
                 on_press = Message::Call(Event::Watch(person.id.clone()));
                 let column = column![
                     app.look().glyph(Icon::ScreenShare, 30, NOTE),
-                    tile::pill(tr("Watch stream"), theme.danger, theme.on_danger),
+                    watch_offer(app, &person.id, watch_pill(app)),
                 ]
                 .spacing(10)
                 .align_x(Alignment::Center);
@@ -715,18 +765,19 @@ fn stage_tile(
             // their tile, once it's watched; until then a click watches
             // it.
             let streams_here = person.streaming && !person.local && person.video.is_none();
-            let watched = streams_here && watch_user == Some(person.id.as_str());
+            let watching = watched(&person.id).filter(|_| streams_here);
+            let watched = watching.is_some();
             let filmed = person
                 .video
                 .as_ref()
                 .and_then(|_| frame(app, &person.id, corners));
             let (content, ground) = if let Some(filmed) = filmed {
                 (filmed, Color::BLACK)
-            } else if watched {
-                viewers = watch_viewers();
-                stop = Some(tr("Stop watching"));
-                let content = frame(app, &format!("stream:{}", person.id), corners)
-                    .unwrap_or_else(|| tile::note(app.look(), None, watch_status(app)));
+            } else if let Some(watching) = watching {
+                viewers = watch_viewers(watching);
+                stop = Some(person.id.clone());
+                let content = frame(app, &stream_key(&person.id), corners)
+                    .unwrap_or_else(|| tile::note(app.look(), None, watch_status(watching)));
                 (content, Color::BLACK)
             } else {
                 // Their picture until their camera's first frame, as
@@ -791,9 +842,11 @@ fn stage_tile(
                 // its icon alone where both don't fit.
                 let chip = chip_width(&person.user, marks_count, live);
                 let room = size.width - 2.0 * 10.0 - 8.0;
-                let corner: Element<'_, Message> = if room >= chip + WATCH_PILL {
+                let corner: Element<'_, Message> = if room >= chip + WATCH_PILL + ALONGSIDE {
+                    watch_offer(app, &person.id, watch_pill(app))
+                } else if room >= chip + WATCH_PILL {
                     // As tall as the chip, so the two share its line.
-                    tile::pill(tr("Watch stream"), theme.danger, theme.on_danger)
+                    watch_pill(app)
                 } else {
                     tile::glass_button(
                         app.look(),
@@ -804,7 +857,7 @@ fn stage_tile(
                 };
                 tile = tile.bottom_right(corner);
             } else if streams_here && !watched {
-                tile = tile.top_right(tile::pill(tr("Watch stream"), theme.danger, theme.on_danger));
+                tile = tile.top_right(watch_offer(app, &person.id, watch_pill(app)));
             }
             tile
         }
@@ -818,14 +871,14 @@ fn stage_tile(
     }
     // The stream's stop shows on the large tile, and on another while
     // the pointer is on it.
-    if let Some(label) = stop
+    if let Some(user) = stop
         && (pointed || large)
     {
         tile = tile.top_right(tile::glass_button(
             app.look(),
             Icon::X,
-            label,
-            Message::Call(Event::StopWatching),
+            tr("Stop watching"),
+            Message::Call(Event::StopWatching(user)),
         ));
     }
     if large && pointed {
@@ -857,11 +910,38 @@ fn stage_tile(
         .into()
 }
 
+/// The pill on a stream not watched, which a click on its tile watches.
+fn watch_pill(app: &App) -> Element<'_, Message> {
+    let theme = &app.theme;
+    tile::pill(tr("Watch stream"), theme.danger, theme.on_danger)
+}
+
+/// Watch stream, and while another stream is watched, Start watching
+/// multiple streams beside it, which watches this one beside the others
+/// and leaves what shows large, as Discord's client does.
+fn watch_offer<'a>(app: &'a App, user: &str, pill: Element<'a, Message>) -> Element<'a, Message> {
+    if app.client.state().voice.watching.is_empty() {
+        return pill;
+    }
+    let alongside = tile::glass_button(
+        app.look(),
+        Icon::EyePlus,
+        tr("Start watching multiple streams"),
+        Message::Call(Event::WatchAlongside(user.to_owned())),
+    );
+    row![pill, alongside]
+        .spacing(8)
+        .align_y(Alignment::Center)
+        .into()
+}
+
+/// The key a watched stream's frames go by, by its streamer's id.
+pub fn stream_key(user: &str) -> String {
+    format!("stream:{user}")
+}
+
 /// What a watched stream's tile says until its first picture.
-pub fn watch_status(app: &App) -> String {
-    let Some(watching) = &app.client.state().voice.watching else {
-        return String::new();
-    };
+pub fn watch_status(watching: &voice::Watching) -> String {
     if watching.frames.is_none() {
         i18n::fill(tr("Connecting to {}'s stream..."), &[&watching.name])
     } else {
