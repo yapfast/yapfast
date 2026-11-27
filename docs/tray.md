@@ -97,9 +97,11 @@ registry and starts no process.
 
 ## Starting at sign-in
 
-Settings → Advanced → "Start when you sign in" starts Yapfast with
-`--background` when the person signs in to their computer (`src/autostart.rs`).
-The entry is the setting, not `layout.json`: on Windows a value named
+Settings → Advanced has Discord's two switches: "Automatically open Yapfast
+when your computer starts up" starts Yapfast when the person signs in to their
+computer (`src/autostart.rs`), and "Start Yapfast minimized", greyed out while
+the first is off, adds `--background`. The entry is the setting, not
+`layout.json`: on Windows a value named
 `Yapfast` in `HKCU\Software\Microsoft\Windows\CurrentVersion\Run`, on Linux
 `io.github.yapfast.Yapfast.desktop` in `$XDG_CONFIG_HOME/autostart`. Each
 window reads it, so turning Yapfast off in Task Manager's Startup apps (an odd
@@ -109,7 +111,11 @@ Task Manager's record too. Each start, outside the preview, rewrites an entry
 that's on with this Yapfast's path, so moving its folder or an update keeps it
 working. The entry keeps `--data-dir` if Yapfast had one; an AppImage's entry
 names the AppImage, not its temporary mount. The preview, and platforms
-without either, don't show the switch. The Windows installer's "Start Yapfast
+without either, don't show the switches. Whether the entry has `--background`
+is the minimized switch; `layout.json`'s `start_minimized` keeps it for while
+the entry is off (as Discord keeps `START_MINIMIZED`), taken from the entry
+each time Settings reads one that's on, so one Task Manager turned off comes
+back as it was. The Windows installer's "Start Yapfast
 automatically when Windows starts" writes the same value, and uninstalling removes it.
 
 `--background` restores the saved session and goes to the tray without

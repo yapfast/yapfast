@@ -270,6 +270,10 @@ pub struct Prefs {
     pub gpu_rendering: bool,
     pub close_to_tray: Option<bool>,
     pub multiple_windows: bool,
+    /// Advanced's Start minimized: the startup entry is the setting while
+    /// it's on, and this keeps the choice while it's off, as Discord keeps
+    /// `START_MINIMIZED` apart from opening on startup. Off until chosen.
+    pub start_minimized: bool,
     /// Discord: channels this account can't see listed locked, reading
     /// marked on Discord, idle shown while away.
     pub show_hidden_channels: bool,

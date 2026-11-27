@@ -173,6 +173,15 @@ pub trait Updates {
     fn ready(&self) -> bool;
 }
 
+/// How the desktop starts Yapfast at sign-in, as its entry has it: not at
+/// all, with the window, or minimized to the tray (`--background`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Autostart {
+    Off,
+    Window,
+    Tray,
+}
+
 /// The desktop's parts, which the root crate fills in.
 pub trait Desktop: Send + Sync {
     /// The window's app ID on Linux, which names its desktop entry.
@@ -271,11 +280,11 @@ pub trait Desktop: Send + Sync {
     fn save_icon(&self, _root: &Path, _target: IconTarget, _png: &[u8]) -> Result<(), String> {
         Err("Custom icons are unavailable.".into())
     }
-    /// Whether Yapfast starts when the person signs in; none where it can't.
-    fn autostart(&self) -> Option<bool> {
+    /// How Yapfast starts when the person signs in; none where it can't.
+    fn autostart(&self) -> Option<Autostart> {
         None
     }
-    fn set_autostart(&self, _on: bool) -> Result<(), String> {
+    fn set_autostart(&self, _mode: Autostart) -> Result<(), String> {
         Err("this build can't start at sign-in".into())
     }
     /// Whether `discord:` links open here; none where they can't.

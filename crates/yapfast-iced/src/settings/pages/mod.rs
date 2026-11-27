@@ -12,6 +12,7 @@ use super::{Event, Page, Settings};
 use crate::{
     app::Message,
     ctx::{Cx, Pref as Shown, Request},
+    desktop::Autostart,
     form::switch,
     layout::Animate,
 };
@@ -67,7 +68,8 @@ pub enum Pref {
     HideBlocked(bool),
     CheckUpdates(bool),
     Nightlies(bool),
-    StartOnSignIn(bool),
+    OpenOnStartup(bool),
+    StartMinimized(bool),
     DiscordLinks(bool),
     SystemTitleBar(bool),
 }
@@ -293,10 +295,26 @@ impl Settings {
                 prefs.update_nightlies = on;
                 cx.keep("update_nightlies", on);
             }
-            Pref::StartOnSignIn(on) => {
-                match crate::desktop::desktop().set_autostart(on) {
-                    Ok(()) => tracing::info!(start = on, "starting at sign-in changed"),
-                    Err(error) => tracing::warn!(%error, "could not change starting at sign-in"),
+            Pref::OpenOnStartup(on) => {
+                set_autostart(match on {
+                    false => Autostart::Off,
+                    true if prefs.start_minimized => Autostart::Tray,
+                    true => Autostart::Window,
+                });
+                self.read_platform_choices(cx);
+            }
+            Pref::StartMinimized(on) => {
+                prefs.start_minimized = on;
+                cx.keep("start_minimized", on);
+                // Greyed out while the entry is off; one turned off since
+                // Settings read it stays off, keeping the choice for later.
+                let entry = crate::desktop::desktop().autostart();
+                if entry.is_some_and(|entry| entry != Autostart::Off) {
+                    set_autostart(if on {
+                        Autostart::Tray
+                    } else {
+                        Autostart::Window
+                    });
                 }
                 self.read_platform_choices(cx);
             }
@@ -315,6 +333,14 @@ impl Settings {
             }
         }
         cx.touch();
+    }
+}
+
+/// Writes how Yapfast starts at sign-in, or removes the entry.
+fn set_autostart(mode: Autostart) {
+    match crate::desktop::desktop().set_autostart(mode) {
+        Ok(()) => tracing::info!(?mode, "starting at sign-in changed"),
+        Err(error) => tracing::warn!(%error, "could not change starting at sign-in"),
     }
 }
 

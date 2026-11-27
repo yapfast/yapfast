@@ -13,8 +13,8 @@ use std::{
 
 use yapfast_core::{chat::Alert, runtime::BackgroundRuntime};
 use yapfast_iced::{
-    Heard, IconChoice, IconTarget, Offered, Tell, TrayChoice, UpdateChoices, UpdateStatus,
-    UpdatesShown,
+    Autostart, Heard, IconChoice, IconTarget, Offered, Tell, TrayChoice, UpdateChoices,
+    UpdateStatus, UpdatesShown,
 };
 
 use crate::{
@@ -338,12 +338,12 @@ impl yapfast_iced::Desktop for Shell {
         crate::icon::save(root, target, png)
     }
 
-    fn autostart(&self) -> Option<bool> {
-        (crate::autostart::SUPPORTED && !self.preview).then(crate::autostart::enabled)
+    fn autostart(&self) -> Option<Autostart> {
+        (crate::autostart::SUPPORTED && !self.preview).then(crate::autostart::mode)
     }
 
-    fn set_autostart(&self, on: bool) -> Result<(), String> {
-        crate::autostart::set(on).map_err(|error| error.to_string())
+    fn set_autostart(&self, mode: Autostart) -> Result<(), String> {
+        crate::autostart::set(mode).map_err(|error| error.to_string())
     }
 
     fn discord_links(&self, root: &Path) -> Option<bool> {

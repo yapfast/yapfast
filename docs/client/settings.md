@@ -89,7 +89,10 @@ recording. Each change is kept at once in
   to and tracking taken out of links.
 - Notifications, Sounds (the set, which plays a sound when chosen, the
   volume, and each sound's own with its play button) and Advanced.
-  Advanced holds Start when you sign in, Open Discord
+  Advanced holds Discord's two startup switches on Windows and Linux
+  outside the preview: Automatically open Yapfast when your computer starts
+  up, and Start Yapfast minimized (to the tray), off until chosen and greyed
+  out, shown off, while the first is off. Advanced also holds Open Discord
   links in Yapfast (outside the preview), Close to tray, saying where
   there's no tray, and the renderer's switch: while it differs from the
   renderer drawing, when it takes effect and Restart Yapfast.
