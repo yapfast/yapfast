@@ -639,8 +639,8 @@ last active, or made; and its first picture, a 72px thumbnail from a file
 or an embed. Clicking a card opens the post beside the forum, as Discord's
 does, and Shift-click in its place.
 
-The author uses their role colour on unread posts. A deleted first message
-shows "Original message was deleted" in the preview.
+The author keeps their role colour on read cards too. A deleted first
+message shows "Original message was deleted" in the preview.
 
 First messages, as Discord's client gets them: an archived page or a
 search brings its posts' `first_messages`; the active posts' come from

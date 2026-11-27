@@ -674,11 +674,8 @@ fn post_card<'a>(ctx: crate::ctx::Ctx<'a>, card: &'a Card) -> Element<'a, Messag
             elide(person.as_str())
                 .size(14)
                 .font(SEMIBOLD)
-                .color(if card.read {
-                    ink
-                } else {
-                    color.map_or(ink, hex)
-                })
+                // Discord's client keeps the role colour on read cards too.
+                .color(color.map_or(ink, hex))
                 .shrink(),
         );
     }
