@@ -108,7 +108,9 @@ Its 2 px stem starts one pixel below the parent row and spans the gaps
 between threads. The arms are 2 px thick and curve into the stem. The
 last arm ends the stem with a taller outer bend. A channel's row under
 the pointer or while selected offers Create invite, to that
-channel, for those who may invite; a busy voice channel lists who is in it (the call this
+channel, for those who may invite. A capped Discord voice channel shows live
+occupancy and capacity (for example, `3/4`), highlighted when full. A busy
+voice channel lists who is in it (the call this
 account is in, in the call's order: this account first; this account in
 the call from another client dimmed until pointed at, without its marks,
 its tooltip "Connected on another client") and how long the

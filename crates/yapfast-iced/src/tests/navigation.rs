@@ -887,6 +887,30 @@ fn voice_server(app: &mut App) {
     });
 }
 
+#[test]
+fn a_capped_voice_channel_updates_its_occupancy_as_people_leave() {
+    let (mut app, _folder) = preview();
+    voice_server(&mut app);
+    let set_lounge = |app: &mut App, set: fn(&mut yapfast_core::chat::ChatRoom)| {
+        change(app, |state| {
+            let lounge = state
+                .rooms
+                .iter_mut()
+                .find(|room| room.id == "lounge")
+                .expect("Lounge");
+            set(Arc::make_mut(lounge));
+        });
+    };
+    assert!(!shows(&app, "2/2"));
+    set_lounge(&mut app, |lounge| {
+        lounge.voice_limit = std::num::NonZeroU8::new(2);
+    });
+    assert!(shows(&app, "2/2"));
+    set_lounge(&mut app, |lounge| lounge.people.clear());
+    assert!(shows(&app, "0/2"));
+    assert!(!shows(&app, "2/2"));
+}
+
 /// A voice channel hidden from this account, listed with Show channels you
 /// can't access, shows who is in it under its lock, as other voice channels
 /// do, and a click on it joins nothing.

@@ -2537,7 +2537,7 @@ function guildChannels(): GuildChannel[] {
     channel(CATEGORY, "Channels", 4, 0, null),
     channel(GENERAL, "general", 0, 0, CATEGORY),
     channel(FORUM, "ideas", 15, 1, CATEGORY),
-    channel(LOUNGE, "Lounge", 2, 1, CATEGORY),
+    { ...channel(LOUNGE, "Lounge", 2, 1, CATEGORY), user_limit: 4 },
     channel(CREATE_ROOM, "Create Room", 2, 2, CATEGORY),
     ...(roomMade ? [channel(ALICES_ROOM, "Alice's room", 2, 3, CATEGORY)] : []),
     ...(leadsRoomMade ? [leadsRoom()] : []),

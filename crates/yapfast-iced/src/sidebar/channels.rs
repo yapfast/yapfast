@@ -1041,7 +1041,20 @@ impl<'a> super::View<'a> {
                     .color(theme.muted),
             );
         }
-        if room.voice
+        if let Some(limit) = room.voice_limit {
+            let count = room.people.len();
+            let ink = if count >= usize::from(limit.get()) {
+                theme.danger
+            } else {
+                theme.muted
+            };
+            face = face.push(
+                text(format!("{count}/{limit}"))
+                    .size(theme.type_size("small", 11.0))
+                    .font(theme.font("small", crate::fonts::REGULAR))
+                    .color(ink),
+            );
+        } else if room.voice
             && let Some(meta) = list.map(|rows| &rows.meta)
             && !meta.voice.is_empty()
         {
