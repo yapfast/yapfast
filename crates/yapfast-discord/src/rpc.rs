@@ -432,10 +432,15 @@ fn normalize(
         Some(value) => value.as_u64().context("invalid activity type")?,
     };
     ensure!(matches!(kind, 0 | 2 | 3 | 5), "unsupported activity type");
-    let name = input["name"]
-        .as_str()
-        .filter(|name| name.chars().take(129).count() <= 128 && !name.trim().is_empty())
-        .unwrap_or(registered_name);
+    // As Discord's client does: the game's own name, else the registered
+    // one; a name that isn't 1 to 128 characters is refused.
+    let name = match input.get("name").filter(|v| !v.is_null()) {
+        None => registered_name,
+        Some(value) => value
+            .as_str()
+            .filter(|name| !name.is_empty() && name.chars().count() <= 128)
+            .context("invalid name")?,
+    };
     let mut output = json!({"name":name,"type":kind,"application_id":client});
     for key in [
         "state",
@@ -646,22 +651,29 @@ mod tests {
     }
 
     #[test]
-    fn falls_back_to_the_registered_name_for_unusable_overrides() {
+    fn uses_the_games_name_or_else_the_registered_one() {
         let registered = "Game";
-        let max_length = "é".repeat(128);
+        let longest = "é".repeat(128);
         let assets = Assets::new();
         for (activity, expected) in [
             (json!({}), registered),
             (json!({"name":null}), registered),
-            (json!({"name":42}), registered),
-            (json!({"name":""}), registered),
-            (json!({"name":" \t"}), registered),
-            (json!({"name":"é".repeat(129)}), registered),
+            (json!({"name":" "}), " "),
             (json!({"name":"X"}), "X"),
-            (json!({"name":max_length}), max_length.as_str()),
+            (json!({"name":longest}), longest.as_str()),
         ] {
             let shown = normalize(&activity, "42", registered, None, &assets).unwrap();
             assert_eq!(shown["name"], expected, "{activity}");
+        }
+        for activity in [
+            json!({"name":42}),
+            json!({"name":""}),
+            json!({"name":"é".repeat(129)}),
+        ] {
+            assert!(
+                normalize(&activity, "42", registered, None, &assets).is_err(),
+                "{activity}"
+            );
         }
     }
 
