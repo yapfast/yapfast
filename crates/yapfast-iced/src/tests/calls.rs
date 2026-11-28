@@ -409,7 +409,7 @@ fn the_share_menus_settings_are_rows_that_open_their_choices_beside_them() {
         assert!(shows(&app, shown), "{shown}");
     }
     for hidden in [
-        "No audio", "480p", "720p", "1440p", "2160p", "Source", "15 fps", "60 fps",
+        "No audio", "480p", "720p", "1440p", "Source", "15 fps", "60 fps",
     ] {
         assert!(!super::present(&app, hidden), "{hidden}");
     }

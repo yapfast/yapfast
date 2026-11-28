@@ -100,7 +100,6 @@ pub enum Resolution {
     #[default]
     P1080,
     P1440,
-    P2160,
     /// The screen's own size, up to 4K.
     Source,
 }
@@ -113,7 +112,7 @@ impl Resolution {
             Self::P720 => (1280, 720),
             Self::P1080 => (1920, 1080),
             Self::P1440 => (2560, 1440),
-            Self::P2160 | Self::Source => (3840, 2160),
+            Self::Source => (3840, 2160),
         }
     }
 }

@@ -63,12 +63,11 @@ pub enum Setting {
     FrameRate,
 }
 
-const RESOLUTIONS: [(Resolution, &str); 6] = [
+const RESOLUTIONS: [(Resolution, &str); 5] = [
     (Resolution::P480, "480p"),
     (Resolution::P720, "720p"),
     (Resolution::P1080, "1080p"),
     (Resolution::P1440, "1440p"),
-    (Resolution::P2160, "2160p"),
     (Resolution::Source, "Source"),
 ];
 const FRAME_RATES: [u32; 3] = [15, 30, 60];
