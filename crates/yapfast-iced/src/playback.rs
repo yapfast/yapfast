@@ -931,15 +931,11 @@ fn media_bar<'a>(
                 Message::Clip(Clip::Mute(true)),
             )
         };
-        let mute: Element<'a, Message> = if ctx.playback.clip_volume > 0 {
-            iced::widget::stack![
-                mute,
-                crate::widgets::Corner::new(volume_slider(video), 0.0, -VOLUME_RISE),
-            ]
-            .into()
-        } else {
-            mute.into()
-        };
+        // Over the button in iced's overlay layer, so the slider takes its
+        // presses before what it covers: a sound file's Save, a video's
+        // picture, the message above.
+        let slider = (ctx.playback.clip_volume > 0).then(|| volume_slider(video));
+        let mute = crate::popover::Popover::new(mute, slider, crate::popover::Side::Above).gap(0.0);
         bar = bar.push(
             mouse_area(container(mute).width(CLIP_BUTTON))
                 .on_enter(Message::Clip(Clip::VolumeHover(true)))

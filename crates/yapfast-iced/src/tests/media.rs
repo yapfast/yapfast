@@ -418,13 +418,48 @@ fn a_sound_file_plays_in_its_card() {
         ended: false,
         sound: true,
         muted: false,
-        volume: 1.0,
+        volume: 0.2,
         error: error.map(str::to_owned),
     };
     change(&mut app, |state| {
         state.video = Some(playing(Some(12_000), None));
     });
     assert!(shows(&app, "0:12 / 1:30"), "its time, as the core says");
+    // The volume's slider rises over Save: a press on it turns the volume
+    // and doesn't save the file.
+    let name = bounds_of(&app, "song.mp3");
+    let saves = |app: &crate::app::App, x: f32| {
+        clicked(
+            app,
+            iced::Point::new(x, name.y + 4.0),
+            iced::mouse::Button::Left,
+        )
+        .iter()
+        .any(|message| matches!(message, Message::Image(_)))
+    };
+    // Save's right edge, 8 px in from the card's; the mute under it, and
+    // the slider over that, are 6 px further in and 28 px wide.
+    let save_right = (name.x as u32..app.shell.frame.width as u32)
+        .rev()
+        .map(|x| x as f32)
+        .find(|&x| saves(&app, x))
+        .expect("Save is on the name's row");
+    let on_save = iced::Point::new(save_right - 16.0, name.y + 4.0);
+    app.playback.clip_volume = 1;
+    let pressed = clicked(&app, on_save, iced::mouse::Button::Left);
+    assert!(
+        pressed
+            .iter()
+            .any(|message| matches!(message, Message::Clip(Clip::Volume(_)))),
+        "the slider takes the press"
+    );
+    assert!(
+        !pressed
+            .iter()
+            .any(|message| matches!(message, Message::Image(_))),
+        "Save under it doesn't"
+    );
+    app.playback.clip_volume = 0;
     change(&mut app, |state| {
         state.video = Some(playing(None, Some("Yapfast can't play this file.")));
     });
