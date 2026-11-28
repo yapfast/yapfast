@@ -355,6 +355,29 @@ pub fn file_card<'a>(
     attachment: &'a Attachment,
 ) -> Element<'a, Message> {
     let theme = ctx.look.theme;
+    let (ground, edge) = (theme.sidebar, theme.edge);
+    container(file_row(ctx, item, index, attachment, Icon::File))
+        .padding(Padding {
+            top: 12.0,
+            bottom: 12.0,
+            left: 12.0,
+            right: 8.0,
+        })
+        .max_width(FILE_CARD_WIDTH)
+        .style(move |_| crate::style::outlined(ground, edge, 8.0))
+        .into()
+}
+
+/// What a file's card says of it, on one row: `icon` in the accent, its
+/// name and size, and Save.
+pub fn file_row<'a>(
+    ctx: crate::ctx::Ctx<'a>,
+    item: &str,
+    index: usize,
+    attachment: &'a Attachment,
+    icon: Icon,
+) -> Element<'a, Message> {
+    let theme = ctx.look.theme;
     let size = attachment.size.map(chat::file_size);
     let detail = match (attachment.image, attachment.preview_failed, size) {
         (true, true, Some(size)) => i18n::fill(tr("{} · Preview unavailable"), &[&size]),
@@ -377,8 +400,8 @@ pub fn file_card<'a>(
                 .color(theme.muted),
         );
     }
-    let card = row![
-        ctx.look.glyph(Icon::File, FILE_ICON, theme.accent),
+    row![
+        ctx.look.glyph(icon, FILE_ICON, theme.accent),
         container(words).width(Length::Fill).clip(true),
         ctx.look
             .icon_button(
@@ -389,16 +412,6 @@ pub fn file_card<'a>(
             .size(32.0, 20),
     ]
     .spacing(12)
-    .align_y(Alignment::Center);
-    let (ground, edge) = (theme.sidebar, theme.edge);
-    container(card)
-        .padding(Padding {
-            top: 12.0,
-            bottom: 12.0,
-            left: 12.0,
-            right: 8.0,
-        })
-        .max_width(FILE_CARD_WIDTH)
-        .style(move |_| crate::style::outlined(ground, edge, 8.0))
-        .into()
+    .align_y(Alignment::Center)
+    .into()
 }

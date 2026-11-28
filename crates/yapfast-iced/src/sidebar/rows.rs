@@ -37,6 +37,7 @@ pub struct Room {
     pub muted: bool,
     pub locked: bool,
     pub voice: bool,
+    pub voice_limit: Option<std::num::NonZeroU8>,
     /// A DM, with its picture, its person's presence and the line under it.
     pub direct: bool,
     pub avatar: Option<String>,
@@ -530,6 +531,11 @@ fn room_row(
         muted: room.muted && !room.voice,
         locked: room.locked || room.join_locked,
         voice: room.voice,
+        // As Discord's client: not on the open channel, nor where this
+        // account may not connect.
+        voice_limit: room
+            .voice_limit
+            .filter(|_| !selected && !room.locked && !room.join_locked),
         direct: room.direct,
         avatar: room.avatar.clone(),
         group_icon: room_group_icon(room),

@@ -219,7 +219,7 @@ fn notice<'a>(accent: iced::Color, latest: &str) -> Element<'a, Message> {
         iced::Color { a: 0.22, ..accent },
     );
     let face = iced::widget::button(
-        text(i18n::fill(tr("Update available · {}"), &[latest]))
+        text(i18n::fill(tr("Update available · {}"), &[&latest]))
             .size(13)
             .font(crate::fonts::BOLD)
             .color(accent)

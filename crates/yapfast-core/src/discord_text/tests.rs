@@ -268,6 +268,7 @@ fn closed_channels_keep_metadata_without_pinning_previews() {
             view_url: None,
             still_url: None,
             video_url: None,
+            audio: false,
             shown: Shown::Message,
             link_url: None,
             animated: false,
@@ -318,6 +319,7 @@ fn changes_render_again_only_the_messages_they_change() {
             view_url: None,
             still_url: None,
             video_url: None,
+            audio: false,
             shown: Shown::Message,
             link_url: None,
             animated: false,
@@ -529,6 +531,7 @@ fn messages_render_again_once_what_they_show_changes() {
         may_pin: false,
         may_forward: false,
         deletes: Deletes::Own,
+        moderates: false,
     };
     let shown = rendering(1, server("general", false));
     assert!(
@@ -571,6 +574,58 @@ fn messages_render_again_once_what_they_show_changes() {
             ..rendering(1, server("general", false))
         }),
         "may delete others' messages"
+    );
+    assert!(
+        !shown.alike(&Rendering {
+            moderates: true,
+            ..rendering(1, server("general", false))
+        }),
+        "may time members out"
+    );
+    // Reordered roles change whom this account outranks.
+    let mut reordered = shown.server.clone().unwrap();
+    let mut positions = (*reordered.server).clone();
+    positions.role_positions = Arc::new([("20".to_owned(), 3)].into_iter().collect());
+    reordered.server = Arc::new(positions);
+    assert!(
+        !shown.alike(&rendering(1, Some(reordered))),
+        "role positions"
+    );
+    // So does handing the server to someone else.
+    let mut handed = shown.server.clone().unwrap();
+    let mut owner = (*handed.server).clone();
+    owner.owner_id = Some("77".into());
+    handed.server = Arc::new(owner);
+    assert!(!shown.alike(&rendering(1, Some(handed))), "the owner");
+}
+
+#[test]
+fn a_moderator_sees_the_timeouts_of_those_it_outranks() {
+    // 1 moderates with the Mods role, above Helpers; 99 owns the server.
+    let server = yapfast_discord::ready::Server {
+        id: "10".into(),
+        owner_id: Some("99".into()),
+        role_positions: Arc::new(
+            [("20".to_owned(), 2), ("30".to_owned(), 1)]
+                .into_iter()
+                .collect(),
+        ),
+        ..Default::default()
+    };
+    let (mods, helpers) = (vec!["20".to_owned()], vec!["30".to_owned()]);
+    let (mods, none): (&[String], &[String]) = (&mods, &[]);
+    let until = 1_900_000_000_000;
+    let me = ("1", mods);
+    let shown = |author: &str, roles: &[String]| shown_timeout(&server, me, (author, roles), until);
+    assert_eq!(shown("2", &helpers), Some(until), "a helper");
+    assert_eq!(shown("2", none), Some(until), "a member without roles");
+    assert_eq!(shown("3", mods), None, "an equal");
+    assert_eq!(shown("99", none), None, "the owner");
+    assert_eq!(shown("1", mods), None, "itself");
+    // The owner outranks everyone else.
+    assert_eq!(
+        shown_timeout(&server, ("99", none), ("1", mods), until),
+        Some(until)
     );
 }
 
@@ -1560,6 +1615,7 @@ fn changing_the_view_drops_old_previews_and_ignores_late_downloads() {
                     view_url: None,
                     still_url: None,
                     video_url: None,
+                    audio: false,
                     shown: Shown::Message,
                     link_url: None,
                     animated: false,
@@ -1629,6 +1685,7 @@ async fn previews_follow_the_view_and_share_cache_across_channels() {
             view_url: None,
             still_url: None,
             video_url: None,
+            audio: false,
             shown: Shown::Message,
             link_url: None,
             animated: false,
@@ -2299,4 +2356,68 @@ async fn an_apps_answer_says_who_used_which_command() {
         })
     };
     assert!(found(&discord, server, &quoting).used.is_none());
+}
+
+/// Scrolled up past what it keeps, a channel that showed its newest
+/// messages shows a window of older ones, as Discord's client's does: its
+/// newest are kept behind it, following live events, and Jump to present
+/// shows. Scrolled down again, they join it.
+#[test]
+fn earlier_pages_past_what_is_kept_make_a_window() {
+    let mut open = OpenChannel::new("discord:10:11").unwrap();
+    let newest = |open: &OpenChannel| -> Vec<u64> {
+        open.latest
+            .as_ref()
+            .map(|latest| latest.messages.keys().copied().collect())
+            .unwrap_or_default()
+    };
+    let total = KEPT_MESSAGES as u64 + 1000;
+    open.loaded(Load::Latest, shown(page(total - 50..total)));
+    let mut start = total - 50;
+    while open.shown.messages.len() < KEPT_MESSAGES {
+        start -= 50;
+        open.loaded(Load::Earlier, shown(page(start..start + 50)));
+    }
+    assert!(
+        !open.detached(),
+        "up to what it keeps, it follows the present"
+    );
+    assert!(matches!(
+        open.history(),
+        chat::History::Loaded { present: true, .. }
+    ));
+    start -= 50;
+    open.loaded(Load::Earlier, shown(page(start..start + 50)));
+    assert!(open.detached());
+    assert!(matches!(
+        open.history(),
+        chat::History::Loaded { present: false, .. }
+    ));
+    assert_eq!(
+        ids(&open),
+        (start..start + KEPT_MESSAGES as u64).collect::<Vec<_>>(),
+        "the oldest stay, above what's on screen"
+    );
+    assert_eq!(
+        newest(&open),
+        (start + KEPT_MESSAGES as u64..total).collect::<Vec<_>>(),
+        "those after it are kept behind it"
+    );
+    // A new message joins the newest, not the window.
+    assert!(!open.live(&Live::Created(message(&total.to_string(), None))));
+    assert_eq!(newest(&open).last(), Some(&total));
+    // Scrolled down, a page that reaches them shows them with it.
+    open.loaded(Load::Later, shown(page(start + 200..start + 250)));
+    assert!(!open.detached());
+    assert_eq!(ids(&open).last(), Some(&total));
+    // Jump to present shows the newest at once.
+    open.loaded(Load::Earlier, shown(page(start - 50..start)));
+    assert!(open.detached());
+    open.present();
+    assert!(!open.detached());
+    assert_eq!(
+        ids(&open),
+        (total - KEPT_MESSAGES as u64 + 1..=total).collect::<Vec<_>>(),
+        "the newest it keeps, the window's and those behind it together"
+    );
 }

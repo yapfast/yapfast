@@ -125,7 +125,9 @@ errors make it taller than the minimum window. SSO and OAuth are still pending.
   sending a message, or a newer page that reaches the newest shows the
   newest again, as Yapfast kept them, and leaving the conversation lets the
   window go. A jump to a conversation that isn't open opens it at the
-  message.
+  message. Scrolling up past the 200 messages a Discord channel keeps makes
+  such a window too, as Discord's client does past 120, so the pill shows
+  there as well.
 - Recover encryption keys or recheck verification performed in another client.
 - Send only from a cross-signed device into a joined encrypted room. Existing
   plaintext rooms are read-only.
@@ -207,9 +209,15 @@ errors make it taller than the minimum window. SSO and OAuth are still pending.
   [Discord](discord/messages.md#mark-unread-and-message-links)). View Reactions appears once a message has reactions,
   Copy selection while text is selected, and Edit on your own messages only.
   Delete appears on your own messages, and on anyone's for a Discord moderator
-  with Manage Messages. Until you have reacted, the most used reactions are 👍,
-  ❤️, 😂 and 🎉. Yapfast counts the reactions you add, not the ones you remove,
-  in `layout.json` on this computer. A custom emoji among them shows the
+  with Manage Messages. In a Discord room the quick reactions are the ones
+  your account reacts with most, as all of Discord's clients rank them (an
+  account that never reacted starts from 💯, 👍 and 👎, as Discord seeds it),
+  then those you added in Yapfast, then 💯, 😆 and 💖, as Discord's client
+  fills them. Emoji that can't be used in the room, or that Yapfast can't
+  draw (a custom emoji from a server you left), are left out. Elsewhere,
+  until you have reacted, they are 👍, ❤️, 😂 and 🎉. Yapfast counts the
+  reactions you add, not the ones you remove, in `layout.json` on this
+  computer. A custom emoji among them shows the
   picture the application keeps of it, fetched for the toolbar when it isn't
   there yet, as after a restart, rather than the picker's own, which goes when
   the picker closes. The icons have tooltips and accessible
@@ -546,7 +554,10 @@ and a tiling compositor such as Hyprland, sway or niri, or any desktop not
 listed, keeps whatever the desktop draws, which may be nothing. There, and
 under any desktop's title bar, Discord's bar stays without the window's
 buttons, as Discord's client always shows it: where you are, back and
-forward, Inbox and Help; it neither moves nor resizes the window. "Use the
+forward, Inbox and Help; it neither moves nor resizes the window. Appearance's
+"Show Discord's bar under it", shown while the system title bar is used and
+on by default, takes it away for the desktop's bar alone (`discord_bar` in
+`layout.json`), as GNOME's own bar over it makes two. "Use the
 system title bar" in Appearance overrides it either way
 (`system_title_bar` in `layout.json`) and applies at once. Each window is
 made with the desktop's frame or without it, so the window is made again

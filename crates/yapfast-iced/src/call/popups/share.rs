@@ -64,9 +64,11 @@ pub enum Setting {
     FrameRate,
 }
 
-const RESOLUTIONS: [(Resolution, &str); 3] = [
+const RESOLUTIONS: [(Resolution, &str); 5] = [
+    (Resolution::P480, "480p"),
     (Resolution::P720, "720p"),
     (Resolution::P1080, "1080p"),
+    (Resolution::P1440, "1440p"),
     (Resolution::Source, i18n::later("Source")),
 ];
 const FRAME_RATES: [u32; 3] = [15, 30, 60];
@@ -76,8 +78,8 @@ pub struct Share {
     /// The screens with their pictures once taken, the windows, the
     /// cameras; then every source in the menu's order (screens, windows,
     /// the system's dialog, cameras).
-    pub screens: Vec<(String, Option<Handle>)>,
-    pub windows: Vec<(String, Option<Handle>)>,
+    pub screens: Vec<(String, Option<SourcePreview>)>,
+    pub windows: Vec<(String, Option<SourcePreview>)>,
     pub cameras: Vec<String>,
     pub sources: Vec<yapfast_core::stream_worker::Source>,
     /// The system's dialog picks a screen or window.
@@ -94,7 +96,60 @@ pub struct Share {
     pub side: Option<Setting>,
 }
 
+#[derive(Clone, Debug)]
+pub struct SourcePreview {
+    pub handle: Handle,
+    pub width: u32,
+    pub height: u32,
+}
+
 impl Share {
+    fn dimensions(&self) -> Option<(u32, u32)> {
+        let preview = self.screens.get(self.pick?)?.1.as_ref()?;
+        Some((preview.width, preview.height))
+    }
+
+    fn supports(&self, resolution: Resolution) -> bool {
+        resolution == Resolution::Source
+            || self
+                .dimensions()
+                .is_none_or(|(_, native)| resolution.bounds().1 <= native)
+    }
+
+    fn resolution(&self) -> Resolution {
+        if self.supports(self.quality.resolution) {
+            self.quality.resolution
+        } else {
+            Resolution::Source
+        }
+    }
+
+    fn resolution_label(&self, resolution: Resolution) -> std::borrow::Cow<'static, str> {
+        if resolution == Resolution::Source
+            && let Some((width, height)) = self.dimensions()
+        {
+            let (max_width, max_height) = resolution.bounds();
+            let cap = if width > max_width || height > max_height {
+                tr(" (up to 4K)")
+            } else {
+                ""
+            };
+            return format!("{} · {width} × {height}{cap}", tr("Source")).into();
+        }
+        RESOLUTIONS
+            .iter()
+            .find(|(preset, _)| *preset == resolution)
+            .map_or("", |(_, label)| tr(label))
+            .into()
+    }
+
+    fn go_live(&self) -> Command {
+        Command::GoLive {
+            quality: self.quality,
+            effective_resolution: self.resolution(),
+        }
+    }
+
     /// The settings with a row, in the rows' order: a stream that's live
     /// keeps its quality, so only its audio changes.
     fn settings(&self) -> &'static [Setting] {
@@ -125,11 +180,7 @@ impl Share {
                 .find(|(audio, _)| *audio == self.audio)
                 .map_or("", |(_, title)| title.as_str())
                 .into(),
-            Setting::Resolution => RESOLUTIONS
-                .iter()
-                .find(|(resolution, _)| *resolution == self.quality.resolution)
-                .map_or("", |(_, label)| tr(label))
-                .into(),
+            Setting::Resolution => self.resolution_label(self.resolution()),
             Setting::FrameRate => i18n::fill(tr("{} fps"), &[&self.quality.fps]).into(),
         }
     }
@@ -156,7 +207,7 @@ pub enum ShareEvent {
     /// The sources listed, by the listing's count.
     Listed(u64, Arc<Listing>),
     /// A picture from this listing, keyed by source kind and id.
-    Picture(u64, Source, Handle),
+    Picture(u64, Source, SourcePreview),
     Pick(usize),
     /// A setting's choices open beside its row, or close.
     Side(Option<Setting>),
@@ -225,17 +276,23 @@ fn glance(
                     Report::Screen {
                         id,
                         window,
+                        source_width,
+                        source_height,
                         width,
                         height,
                         rgba,
                     } => {
-                        let handle = Handle::from_rgba(width, height, rgba);
+                        let preview = SourcePreview {
+                            handle: Handle::from_rgba(width, height, rgba),
+                            width: source_width,
+                            height: source_height,
+                        };
                         let source = if window {
                             Source::Window(id)
                         } else {
                             Source::Display(id)
                         };
-                        if sender.unbounded_send((source, handle)).is_err() {
+                        if sender.unbounded_send((source, preview)).is_err() {
                             break;
                         }
                     }
@@ -249,8 +306,8 @@ fn glance(
                 }
             }
         });
-        Task::run(receiver, move |(source, handle)| {
-            Message::Call(Event::Share(ShareEvent::Picture(count, source, handle)))
+        Task::run(receiver, move |(source, preview)| {
+            Message::Call(Event::Share(ShareEvent::Picture(count, source, preview)))
         })
     })
 }
@@ -304,6 +361,8 @@ pub(crate) fn list(
         .collect();
     let voice = &app.client.state().voice;
     let switching = voice.sharing.is_some();
+    let dialog_alone =
+        switching && dialog && screens.is_empty() && windows.is_empty() && cameras.is_empty();
     let mut audio = voice.stream_audio;
     let mut audio_options = vec![
         (StreamAudio::Off, "No audio".into()),
@@ -352,7 +411,7 @@ pub(crate) fn list(
         cameras: cameras.iter().map(|listed| listed.title.clone()).collect(),
         sources,
         dialog,
-        pick: (!switching).then_some(0),
+        pick: (!switching || dialog_alone).then_some(0),
         quality: voice.quality,
         switching,
         count,
@@ -362,6 +421,9 @@ pub(crate) fn list(
         side: None,
     };
     app.call.share = Some(share);
+    if dialog_alone {
+        return share_event(app, ShareEvent::Go);
+    }
     app.call.popup = Some(Popup::Share);
     let mut tasks = vec![
         glance(count, screen_ids, window_ids, preview_stop),
@@ -380,7 +442,7 @@ pub(in crate::call) fn share_event(app: &mut App, event: ShareEvent) -> Task<Mes
         ShareEvent::Listed(count, listing) => {
             return list(app, count, &listing, cfg!(windows));
         }
-        ShareEvent::Picture(count, source, handle) => {
+        ShareEvent::Picture(count, source, preview) => {
             if let Some(share) = &mut app.call.share
                 && share.count == count
                 && let Some(at) = share.sources.iter().position(|listed| *listed == source)
@@ -391,7 +453,7 @@ pub(in crate::call) fn share_event(app: &mut App, event: ShareEvent) -> Task<Mes
                     _ => None,
                 };
                 if let Some((_, picture)) = row {
-                    *picture = Some(handle);
+                    *picture = Some(preview);
                 }
             }
         }
@@ -418,7 +480,9 @@ pub(in crate::call) fn share_event(app: &mut App, event: ShareEvent) -> Task<Mes
             }
         }
         ShareEvent::Resolution(resolution) => {
-            if let Some(share) = &mut app.call.share {
+            if let Some(share) = &mut app.call.share
+                && share.supports(resolution)
+            {
                 share.quality.resolution = resolution;
                 share.side = None;
             }
@@ -430,8 +494,14 @@ pub(in crate::call) fn share_event(app: &mut App, event: ShareEvent) -> Task<Mes
             }
         }
         ShareEvent::HighQuality => {
+            let gpu = app.layout.voice.gpu_encoding.unwrap_or(true);
             if let Some(share) = &mut app.call.share {
-                share.quality.high_quality = !share.quality.high_quality;
+                let quality = if gpu {
+                    &mut share.quality.gpu_high_quality
+                } else {
+                    &mut share.quality.high_quality
+                };
+                *quality = !*quality;
                 share.side = None;
             }
         }
@@ -449,7 +519,7 @@ pub(in crate::call) fn share_event(app: &mut App, event: ShareEvent) -> Task<Mes
                 yapfast_core::stream_worker::pick(
                     picked.unwrap_or(yapfast_core::stream_worker::Source::Screen),
                 );
-                Some(Command::GoLive(share.quality))
+                Some(share.go_live())
             };
             crate::call::popups::close_popup(app);
             if let Some(command) = command {
@@ -495,7 +565,7 @@ pub(super) fn share_menu<'a>(
                 cards = cards.push(screen_card(
                     ctx,
                     title,
-                    picture.as_ref(),
+                    picture.as_ref().map(|preview| &preview.handle),
                     card_width,
                     share.pick == Some(at),
                     pick(at),
@@ -573,13 +643,21 @@ pub(super) fn share_menu<'a>(
         );
     }
     if !share.switching {
+        let (hint, quality) = if ctx.layout.voice.gpu_encoding.unwrap_or(true) {
+            (
+                tr("Quality preset for the GPU encoder"),
+                share.quality.gpu_high_quality,
+            )
+        } else {
+            (tr("Sharper, at twice the CPU"), share.quality.high_quality)
+        };
         settings = settings.push(
             mouse_area(crate::call::popups::popup_row(
                 ctx,
                 tr("Higher quality"),
-                Some(tr("Sharper, at twice the CPU").into()),
+                Some(hint.into()),
                 None,
-                Check::Box(share.quality.high_quality),
+                Check::Box(quality),
                 Some(event(ShareEvent::HighQuality)),
             ))
             .on_enter(event(ShareEvent::Side(None))),
@@ -634,13 +712,13 @@ pub(super) fn side_list<'a>(
     let setting = share.side?;
     let row = share.settings().iter().position(|&row| row == setting)?;
     let theme = ctx.look.theme;
-    let choice = |label: std::borrow::Cow<'a, str>, subtitle, chosen: bool, event| {
+    let choice = |label: std::borrow::Cow<'a, str>, subtitle, chosen: bool, disabled, event| {
         let item = Item {
             label,
             icon: None,
             danger: false,
             slot: true,
-            disabled: false,
+            disabled,
             subtitle,
             check: if chosen { Check::Current } else { Check::None },
         };
@@ -672,16 +750,18 @@ pub(super) fn side_list<'a>(
                     title.as_str().into(),
                     subtitle,
                     *audio == share.audio,
+                    false,
                     ShareEvent::Audio(*audio),
                 ));
             }
         }
         Setting::Resolution => {
-            for (resolution, label) in RESOLUTIONS {
+            for (resolution, _) in RESOLUTIONS {
                 rows = rows.push(choice(
-                    tr(label).into(),
+                    share.resolution_label(resolution),
                     None,
-                    resolution == share.quality.resolution,
+                    resolution == share.resolution(),
+                    !share.supports(resolution),
                     ShareEvent::Resolution(resolution),
                 ));
             }
@@ -692,6 +772,7 @@ pub(super) fn side_list<'a>(
                     i18n::fill(tr("{} fps"), &[&fps]).into(),
                     None,
                     fps == share.quality.fps,
+                    false,
                     ShareEvent::Fps(fps),
                 ));
             }
@@ -785,4 +866,53 @@ pub(super) fn screen_card<'a>(
         }
     })
     .into()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_screen_disables_presets_above_its_height() {
+        let mut share = Share {
+            screens: vec![("Screen".into(), None)],
+            windows: vec![],
+            cameras: vec![],
+            sources: vec![],
+            dialog: false,
+            pick: Some(0),
+            quality: StreamQuality {
+                resolution: Resolution::P1440,
+                ..StreamQuality::default()
+            },
+            switching: false,
+            count: 0,
+            preview_stop: Arc::new(AtomicBool::new(false)),
+            audio: StreamAudio::Off,
+            audio_options: vec![],
+            side: None,
+        };
+        assert_eq!(share.resolution(), Resolution::P1440);
+        share.screens[0].1 = Some(SourcePreview {
+            handle: Handle::from_rgba(1, 1, vec![0; 4]),
+            width: 1920,
+            height: 1080,
+        });
+        assert_eq!(share.dimensions(), Some((1920, 1080)));
+        assert!(share.supports(Resolution::P1080));
+        assert!(!share.supports(Resolution::P1440));
+        assert_eq!(share.resolution(), Resolution::Source);
+        assert!(matches!(
+            share.go_live(),
+            Command::GoLive {
+                quality: StreamQuality {
+                    resolution: Resolution::P1440,
+                    ..
+                },
+                effective_resolution: Resolution::Source,
+            }
+        ));
+        share.pick = Some(1);
+        assert_eq!(share.resolution(), Resolution::P1440);
+    }
 }

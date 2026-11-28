@@ -132,7 +132,7 @@ fn card_server<'a>(
 fn expression_card(app: &Application, expression: &Expression) -> Option<expression::Card> {
     match expression {
         Expression::Emoji(target) => Some(expression::emoji_for(app, target)),
-        Expression::Sticker(item, index) => expression::sticker(&app.state, item, *index),
+        Expression::Sticker(item, index) => expression::sticker(app, item, *index),
     }
 }
 

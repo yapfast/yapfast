@@ -35,8 +35,8 @@ call ends. Someone moving the account to a channel on another voice server
 goes that way: its voice state names the channel, the old server closes the
 connection with 4014, and `VOICE_SERVER_UPDATE` follows some 40 ms later.
 The call's connection, closed with 4014, keeps its media and waits those
-five seconds for the move; being disconnected from voice gets no new
-server, and the call ends then. A stream moves the same way, with a new `STREAM_CREATE` and
+five seconds for the move. It reports a disconnect to the window if the
+wait expires. A stream moves the same way, with a new `STREAM_CREATE` and
 `STREAM_SERVER_UPDATE`: sharing sends to the new server, after waiting up to
 five seconds for it when the old connection ends, and watching connects again.
 
@@ -241,7 +241,11 @@ that stopped during pauses, every packet after a pause looked as late as the
 pause was long, and the start of speech was held back by up to half the pause
 (`decision_logic.cc`, `packet_arrival_history.cc` in NetEq's source). When the
 voice gateway drops, the connection resumes with op 7, and connects again
-from scratch if resuming fails.
+from scratch if resuming fails. Temporary transport failures and voice server
+crashes can use the rest of the call's three-attempt recovery limit, with
+increasing delays. Rate limits and terminal close codes end recovery on
+that server assignment. Leaving or moving the call interrupts recovery.
+A connection that stays up for a minute resets the retry limit.
 
 ### Playing what others say
 

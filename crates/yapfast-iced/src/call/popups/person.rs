@@ -5,7 +5,9 @@ use iced::{
     Element, Point, Task,
     widget::{column, operation, text},
 };
-use yapfast_core::{application::MenuChoice, chat::MemberChange, i18n::tr, voice::Command};
+use yapfast_core::{
+    application::MenuChoice, chat::MemberChange, i18n::tr, voice::Command, volume::MAX_PERCENT,
+};
 
 use crate::call::Event;
 use crate::{
@@ -35,6 +37,7 @@ pub(in crate::call) fn person_volume(app: &mut App, stream: bool, value: u32, do
     let Some(volumes) = app.win.menu.as_mut().and_then(|menu| menu.volumes.as_mut()) else {
         return;
     };
+    let value = value.min(u32::from(MAX_PERCENT));
     if stream {
         volumes.stream = value;
     } else {
@@ -224,7 +227,7 @@ pub fn choose_voice(
 pub fn volumes_view<'a>(ctx: crate::ctx::Ctx<'a>, volumes: &'a Volumes) -> Element<'a, Message> {
     let theme = ctx.look.theme;
     let slider = |label, stream: bool, value| {
-        controls::slider(label, value, 200, move |value| {
+        controls::slider(label, value, u32::from(MAX_PERCENT), move |value| {
             Message::Call(Event::Volume(stream, value, false))
         })
         .on_release(Message::Call(Event::Volume(stream, value, true)))

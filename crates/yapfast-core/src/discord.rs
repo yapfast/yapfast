@@ -767,6 +767,7 @@ fn dm_room(snapshot: &Snapshot, dm: &Conversation, premium: u8, me: &str) -> Cha
         } else {
             Reacts::Any
         },
+        voice_limit: None,
         slowmode: 0,
         slowed: false,
         timed_out_until: None,
@@ -935,6 +936,7 @@ fn server_rooms(
                 join_locked: marks.access != Access::Join,
                 read_only: !server.may_send(channel, me, &server.marks.roles),
                 reacts: reacts(server, channel, me),
+                voice_limit: channel.voice_limit,
                 slowmode: channel.slowmode,
                 slowed: server.slowed(channel, me, &server.marks.roles),
                 timed_out_until: server.my_timeout.as_ref().map(|timeout| timeout.until),
@@ -989,6 +991,7 @@ fn server_rooms(
                 muted: marks.muted,
                 last_read: read_item(marks.last_read),
                 locked: marks.access == Access::Hidden,
+                voice_limit: None,
                 join_locked: false,
                 read_only: marks.access == Access::Locked,
                 reacts: reacts(server, channel, me),
@@ -1054,6 +1057,16 @@ fn server_rooms(
         pinned,
         banner: server.banner.clone(),
         verified: server.verified,
+        // Only those who may Manage Server hear of it, as in Discord's
+        // client (its module 347951). The permissions are worked out only
+        // for a server whose invites are paused.
+        invites_paused_until: server
+            .invites_paused(crate::clock::now_ms() / 1000)
+            .filter(|_| {
+                server.server_permissions(me, &server.marks.roles)
+                    & yapfast_discord::ready::permission::MANAGE_GUILD
+                    != 0
+            }),
         boosts: server.boost_bar.then_some(server.boosts),
         premium_tier: (server.premium_tier > 0).then_some(server.premium_tier),
         events: server
@@ -1153,6 +1166,7 @@ fn thread_room(
         // Locked, or this account may not write in threads here.
         read_only: thread.marks.access == Access::Locked,
         reacts: reacts(server, &thread, me),
+        voice_limit: None,
         slowmode: thread.slowmode,
         slowed: server.slowed(&thread, me, &server.marks.roles),
         timed_out_until: server.my_timeout.as_ref().map(|timeout| timeout.until),
@@ -3026,5 +3040,37 @@ mod tests {
         assert!(rooms[5].people[0].deafened && rooms[5].members == 1);
         assert_eq!(parse_room("discord:10:11"), Some(("10", "11")));
         assert_eq!(parse_room("!room:example.org"), None);
+    }
+
+    #[test]
+    fn only_one_who_may_manage_a_server_hears_its_invites_are_paused() {
+        use yapfast_discord::ready::permission::MANAGE_GUILD;
+        let now = crate::clock::now_ms() / 1000;
+        // This account, 1, with @everyone's permissions `everyone`.
+        let paused = |everyone: u64, disabled: bool, until: Option<u64>| {
+            let snapshot = Snapshot {
+                user_id: Some("1".into()),
+                servers: vec![MarkedServer::from(Server {
+                    id: "10".into(),
+                    owner_id: Some("99".into()),
+                    roles: std::sync::Arc::new([("10".to_owned(), everyone)].into_iter().collect()),
+                    invites_disabled: disabled,
+                    invites_paused_until: until,
+                    ..Default::default()
+                })],
+                ..Default::default()
+            };
+            index(&snapshot, false).1[0].invites_paused_until
+        };
+        let later = now + 600;
+        assert_eq!(paused(MANAGE_GUILD, false, Some(later)), Some(later));
+        assert_eq!(paused(MANAGE_GUILD, true, None), Some(u64::MAX), "no end");
+        assert_eq!(paused(0, false, Some(later)), None, "without Manage Server");
+        assert_eq!(paused(0, true, None), None, "without Manage Server");
+        assert_eq!(
+            paused(MANAGE_GUILD, false, Some(now - 600)),
+            None,
+            "resumed"
+        );
     }
 }

@@ -491,6 +491,17 @@ pub fn update(app: &mut App, event: Event) -> Task<Message> {
     }
 }
 
+/// Appearance's "Show Discord's bar under it": under the desktop's title
+/// bar, Discord's bar shows or goes, and the content takes its room. Its
+/// Inbox closes with it.
+pub fn show_under_frame(app: &mut App, on: bool) {
+    app.shell.bar_under_frame = on;
+    if !on && !app.shell.own_title_bar {
+        app.inbox = None;
+    }
+    fit_window(app);
+}
+
 /// Appearance's switch: the window is made again with the desktop's
 /// frame or without it, where it was.
 pub fn choose_title_bar(app: &mut App, system: bool) -> Task<Message> {

@@ -56,7 +56,7 @@ pub const EMBED_PARTS: crate::piece::PartNo = 16384;
 /// A thread's card under its message at its widest.
 const THREAD_WIDTH: f32 = 480.0;
 /// A file's card at its widest, and its icon.
-const FILE_CARD_WIDTH: f32 = 432.0;
+pub(crate) const FILE_CARD_WIDTH: f32 = 432.0;
 const FILE_ICON: u32 = 30;
 /// An embed's padding across, around its text and pictures.
 const EMBED_PADDING: f32 = 4.0 + 12.0 + 16.0;
@@ -115,6 +115,16 @@ pub fn blocked_key(item: &str) -> String {
     format!("{item}/blocked")
 }
 
+/// Whether a key `revealed` holds is a spoiler uncovered: one in a message's
+/// text (`item/index`, as `yapfast_core::spoiler::link` names it) or over
+/// its attachment ([`reveal_key`]).
+pub fn is_spoiler_key(key: &str) -> bool {
+    key.rsplit_once('/').is_some_and(|(_, index)| {
+        let index = index.strip_prefix('a').unwrap_or(index);
+        !index.is_empty() && index.bytes().all(|byte| byte.is_ascii_digit())
+    })
+}
+
 /// What `revealed` holds for a long message shown whole.
 pub fn fold_key(item: &str) -> String {
     format!("{item}/more")
@@ -168,7 +178,12 @@ pub fn message_content<'a>(
         && !(message_style == MessageStyle::Bubbles && message.own)
     {
         content = content.push(
-            container(author_line(ctx, index, message)).padding(Padding::ZERO.bottom(AUTHOR_GAP)),
+            container(timed_out_mark(
+                ctx,
+                message,
+                author_line(ctx, index, message),
+            ))
+            .padding(Padding::ZERO.bottom(AUTHOR_GAP)),
         );
     }
     if message.forwarded {
@@ -253,6 +268,13 @@ pub fn message_content<'a>(
             content = content.push(crate::playback::voice_card(ctx, message, voice));
             continue;
         }
+        if attachment.audio {
+            content = content.push(
+                container(crate::playback::audio_card(ctx, message, index, attachment))
+                    .padding(Padding::ZERO.top(4)),
+            );
+            continue;
+        }
         content = content.push(
             container(crate::message::attachments::file_card(
                 ctx,
@@ -291,6 +313,11 @@ pub fn message_content<'a>(
     }
     if let Some(failed) = crate::components::bot_failed(ctx, message) {
         content = content.push(failed);
+    }
+    if let Some(origin) = &message.forward_origin
+        && let Some(footer) = forward_footer(ctx, look, origin)
+    {
+        content = content.push(container(footer).padding(Padding::ZERO.top(4)));
     }
     // In bubbles the reactions sit under the bubble, on its side, as
     // Slint's; elsewhere they end the message.
@@ -1206,6 +1233,41 @@ fn sent_time<'a>(ctx: crate::ctx::Ctx<'a>, index: usize, message: &'a ChatMessag
         .map_or(message.time.as_str(), |look| &*look.time)
 }
 
+/// What the timeout clock's tooltip says, as Discord's client words it.
+pub const TIMED_OUT_TIP: &str =
+    "This is only visible to moderators and indicates this user is timed out.";
+
+/// A message's author line with Discord's timeout clock before the name,
+/// while the author is timed out and this account may time them out (the
+/// core leaves [`ChatMessage::author_timed_out_until`] empty otherwise).
+/// Its end is checked when the row is drawn, as Discord's client checks it
+/// when it renders the message: nothing wakes for it.
+fn timed_out_mark<'a>(
+    ctx: crate::ctx::Ctx<'a>,
+    message: &ChatMessage,
+    line: Element<'a, Message>,
+) -> Element<'a, Message> {
+    let now = yapfast_core::clock::now_ms();
+    if !message
+        .author_timed_out_until
+        .is_some_and(|until| until > now)
+    {
+        return line;
+    }
+    let theme = ctx.look.theme;
+    // The member list's clock, in its colour.
+    let clock = iced::widget::tooltip(
+        ctx.look.glyph(Icon::Clock, 14, theme.danger),
+        controls::tip(theme, TIMED_OUT_TIP),
+        iced::widget::tooltip::Position::Top,
+    )
+    .gap(6);
+    row![clock, line]
+        .spacing(4)
+        .align_y(Alignment::Center)
+        .into()
+}
+
 /// A message's author line: the name in its style's font (only the font, in
 /// a server) and role colour, the server tag chip, APP for a bot, the time.
 fn author_line<'a>(
@@ -1686,6 +1748,92 @@ fn delivery_line<'a>(
         );
     }
     Some(line.into())
+}
+
+/// A forwarded message's footer, as Discord's client words where the
+/// original came from: from this server, its channel (`#general`); from
+/// another server this account is in, or a channel of this one it doesn't
+/// list, that server's icon and name; then `•` and when the original was
+/// sent, and a chevron. Clicking it opens the original. A forward from a
+/// DM, or from a channel this account can't read, has none.
+fn forward_footer<'a>(
+    ctx: crate::ctx::Ctx<'a>,
+    look: &'a RowLook,
+    origin: &'a chat::ForwardOrigin,
+) -> Option<Element<'a, Message>> {
+    let theme = ctx.look.theme;
+    let state = ctx.state;
+    let room = state.rooms.iter().find(|room| room.id == origin.room);
+    if room.is_some_and(|room| room.direct) {
+        return None;
+    }
+    let server = match room {
+        Some(room) => state
+            .servers
+            .iter()
+            .find(|server| server.channels.contains(&room.id)),
+        None => yapfast_core::discord::parse_room(&origin.room)
+            .filter(|(guild, _)| *guild != yapfast_core::discord::DM_GUILD)
+            .and_then(|(guild, _)| {
+                let id = yapfast_core::discord::server_id(guild);
+                state.servers.iter().find(|server| server.id == id)
+            }),
+    }?;
+    let same_server = state
+        .selected
+        .as_ref()
+        .is_some_and(|open| server.channels.contains(open));
+    let (icon, label) = match room {
+        Some(room) if same_server => {
+            if room.locked {
+                return None;
+            }
+            let label = if room.parent.is_some() {
+                format!("\"{}\"", room.name)
+            } else if room.voice {
+                room.name.clone()
+            } else {
+                format!("#{}", room.name)
+            };
+            (None, label)
+        }
+        _ => (
+            Some(ctx.avatar(server.icon.as_deref(), &server.name, 16.0, 5.0, 1.0)),
+            server.name.clone(),
+        ),
+    };
+    let can_jump = match room {
+        Some(room) => !room.locked,
+        None => state.discord_online && !state.preview,
+    };
+    let label = match look.forward_time.as_deref() {
+        Some(time) => format!("{label}  \u{2022}  {time}"),
+        None => label,
+    };
+    let mut line = row![].spacing(6).align_y(Alignment::Center);
+    if let Some(icon) = icon {
+        line = line.push(icon);
+    }
+    let line = line
+        .push(
+            text(label)
+                .size(theme.type_size("small", 12.0))
+                .font(theme.font("small", MEDIUM))
+                .wrapping(text::Wrapping::None),
+        )
+        .push(ctx.look.glyph(Icon::ChevronRight, 14, theme.muted));
+    Some(
+        button(line)
+            .padding(0)
+            .on_press_maybe(can_jump.then(|| {
+                Message::Timeline(crate::timeline::Event::JumpInRoom {
+                    room: origin.room.clone(),
+                    item: origin.item.clone(),
+                })
+            }))
+            .style(controls::ink_style(theme.muted, theme.text))
+            .into(),
+    )
 }
 
 /// As Discord's client marks an answer only this account sees.

@@ -7,6 +7,10 @@ msgstr ""
 "Content-Transfer-Encoding: 8bit\n"
 "Plural-Forms: nplurals=2; plural=(n > 1);\n"
 
+#: crates/yapfast-iced/src/call/popups/share.rs
+msgid " (up to 4K)"
+msgstr " (jusqu'à 4K)"
+
 #: crates/yapfast-iced/src/server_dialogs.rs
 msgid " and works once"
 msgstr " et fonctionne une fois"
@@ -246,6 +250,10 @@ msgid "Accept to reply. Ignoring removes it without telling them."
 msgstr "Acceptez pour répondre. Ignorer la supprime sans les prévenir."
 
 #: crates/yapfast-iced/src/settings/mod.rs
+msgid "Accessibility"
+msgstr "Accessibilité"
+
+#: crates/yapfast-iced/src/settings/mod.rs
 msgid "Account"
 msgstr "Compte"
 
@@ -409,10 +417,6 @@ msgstr "Après 10 minutes sans utiliser Yapfast, comme sur Discord. Dans les deu
 msgid "Age-Restricted Channel"
 msgstr "Salon soumis à une limite d'âge"
 
-#: crates/yapfast-iced/src/call/details.rs
-msgid "Aiming for:"
-msgstr "Objectif :"
-
 #: crates/yapfast-iced/src/friends/mod.rs
 msgid "All"
 msgstr "Tous"
@@ -460,10 +464,6 @@ msgstr "Autoriser plusieurs réponses"
 #: crates/yapfast-iced/src/settings/pages/advanced.rs
 msgid "Allow multiple windows"
 msgstr "Autoriser plusieurs fenêtres"
-
-#: crates/yapfast-iced/src/settings/pages/messages.rs
-msgid "Always"
-msgstr "Toujours"
 
 #: crates/yapfast-iced/src/sidebar/voice.rs
 msgid "and {} more"
@@ -561,6 +561,10 @@ msgstr "Journal d'audit"
 msgid "Automatically move members to this channel and mute them when they have been idle for longer than the inactive timeout. This does not affect browsers."
 msgstr "Déplace automatiquement les membres dans ce salon et les met en sourdine lorsqu'ils sont inactifs depuis plus longtemps que le délai d'inactivité. Cela n'affecte pas les navigateurs."
 
+#: crates/yapfast-iced/src/settings/pages/advanced.rs
+msgid "Automatically open Yapfast when your computer starts up"
+msgstr "Ouvrir Yapfast automatiquement au démarrage de l'ordinateur"
+
 #: crates/yapfast-iced/src/profile/editor/styles.rs
 msgid "Avatar & Decoration"
 msgstr "Avatar et décoration"
@@ -572,6 +576,10 @@ msgstr "Ping moyen :"
 #: crates/yapfast-iced/src/picker/gifs.rs crates/yapfast-iced/src/server_settings/roles/editor.rs crates/yapfast-iced/src/window_bar.rs
 msgid "Back"
 msgstr "Retour"
+
+#: crates/yapfast-iced/src/settings/appearance.rs
+msgid "Back and Forward, where you are, the Inbox and Help, as Discord's app always shows them. Off, the desktop's title bar alone."
+msgstr "Précédent et Suivant, où vous êtes, la boîte de réception et l'aide, comme l'application Discord les affiche toujours. Désactivé, seule la barre de titre du bureau reste."
 
 #: crates/yapfast-iced/src/thread.rs
 msgid "Back to editing"
@@ -696,6 +704,10 @@ msgstr "Si vous rendez un salon privé, seuls les membres et rôles choisis pour
 #: crates/yapfast-iced/src/channel_settings.rs
 msgid "By making a channel private, only select members and roles will have access to view or connect to this channel."
 msgstr "Si vous rendez un salon privé, seuls les membres et rôles choisis pourront le voir ou s'y connecter."
+
+#: crates/yapfast-iced/src/settings/pages/sounds.rs
+msgid "Call tones and sounds for messages, voice and streams play on the speakers chosen for calls."
+msgstr "Les sonneries et les sons des messages, de la voix et des streams sont joués sur les haut-parleurs choisis pour les appels."
 
 #: crates/yapfast-iced/src/call/stage/mod.rs
 msgid "Calling {}..."
@@ -961,10 +973,6 @@ msgstr "Fermer {}"
 msgid "Closing the window keeps Yapfast running in the system tray, with any call. Quit from the tray icon's menu."
 msgstr "Fermer la fenêtre laisse Yapfast actif dans la zone de notification, avec tout appel en cours. Quittez depuis le menu de l'icône."
 
-#: crates/yapfast-iced/src/call/details.rs
-msgid "Codec:"
-msgstr "Codec :"
-
 #: crates/yapfast-iced/src/settings/pages/messages.rs
 msgid "Collapse long messages"
 msgstr "Réduire les longs messages"
@@ -1028,6 +1036,10 @@ msgstr "Copié"
 #: crates/yapfast-iced/src/call/details.rs crates/yapfast-iced/src/composer.rs crates/yapfast-iced/src/link_dialogs.rs crates/yapfast-iced/src/server_dialogs.rs
 msgid "Copy"
 msgstr "Copier"
+
+#: crates/yapfast-iced/src/call/details.rs
+msgid "Copy diagnostics"
+msgstr "Copier les diagnostics"
 
 #: crates/yapfast-iced/src/place_menus.rs
 msgid "Copy ID"
@@ -1161,6 +1173,10 @@ msgstr "Les identifiants sont stockés dans le coffre d'identifiants du système
 msgid "Current activity"
 msgstr "Activité en cours"
 
+#: crates/yapfast-iced/src/settings/pages/sounds.rs
+msgid "Custom"
+msgstr "Personnalisé"
+
 #: crates/yapfast-iced/src/settings/pages/games.rs
 msgid "CUSTOM GAMES"
 msgstr "JEUX PERSONNALISÉS"
@@ -1168,6 +1184,10 @@ msgstr "JEUX PERSONNALISÉS"
 #: crates/yapfast-iced/src/settings/keybinds.rs
 msgid "Custom Keybinds"
 msgstr "Raccourcis personnalisés"
+
+#: crates/yapfast-iced/src/settings/pages/sounds.rs
+msgid "Custom sound set"
+msgstr "Jeu de sons personnalisé"
 
 #: crates/yapfast-iced/src/server_settings/profile.rs
 msgid "Customize how your server appears in invite links and, if enabled, in Server Discovery and Announcement Channel messages."
@@ -1217,7 +1237,7 @@ msgstr "DeepFilterNet"
 msgid "DeepFilterNet also takes out typing and other sudden noise. RNNoise uses less processing. Off sends your microphone as it is, for a quiet room. A call going on switches straight away."
 msgstr "DeepFilterNet supprime aussi les bruits de frappe et autres bruits soudains. RNNoise demande moins de calcul. Désactivé envoie votre micro tel quel, pour une pièce calme. Un appel en cours change immédiatement."
 
-#: crates/yapfast-iced/src/profile/editor/colour.rs crates/yapfast-iced/src/profile/name_style.rs crates/yapfast-iced/src/settings/pages/messages.rs
+#: crates/yapfast-iced/src/profile/editor/colour.rs crates/yapfast-iced/src/profile/name_style.rs crates/yapfast-iced/src/settings/pages/sounds.rs
 msgid "Default"
 msgstr "Par défaut"
 
@@ -1430,6 +1450,14 @@ msgid "Downloading {}%"
 msgstr "Téléchargement : {} %"
 
 #: crates/yapfast-iced/src/settings/appearance.rs
+msgid "Draw role colour gradients"
+msgstr "Dessiner les dégradés des couleurs de rôle"
+
+#: crates/yapfast-iced/src/settings/appearance.rs
+msgid "Draw text glow"
+msgstr "Dessiner la lueur du texte"
+
+#: crates/yapfast-iced/src/settings/appearance.rs
 msgid "Drop-down lists and scroll bars draw dark to match."
 msgstr "Les listes déroulantes et les barres de défilement passent en sombre pour correspondre."
 
@@ -1529,10 +1557,6 @@ msgstr "Activer les invitations"
 msgid "Encode streams with the GPU"
 msgstr "Encoder les flux avec le GPU"
 
-#: crates/yapfast-iced/src/call/details.rs
-msgid "Encoder:"
-msgstr "Encodeur :"
-
 #: crates/yapfast-iced/src/menus.rs crates/yapfast-iced/src/polls.rs
 msgid "End Poll Now"
 msgstr "Terminer le sondage maintenant"
@@ -1556,6 +1580,10 @@ msgstr "Participation à une activité de spam présumée"
 #: crates/yapfast-iced/src/server_settings/mod.rs crates/yapfast-iced/src/server_settings/profile.rs
 msgid "Engagement"
 msgstr "Engagement"
+
+#: crates/yapfast-iced/src/settings/pages/advanced.rs
+msgid "Enhanced live preview quality"
+msgstr "Qualité de l'aperçu en direct améliorée"
 
 #: crates/yapfast-iced/src/person_menu.rs
 msgid "Enjoy this moment. Then jump in when you're ready."
@@ -1616,6 +1644,10 @@ msgstr "Fondé {}"
 #: crates/yapfast-iced/src/settings/voice.rs
 msgid "Even out your voice"
 msgstr "Uniformiser votre voix"
+
+#: crates/yapfast-iced/src/settings/pages/sounds.rs
+msgid "Event volume"
+msgstr "Volume des événements"
 
 #: crates/yapfast-iced/src/sidebar/top.rs
 msgid "Events"
@@ -1800,10 +1832,6 @@ msgstr "Pour 15 minutes"
 #: crates/yapfast-iced/src/settings/voice.rs
 msgid "For a bare or echoey room that makes your voice sound far away. Uses a little more processing, and your voice goes out 10 ms later."
 msgstr "Pour une pièce nue ou qui résonne et donne l'impression que votre voix vient de loin. Demande un peu plus de calcul, et votre voix part 10 ms plus tard."
-
-#: crates/yapfast-iced/src/settings/pages/notifications.rs
-msgid "For a message that notifies while Yapfast isn't in front. The window's title counts mentions and DMs waiting either way."
-msgstr "Pour un message qui notifie quand Yapfast n'est pas au premier plan. Le titre de la fenêtre compte de toute façon les mentions et MP en attente."
 
 #: crates/yapfast-iced/src/settings/pages/notifications.rs
 msgid "For new messages while Yapfast isn't in front. {} which: usually DMs and mentions. Clicking one opens the conversation."
@@ -2085,7 +2113,7 @@ msgstr "Boîte de réception"
 msgid "Include nightly builds"
 msgstr "Inclure les versions nocturnes"
 
-#: crates/yapfast-iced/src/call/dm.rs
+#: crates/yapfast-iced/src/call/dm.rs crates/yapfast-iced/src/settings/pages/sounds.rs
 msgid "Incoming call"
 msgstr "Appel entrant"
 
@@ -2297,10 +2325,6 @@ msgstr "Raccourcis clavier"
 msgid "Keybinds mute, deafen or talk from any app. Add one, choose what it does, and record its keys."
 msgstr "Les raccourcis coupent le micro, activent la sourdine casque ou permettent de parler depuis n'importe quelle application. Ajoutez-en un, choisissez son action et enregistrez ses touches."
 
-#: crates/yapfast-iced/src/call/details.rs
-msgid "Keyframes viewers asked for:"
-msgstr "Images clés demandées par les spectateurs :"
-
 #: crates/yapfast-iced/src/person_menu.rs crates/yapfast-iced/src/place_menus.rs
 msgid "Kick"
 msgstr "Expulser"
@@ -2316,10 +2340,6 @@ msgstr "Expulser {} ?"
 #: crates/yapfast-iced/src/settings/appearance.rs
 msgid "LANGUAGE"
 msgstr "LANGUE"
-
-#: crates/yapfast-iced/src/settings/pages/messages.rs
-msgid "Large"
-msgstr "Grand"
 
 #: crates/yapfast-iced/src/header_popovers.rs
 msgid "Last active {}"
@@ -2885,7 +2905,7 @@ msgstr "Plaque nominative"
 msgid "Neon"
 msgstr "Néon"
 
-#: crates/yapfast-iced/src/server_dialogs.rs crates/yapfast-iced/src/settings/pages/messages.rs crates/yapfast-iced/src/status.rs
+#: crates/yapfast-iced/src/server_dialogs.rs crates/yapfast-iced/src/status.rs
 msgid "Never"
 msgstr "Jamais"
 
@@ -3413,6 +3433,10 @@ msgstr "Sinon, vous rejoignez en sourdine et réactivez votre micro quand vous �
 msgid "Outbound packet loss rate:"
 msgstr "Taux de perte de paquets sortants :"
 
+#: crates/yapfast-iced/src/settings/pages/sounds.rs
+msgid "Outgoing call"
+msgstr "Appel sortant"
+
 #: crates/yapfast-iced/src/call/popups/device.rs
 msgid "Output"
 msgstr "Sortie"
@@ -3424,10 +3448,6 @@ msgstr "Options de sortie"
 #: crates/yapfast-iced/src/channel_settings.rs
 msgid "Overview"
 msgstr "Vue d'ensemble"
-
-#: crates/yapfast-iced/src/call/details.rs
-msgid "Packets resent:"
-msgstr "Paquets renvoyés :"
 
 #: crates/yapfast-iced/src/server_settings/moderation.rs
 msgid "Page {0} of {1}"
@@ -3541,13 +3561,13 @@ msgstr "messages épinglés"
 msgid "Play"
 msgstr "Lire"
 
-#: crates/yapfast-iced/src/settings/pages/messages.rs
-msgid "PLAY GIFS, EMOJI AND STICKERS"
-msgstr "LIRE LES GIF, ÉMOJIS ET STICKERS"
-
 #: crates/yapfast-iced/src/settings/appearance.rs
 msgid "Play profile effects"
 msgstr "Lire les effets de profil"
+
+#: crates/yapfast-iced/src/settings/pages/sounds.rs
+msgid "Play sound files of your own. Choose Custom in a sound's menu to pick its file."
+msgstr "Jouez vos propres fichiers son. Choisissez Personnalisé dans le menu d'un son pour sélectionner son fichier."
 
 #: crates/yapfast-iced/src/status.rs
 msgid "Playing"
@@ -3701,6 +3721,10 @@ msgstr "DÉLAI DE RELÂCHEMENT D'APPUYER POUR PARLER"
 msgid "Push to talk release delay"
 msgstr "Délai de relâchement d'appuyer pour parler"
 
+#: crates/yapfast-iced/src/call/popups/share.rs
+msgid "Quality preset for the GPU encoder"
+msgstr "Préréglage de qualité pour l'encodeur GPU"
+
 #: crates/yapfast-iced/src/switcher.rs
 msgid "QUESTION"
 msgstr "QUESTION"
@@ -3833,6 +3857,10 @@ msgstr "Annuler l'exclusion temporaire"
 msgid "Remove tracking from links you send"
 msgstr "Supprimer le suivi des liens que vous envoyez"
 
+#: crates/yapfast-iced/src/settings/pages/sounds.rs
+msgid "Remove uploaded file"
+msgstr "Supprimer le fichier importé"
+
 #: crates/yapfast-iced/src/polls.rs
 msgid "Remove Vote"
 msgstr "Retirer le vote"
@@ -3892,10 +3920,6 @@ msgstr "Réinitialiser la bannière"
 #: crates/yapfast-iced/src/call/popups/share.rs
 msgid "Resolution"
 msgstr "Résolution"
-
-#: crates/yapfast-iced/src/call/details.rs
-msgid "Resolution:"
-msgstr "Résolution :"
 
 #: src/tray.rs crates/yapfast-iced/src/settings/pages/advanced.rs
 msgid "Restart Yapfast"
@@ -3980,10 +4004,6 @@ msgstr "Configuration de la sécurité"
 #: crates/yapfast-iced/src/looks.rs crates/yapfast-iced/src/profile/name_style.rs
 msgid "Sakura"
 msgstr "Sakura"
-
-#: crates/yapfast-iced/src/settings/pages/messages.rs
-msgid "Sam"
-msgstr "Sam"
 
 #: crates/yapfast-iced/src/image_viewer.rs crates/yapfast-iced/src/message/attachments.rs crates/yapfast-iced/src/person_menu.rs crates/yapfast-iced/src/server_settings/people.rs crates/yapfast-iced/src/status.rs
 msgid "Save"
@@ -4201,10 +4221,6 @@ msgstr "L'envoi est verrouillé tant que cet appareil n'est pas vérifié."
 msgid "Sending..."
 msgstr "Envoi..."
 
-#: crates/yapfast-iced/src/call/details.rs
-msgid "Sending:"
-msgstr "Envoi :"
-
 #: crates/yapfast-iced/src/server_settings/moderation.rs
 msgid "SENSITIVE CONTENT FILTERS"
 msgstr "FILTRES DE CONTENU SENSIBLE"
@@ -4305,6 +4321,10 @@ msgstr "Partager le jeu auquel vous jouez"
 msgid "Share your screen"
 msgstr "Partager votre écran"
 
+#: crates/yapfast-iced/src/call/details.rs
+msgid "Sharing"
+msgstr "Partage"
+
 #: crates/yapfast-iced/src/call/popups/share.rs
 msgid "Sharper, at twice the CPU"
 msgstr "Plus net, pour deux fois plus de processeur"
@@ -4344,6 +4364,10 @@ msgstr "Afficher les salons auxquels vous n'avez pas accès"
 #: crates/yapfast-iced/src/settings/pages/notifications.rs
 msgid "Show desktop notifications"
 msgstr "Afficher les notifications de bureau"
+
+#: crates/yapfast-iced/src/settings/appearance.rs
+msgid "Show Discord's bar under it"
+msgstr "Afficher la barre de Discord en dessous"
 
 #: crates/yapfast-iced/src/message/mod.rs
 msgid "Show it"
@@ -4417,6 +4441,10 @@ msgstr "Afficher le salon vocal"
 msgid "Show what messages say"
 msgstr "Afficher ce que disent les messages"
 
+#: crates/yapfast-iced/src/settings/pages/advanced.rs
+msgid "Show your own preview at the stream's resolution and frame rate. Uses more resources and applies to the next stream."
+msgstr "Affiche votre propre aperçu à la résolution et à la fréquence d'images du stream. Utilise plus de ressources et s'applique au prochain stream."
+
 #: crates/yapfast-iced/src/server_settings/people.rs
 msgid "Showing"
 msgstr "Affichés"
@@ -4464,10 +4492,6 @@ msgstr "Doucement ! Êtes-vous sûr ?"
 #: crates/yapfast-iced/src/channel_settings.rs
 msgid "SLOWMODE"
 msgstr "MODE LENT"
-
-#: crates/yapfast-iced/src/settings/pages/messages.rs
-msgid "Small"
-msgstr "Petit"
 
 #: crates/yapfast-core/src/emoji.rs
 msgid "Smileys & emotion"
@@ -4605,9 +4629,17 @@ msgstr "Démarrer un appel vidéo"
 msgid "Start Voice Call"
 msgstr "Démarrer un appel vocal"
 
+#: crates/yapfast-iced/src/call/stage/mod.rs
+msgid "Start watching multiple streams"
+msgstr "Regarder plusieurs streams"
+
 #: crates/yapfast-iced/src/settings/pages/advanced.rs
-msgid "Start when you sign in"
-msgstr "Démarrer à la connexion"
+msgid "Start Yapfast in the background, out of your way."
+msgstr "Démarrer Yapfast en arrière-plan, sans vous déranger."
+
+#: crates/yapfast-iced/src/settings/pages/advanced.rs
+msgid "Start Yapfast minimized"
+msgstr "Démarrer Yapfast réduit"
 
 #: crates/yapfast-iced/src/header_popovers.rs
 msgid "Started by "
@@ -4817,10 +4849,6 @@ msgstr "Texte après Joue à (128 caractères max.)"
 msgid "TEXT CHANNELS"
 msgstr "SALONS TEXTUELS"
 
-#: crates/yapfast-iced/src/settings/pages/messages.rs
-msgid "TEXT SIZE"
-msgstr "TAILLE DU TEXTE"
-
 #: crates/yapfast-iced/src/settings/appearance.rs
 msgid "The animations some people put over their profile cards."
 msgstr "Les animations que certains superposent à leurs cartes de profil."
@@ -4844,6 +4872,10 @@ msgstr "Le débit suit ce que Discord estime que votre connexion supporte. Un mo
 #: crates/yapfast-iced/src/call/stage/mod.rs
 msgid "The call stays connected while you browse other conversations."
 msgstr "L'appel reste connecté pendant que vous parcourez d'autres conversations."
+
+#: crates/yapfast-iced/src/settings/appearance.rs
+msgid "The colours that run across a name with a gradient or holographic role colour. Off, the name keeps the role's first colour."
+msgstr "Les couleurs qui parcourent un nom ayant une couleur de rôle en dégradé ou holographique. Désactivé, le nom garde la première couleur du rôle."
 
 #: crates/yapfast-core/src/chat.rs
 msgid "The Discord token is stored in the OS credential store."
@@ -4936,6 +4968,10 @@ msgstr "Les sommes de contrôle de la version ne sont pas du texte."
 #: crates/yapfast-iced/src/tag_card.rs
 msgid "The server has limited who can see this profile."
 msgstr "Le serveur a limité les personnes pouvant voir ce profil."
+
+#: crates/yapfast-iced/src/settings/appearance.rs
+msgid "The soft edge a theme puts round text. Off, text keeps its shadow and outline and takes less drawing."
+msgstr "Le bord doux qu'un thème met autour du texte. Désactivé, le texte garde son ombre et son contour et demande moins de dessin."
 
 #: crates/yapfast-iced/src/settings/appearance.rs
 msgid "The tag and its badge beside people's names."
@@ -5433,6 +5469,10 @@ msgstr "Importer dans "
 msgid "UPLOADED BY"
 msgstr "IMPORTÉ PAR"
 
+#: crates/yapfast-iced/src/settings/pages/sounds.rs
+msgid "Uploaded file"
+msgstr "Fichier importé"
+
 #: crates/yapfast-iced/src/server_settings/expressions.rs
 msgid "Uploading..."
 msgstr "Importation..."
@@ -5621,10 +5661,6 @@ msgstr "Paramètres vocaux"
 msgid "Voice stays connected while you browse other conversations."
 msgstr "Le vocal reste connecté pendant que vous parcourez d'autres conversations."
 
-#: crates/yapfast-iced/src/settings/pages/sounds.rs
-msgid "Volume"
-msgstr "Volume"
-
 #: crates/yapfast-iced/src/polls.rs
 msgid "Vote"
 msgstr "Voter"
@@ -5653,9 +5689,17 @@ msgstr "Regarder le stream"
 msgid "Watch stream?"
 msgstr "Regarder le stream ?"
 
+#: crates/yapfast-iced/src/call/details.rs
+msgid "Watching"
+msgstr "Visionnage"
+
 #: crates/yapfast-iced/src/call/stage/mod.rs
 msgid "Watching: {}"
 msgstr "Vous regardez : {}"
+
+#: crates/yapfast-iced/src/settings/pages/sounds.rs
+msgid "WAV, Ogg, Opus and MP3 files can be up to 1 MiB, with a 4-second limit for events and a 6-second limit for call tones."
+msgstr "Les fichiers WAV, Ogg, Opus et MP3 peuvent peser jusqu'à 1 Mio, avec une limite de 4 secondes pour les événements et de 6 secondes pour les sonneries d'appel."
 
 #: crates/yapfast-iced/src/sidebar/dms.rs
 msgid "Wave"
@@ -5713,10 +5757,6 @@ msgstr "Chaque fois que quelqu'un vous mentionne, la mention est conservée ici 
 msgid "Where would you like to go?"
 msgstr "Où voulez-vous aller ?"
 
-#: crates/yapfast-iced/src/settings/pages/messages.rs
-msgid "While Yapfast is focused"
-msgstr "Quand Yapfast est au premier plan"
-
 #: crates/yapfast-iced/src/call/popups/share.rs
 msgid "WINDOWS"
 msgstr "FENÊTRES"
@@ -5724,6 +5764,10 @@ msgstr "FENÊTRES"
 #: crates/yapfast-iced/src/profile/editor/mod.rs crates/yapfast-iced/src/profile/full.rs
 msgid "Wishlist"
 msgstr "Liste de souhaits"
+
+#: crates/yapfast-iced/src/settings/pages/notifications.rs
+msgid "With a notification, until you come back to Yapfast. The window's title counts mentions and DMs waiting either way."
+msgstr "Avec une notification, jusqu'à votre retour dans Yapfast. Le titre de la fenêtre compte de toute façon les mentions et MP en attente."
 
 #: crates/yapfast-iced/src/active_now.rs
 msgid "with {}"
@@ -5781,10 +5825,6 @@ msgstr "Yapfast cherche des jeux parmi les programmes en cours d'exécution et, 
 msgid "Yapfast lost the X server's keys"
 msgstr "Yapfast a perdu les touches du serveur X"
 
-#: crates/yapfast-iced/src/settings/pages/sounds.rs
-msgid "Yapfast plays these as you and others join and leave a call, as you mute and deafen, as others start and stop streaming, as they start and stop watching your stream or the one you watch, and for messages that notify, except in the conversation in front of you. They play on the speakers chosen for calls."
-msgstr "Yapfast les joue quand vous et d'autres rejoignez ou quittez un appel, quand vous coupez votre micro ou votre casque, quand d'autres lancent ou arrêtent un stream, quand ils commencent ou arrêtent de regarder votre stream ou celui que vous regardez, et pour les messages qui notifient, sauf dans la conversation affichée devant vous. Ils sont joués sur les haut-parleurs choisis pour les appels."
-
 #: crates/yapfast-iced/src/settings/voice.rs
 msgid "Yapfast sends your microphone only while you hold a key."
 msgstr "Yapfast n'envoie votre micro que tant que vous maintenez une touche."
@@ -5796,10 +5836,6 @@ msgstr "Yapfast envoie votre voix quand il vous entend parler."
 #: crates/yapfast-iced/src/settings/voice.rs
 msgid "Yapfast sends your voice when it's louder than the handle, and other sounds when they're 18 dB louder still. The bar is your microphone after noise suppression and at its volume, as Yapfast hears it to decide."
 msgstr "Yapfast envoie votre voix quand elle est plus forte que le curseur, et les autres sons quand ils sont encore 18 dB plus forts. La barre est votre micro après suppression du bruit et à son volume, tel que Yapfast l'entend pour décider."
-
-#: crates/yapfast-iced/src/settings/pages/advanced.rs
-msgid "Yapfast starts in the system tray when you sign in to your computer, so messages and calls reach you."
-msgstr "Yapfast démarre dans la zone de notification quand vous ouvrez votre session, pour que les messages et appels vous parviennent."
 
 #: crates/yapfast-iced/src/settings/pages/advanced.rs
 msgid "Yapfast switches to the GPU when it restarts. Restarting leaves any call."

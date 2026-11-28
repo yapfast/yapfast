@@ -689,6 +689,49 @@ fn stream_codec(server: &str, codec: &str) {
 
 #[tokio::test(flavor = "multi_thread")]
 #[ignore = "starts testing/fake_discord.ts with bun; run scripts/test-fake-discord"]
+async fn call_reconnects_after_a_voice_server_restart() {
+    let Fixture {
+        _fake,
+        discord,
+        server,
+        guild,
+        lounge,
+        ..
+    } = Fixture::start("call_reconnects_after_a_voice_server_restart").await;
+    let assigned = discord.join(&guild, &lounge).await.unwrap();
+    let mut call = timeout(
+        WAIT,
+        Call::connect(&assigned, &guild, &lounge, Arc::new(Quiet)),
+    )
+    .await
+    .expect("timed out connecting to voice")
+    .unwrap();
+    let (microphone, input) = yapfast_discord::voice::live_microphone();
+    let track = call.play(input);
+
+    // A restarting server rejects both the resume and the first fresh connection.
+    post_control(server, "/_control/voice-drop?failures=2", "");
+    until("the call identified again", || {
+        let identifies: Vec<String> =
+            serde_json::from_str(&control(server, "GET", "/_control/voice-identifies", ""))
+                .unwrap();
+        identifies == [assigned.token.as_str(), assigned.token.as_str()]
+    })
+    .await;
+    say(&microphone, 15).await;
+    until("audio went out after reconnecting", || {
+        call_audio(server, &assigned.token)["packets"]
+            .as_u64()
+            .unwrap_or(0)
+            >= 10
+    })
+    .await;
+    track.pause().unwrap();
+    call.leave();
+}
+
+#[tokio::test(flavor = "multi_thread")]
+#[ignore = "starts testing/fake_discord.ts with bun; run scripts/test-fake-discord"]
 async fn calls_and_goes_live() {
     let Fixture {
         _fake,
@@ -1211,6 +1254,73 @@ async fn join_lounge(
     (assigned, call)
 }
 
+fn voice_recovery(server: &str) -> serde_json::Value {
+    serde_json::from_str(&control(server, "GET", "/_control/voice-drop", "")).unwrap()
+}
+
+#[tokio::test(flavor = "multi_thread")]
+#[ignore = "starts testing/fake_discord.ts with bun; run scripts/test-fake-discord"]
+async fn a_call_moves_while_resume_waits_for_an_answer() {
+    let fixture = Fixture::start("a_call_moves_while_resume_waits_for_an_answer").await;
+    let server = fixture.server;
+    let listener = Arc::new(Dropping::default());
+    let (_, mut call) = join_lounge(&fixture, listener.clone()).await;
+    let mut live = fixture.discord.live();
+
+    post_control(server, "/_control/voice-drop?hold-resume", "");
+    until("the voice server received Resume", || {
+        voice_recovery(server)["resumes"] == 1
+    })
+    .await;
+    post_control(server, "/_control/voice-move", "");
+    let moved = live_where(&mut live, |event| match event {
+        Live::VoiceMoved { guild, server } if guild == fixture.guild => Some(server),
+        _ => None,
+    })
+    .await;
+    timeout(WAIT, call.move_to(&moved, &fixture.lounge))
+        .await
+        .expect("an unanswered Resume blocked the move")
+        .unwrap();
+    assert!(listener.dropped.lock().unwrap().is_empty());
+    call.leave();
+}
+
+#[tokio::test(flavor = "multi_thread")]
+#[ignore = "starts testing/fake_discord.ts with bun; run scripts/test-fake-discord"]
+async fn a_terminated_call_does_not_resume() {
+    let fixture = Fixture::start("a_terminated_call_does_not_resume").await;
+    let listener = Arc::new(Dropping::default());
+    let (_, _call) = join_lounge(&fixture, listener.clone()).await;
+    post_control(fixture.server, "/_control/voice-drop?code=4022", "");
+    until("the call ended or tried to resume", || {
+        !listener.dropped.lock().unwrap().is_empty()
+            || voice_recovery(fixture.server)["resumes"] != 0
+    })
+    .await;
+    assert_eq!(voice_recovery(fixture.server)["resumes"], 0);
+    assert!(listener.dropped.lock().unwrap()[0].contains("4022"));
+}
+
+#[tokio::test(flavor = "multi_thread")]
+#[ignore = "starts testing/fake_discord.ts with bun; run scripts/test-fake-discord"]
+async fn a_rate_limited_reconnect_does_not_retry() {
+    let fixture = Fixture::start("a_rate_limited_reconnect_does_not_retry").await;
+    let listener = Arc::new(Dropping::default());
+    let (_, _call) = join_lounge(&fixture, listener.clone()).await;
+    post_control(
+        fixture.server,
+        "/_control/voice-drop?failures=1&rate-limit-reconnect",
+        "",
+    );
+    until("the call ended after hitting the rate limit", || {
+        !listener.dropped.lock().unwrap().is_empty()
+    })
+    .await;
+    assert_eq!(voice_recovery(fixture.server)["limited"], 1);
+    assert!(listener.dropped.lock().unwrap()[0].contains("429"));
+}
+
 #[tokio::test(flavor = "multi_thread")]
 #[ignore = "starts testing/fake_discord.ts with bun; run scripts/test-fake-discord"]
 async fn a_call_follows_a_move_to_another_voice_server() {
@@ -1250,11 +1360,6 @@ async fn a_call_follows_a_move_to_another_voice_server() {
     })
     .await;
     assert_eq!(moved.session_id, assigned.session_id);
-    until("the old connection closed", || {
-        !listener.dropped.lock().unwrap().is_empty()
-    })
-    .await;
-    assert!(listener.dropped.lock().unwrap()[0].contains("4014"));
     // The call waited, and carries on there: Bob's tone comes through.
     timeout(WAIT, call.move_to(&moved, &to))
         .await
@@ -1274,7 +1379,10 @@ async fn a_call_follows_a_move_to_another_voice_server() {
             > 3_000
     })
     .await;
-    assert_eq!(listener.dropped.lock().unwrap().len(), 1);
+    assert!(
+        listener.dropped.lock().unwrap().is_empty(),
+        "the old server reported a disconnect after a successful move"
+    );
     call.leave();
 }
 
@@ -1285,15 +1393,18 @@ async fn a_call_disconnected_from_voice_ends_after_the_grace() {
     let listener = Arc::new(Dropping::default());
     let (assigned, mut call) = join_lounge(&fixture, listener.clone()).await;
     // Someone disconnects Alice from voice: 4014, and no new server.
+    let kicked = std::time::Instant::now();
     post_control(fixture.server, "/_control/voice-kick", "");
     until("the connection closed", || {
         !listener.dropped.lock().unwrap().is_empty()
     })
     .await;
-    tokio::time::sleep(yapfast_discord::voice::MOVE_GRACE + Duration::from_millis(500)).await;
+    assert!(kicked.elapsed() >= yapfast_discord::voice::MOVE_GRACE);
     let late = call.move_to(&assigned, &fixture.lounge).await.unwrap_err();
     assert_eq!(late.to_string(), "the call has ended");
-    assert_eq!(listener.dropped.lock().unwrap().len(), 1);
+    let reasons = listener.dropped.lock().unwrap();
+    assert_eq!(reasons.len(), 1);
+    assert!(reasons[0].contains("4014"));
 }
 
 #[tokio::test(flavor = "multi_thread")]
