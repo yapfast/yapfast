@@ -581,6 +581,7 @@ pub struct Video {
     /// The window's pixels to the app's units (the display's scale times
     /// the zoom), which frames are made in.
     scale: f32,
+    zoom: crate::media_zoom::Zoom,
 }
 
 impl Video {
@@ -592,6 +593,7 @@ impl Video {
             ground,
             corners: None,
             scale: 1.0,
+            zoom: crate::media_zoom::Zoom::default(),
         }
     }
 
@@ -604,6 +606,11 @@ impl Video {
 
     pub fn corners(mut self, radius: u32, behind: u32) -> Self {
         self.corners = Some((radius, behind));
+        self
+    }
+
+    pub fn zoom(mut self, zoom: crate::media_zoom::Zoom) -> Self {
+        self.zoom = zoom;
         self
     }
 }
@@ -668,6 +675,24 @@ impl<M> Widget<M, Theme, Renderer> for Video {
         layout::Node::new(limits.max())
     }
 
+    fn update(
+        &mut self,
+        _tree: &mut Tree,
+        event: &iced::Event,
+        _layout: Layout<'_>,
+        _cursor: mouse::Cursor,
+        _renderer: &Renderer,
+        _clipboard: &mut dyn iced::advanced::Clipboard,
+        shell: &mut iced::advanced::Shell<'_, M>,
+        _viewport: &Rectangle,
+    ) {
+        if let iced::Event::Window(iced::window::Event::RedrawRequested(now)) = event
+            && self.zoom.moving(*now)
+        {
+            shell.request_redraw();
+        }
+    }
+
     fn draw(
         &self,
         _tree: &Tree,
@@ -695,7 +720,6 @@ impl<M> Widget<M, Theme, Renderer> for Video {
         // In the window's pixels, which the frame was made in.
         let pixels = self.scale;
         let (tile_width, tile_height) = (tile.width * pixels, tile.height * pixels);
-        self.shared.want(&self.key, tile_width, tile_height);
         let (width, height) = (size.0.max(1) as f32, size.1.max(1) as f32);
         let mut scale = (tile_width / width).min(tile_height / height);
         // The core makes a camera's frame at the tile's size, rounded down
@@ -713,6 +737,14 @@ impl<M> Widget<M, Theme, Renderer> for Video {
             iced::Point::new(x, y),
             Size::new(drawn_width / pixels, drawn_height / pixels),
         );
+        let zoom = self.zoom.factor();
+        // Mapped stream workers cap these dimensions to the frame mapping.
+        self.shared
+            .want(&self.key, tile_width * zoom, tile_height * zoom);
+        let picture = self.zoom.bounds(picture);
+        let Some(visible) = picture.intersection(&tile) else {
+            return;
+        };
         // The bars only, so the frame's pixels are written once: the
         // software renderer fills every pixel it's given, each frame. A
         // bar as thin as the fraction of a pixel the picture comes up short
@@ -720,23 +752,23 @@ impl<M> Widget<M, Theme, Renderer> for Video {
         // whatever is behind the tile along that edge (a corner picture's
         // border, in the shade under its title).
         let bars = [
-            Rectangle::new(tile.position(), Size::new(tile.width, picture.y - tile.y)),
+            Rectangle::new(tile.position(), Size::new(tile.width, visible.y - tile.y)),
             Rectangle::new(
-                iced::Point::new(tile.x, picture.y + picture.height),
+                iced::Point::new(tile.x, visible.y + visible.height),
                 Size::new(
                     tile.width,
-                    tile.y + tile.height - picture.y - picture.height,
+                    tile.y + tile.height - visible.y - visible.height,
                 ),
             ),
             Rectangle::new(
-                iced::Point::new(tile.x, picture.y),
-                Size::new(picture.x - tile.x, picture.height),
+                iced::Point::new(tile.x, visible.y),
+                Size::new(visible.x - tile.x, visible.height),
             ),
             Rectangle::new(
-                iced::Point::new(picture.x + picture.width, picture.y),
+                iced::Point::new(visible.x + visible.width, visible.y),
                 Size::new(
-                    tile.x + tile.width - picture.x - picture.width,
-                    picture.height,
+                    tile.x + tile.width - visible.x - visible.width,
+                    visible.height,
                 ),
             ),
         ];
@@ -761,7 +793,7 @@ impl<M> Widget<M, Theme, Renderer> for Video {
                 snap: true,
             },
             picture,
-            picture,
+            visible,
         );
         if let Some((radius, behind)) = self.corners {
             let side = radius as f32;

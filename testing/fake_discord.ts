@@ -1061,11 +1061,11 @@ function sunset(width: number, height: number): Uint8Array {
 
 /** An avatar or server icon: two tones split diagonally, picked from its path. */
 // Banners are wide, as Discord's are.
-function picture(path: string): Uint8Array {
+function picture(path: string, side = 128): Uint8Array {
   const hue = crc32(new TextEncoder().encode(path));
   const light = [(hue >>> 16) & 255, (hue >>> 8) & 255, hue & 255].map((c) => 96 + (c % 160));
   const dark = light.map((c) => c >> 1);
-  const [width, height] = /\/(banners|splashes)\//.test(path) ? [600, 240] : [128, 128];
+  const [width, height] = /\/(banners|splashes)\//.test(path) ? [600, 240] : [side, side];
   return png(width, height, (x, y) => [...(x / width + y / height < 1 ? light : dark), 255]);
 }
 
@@ -9161,8 +9161,9 @@ const server = Bun.serve<SocketData>({
         : png(460, 200, (x) => x < 14 || x >= 446 ? brass : [0, 0, 0, 0]);
       return new Response(picture, { headers: { "content-type": "image/png" } });
     }
-    const movingBanner = req.method === "GET" ? path.match(/^\/banners\/\d+\/a_[a-z]+\.gif$/) : null;
-    if (movingBanner) {
+    const movingProfileImage = req.method === "GET"
+      && /^\/(banners\/\d+|icons\/\d+|avatars\/\d+|guilds\/\d+\/users\/\d+\/(avatars|banners))\/a_[a-z0-9]+\.gif$/.test(path);
+    if (movingProfileImage) {
       return new Response(Bun.file(new URL("gifs/hello.gif", fixtures)), { headers: { "content-type": "image/gif" } });
     }
     const collectible = req.method === "GET" ? path.match(COLLECTIBLES_PATH) : null;
@@ -9176,7 +9177,8 @@ const server = Bun.serve<SocketData>({
     if (req.method === "GET" && /^\/(icons\/\d+|avatars\/\d+|banners\/\d+|splashes\/\d+|role-icons\/\d+|clan-badges\/\d+|badge-icons|embed\/avatars|guilds\/\d+\/users\/\d+\/(avatars|banners))\/[^/]+\.png$/.test(path)) {
       const uploaded = uploadedPictures.get(path.slice(path.lastIndexOf("/") + 1, -".png".length));
       if (uploaded) return new Response(uploaded.data, { headers: { "content-type": uploaded.type } });
-      return new Response(picture(path), { headers: { "content-type": "image/png" } });
+      const side = url.searchParams.get("size") === "512" ? 512 : 128;
+      return new Response(picture(path, side), { headers: { "content-type": "image/png" } });
     }
     if (req.method === "POST" && path === "/_control/nitro") {
       nitro = !url.searchParams.has("off");

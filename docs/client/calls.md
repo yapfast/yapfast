@@ -34,11 +34,13 @@ The call's views and what they do are in `call/`.
   watched, unless two or more are, and Shift and a click beside them
   ([Go Live](../discord/go-live.md)). Each watched stream keeps its own
   tile, with its own Stop watching under the pointer, and its pictures are
-  looked for only while the tile is in sight. A watched one shows large
-  with Stop
-  watching and the full-screen button under the pointer, and a double click
-  goes full screen too, the stage over the whole window and the window
-  full screen on the desktop until Escape, the button, a double click, or
+  looked for only while the tile is in sight. A focused stream or screen
+  share offers the full-screen button and the same zoom controls and gesture
+  as the [picture viewer](timeline.md). Zoom carries into and out of full
+  screen and resets when focus moves to another tile. A double click on
+  a focused camera still toggles full screen. The stage takes the whole
+  window and the window stays full screen until Escape, the button,
+  a double click on a camera, or
   the tile or the call going (`call::fit_screen`, after every update). A
   window the desktop had full screen already stays so after. Closed to
   the tray meanwhile, the tile is back in the call and the next window

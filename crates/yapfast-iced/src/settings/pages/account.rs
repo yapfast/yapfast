@@ -60,13 +60,14 @@ impl<'a> Page<'a> {
         let state = self.cx.state;
         let account = self.cx.account;
         let linked = self.linked();
+        let avatar = self.cx.face(
+            crate::pictures::Face::new(account.avatar.as_deref(), &account.name, 64.0)
+                .decoration(state.account_decoration.as_deref(), false),
+        );
         let card = form::card(
             theme,
             row![
-                self.cx.face(
-                    crate::pictures::Face::new(account.avatar.as_deref(), &account.name, 64.0)
-                        .decoration(state.account_decoration.as_deref(), false)
-                ),
+                account.viewable_avatar(avatar),
                 column![
                     text(account.name.as_str())
                         .size(20)

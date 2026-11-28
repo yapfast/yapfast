@@ -262,7 +262,7 @@ pub fn refocus(app: &App) -> Task<Message> {
     }
     // The picture viewer and a video full screen keep them from the
     // fields under them.
-    if app.client.state().viewer.is_some() || app.playback.clip_full {
+    if app.viewer.is_open(app.client.state()) || app.playback.clip_full {
         return operation::focus(crate::app::NOBODY);
     }
     // A popover's field, while it's open.

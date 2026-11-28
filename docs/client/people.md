@@ -73,7 +73,8 @@ member list, the DMs, and the lists still to come build on it.
   with View full bio, the roles, the connections when Appearance's "Show
   connections on profile cards" is on (`Prefs.card_connections`, the
   floating card only, drawn by the full profile's `connections`), and a box
-  that messages them. The full
+  that messages them. Right-click an avatar on a profile card or click it
+  in the full profile to open it in the image viewer. The full
   profile (`full.rs`) has the card down its left, with Friends, Message and
   More under the name, Member Since, Friends Since, the roles, connections
   and the note (saved on Enter, and as the profile closes, grows or goes
@@ -81,7 +82,8 @@ member list, the DMs, and the lists still to come build on it.
   right: Board, Activity (with recent activity), Wishlist, Mutual Friends and
   Mutual Servers (a server clicked shows its card over the profile:
   its banner and icon, name, members and
-  channels, their nickname there, and Go to server), the tab settled as
+  channels, their nickname there, and Go to server; clicking its icon
+  opens it in the image viewer), the tab settled as
   the profile opens or goes to another person, so a Board that comes with
   Discord's answer doesn't take over, rows the shape of
   what's coming while Discord hasn't said, and Discord's words while a tab is empty. A one-to-one DM has the

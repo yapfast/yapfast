@@ -13,7 +13,8 @@ behind another, it shows. Each tile has its pill at the
 rail's edge (open, pointed at, unread), its mentions in a red badge, a
 speaker at its top right, and its name in a tooltip;
 a server out of reach in a Discord outage shows faded, its tooltip "Name
-(unavailable in a Discord outage)". While a server's invites are paused,
+(unavailable in a Discord outage)". The server's menu offers View Server
+Icon when it has an icon. While a server's invites are paused,
 its tooltip says "Invites paused for this server" under its name, only to
 an account that may Manage Server (`ChatServer::invites_paused_until`,
 which the core leaves empty for anyone else), as Discord's server tooltip
@@ -210,7 +211,10 @@ offline), the name and status (the username under the
 pointer), with the account's nameplate filling the card (`PlateRow::account`:
 .4 strong, .6 and playing under the pointer, its palette from .1 to .4), and
 the mic, headphones and Settings. The avatar and the name open the
-status's popover once Discord is linked. The mic and headphones mute and
+status's popover once Discord is linked. Right-click the account avatar
+in the dock or click the larger avatar in the popover to open it in the
+image viewer. Without a linked Discord account, clicking the dock avatar
+opens it directly when an image is available. The mic and headphones mute and
 deafen in a call, greyed while it joins or leaves; out of
 one they set whether the next call starts unmuted or deafened. The carets
 beside the mic and headphones open the input and output menus, and a muted

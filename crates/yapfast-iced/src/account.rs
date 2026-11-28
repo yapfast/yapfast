@@ -68,6 +68,28 @@ pub enum Dot {
 }
 
 impl Account {
+    fn avatar_message(&self) -> Option<Message> {
+        let url = self.avatar.as_ref().filter(|url| !url.is_empty())?;
+        Some(Message::Image(crate::image_viewer::Event::OpenAvatar(
+            self.name.clone(),
+            url.clone(),
+        )))
+    }
+
+    pub fn viewable_avatar<'a>(
+        &self,
+        face: impl Into<Element<'a, Message>>,
+    ) -> Element<'a, Message> {
+        let face = face.into();
+        match self.avatar_message() {
+            Some(message) => mouse_area(face)
+                .on_press(message)
+                .interaction(iced::mouse::Interaction::Pointer)
+                .into(),
+            None => face,
+        }
+    }
+
     /// Shown muted: in a call, as it is; out of one, as calls are joined.
     fn shown_muted(&self, join: (bool, bool)) -> bool {
         if self.in_call {
@@ -267,12 +289,13 @@ pub fn view<'a>(ctx: crate::ctx::Ctx<'a>) -> Element<'a, Message> {
     );
     let face = ring_and_dot(ctx, account, face);
     // A theme may leave the account's own avatar out.
-    let face: Element<'a, Message> =
-        if crate::theme_chrome::hides(ctx, yapfast_core::themes::chrome::Hide::AccountAvatar) {
-            iced::widget::Space::new().width(0).into()
-        } else {
-            face
-        };
+    let hide_avatar =
+        crate::theme_chrome::hides(ctx, yapfast_core::themes::chrome::Hide::AccountAvatar);
+    let face: Element<'a, Message> = if hide_avatar {
+        iced::widget::Space::new().width(0).into()
+    } else {
+        face
+    };
     let face = crate::theme_effects::slot(
         face,
         ctx,
@@ -500,19 +523,22 @@ pub fn view<'a>(ctx: crate::ctx::Ctx<'a>) -> Element<'a, Message> {
         Some(crate::app::settings(crate::settings::Event::Reopen)),
     ));
     let ground = theme.token_colour("account", theme.panel);
-    let face: Element<'a, Message> = match open {
-        Some(open) => mouse_area(face)
-            .on_press(open)
-            .interaction(iced::mouse::Interaction::Pointer)
-            .into(),
-        None => face,
+    let face: Element<'a, Message> = if hide_avatar {
+        face
+    } else {
+        let view = account.avatar_message();
+        let mut area = mouse_area(face);
+        if let Some(open) = open.or_else(|| view.clone()) {
+            area = area
+                .on_press(open)
+                .interaction(iced::mouse::Interaction::Pointer);
+        }
+        if let Some(view) = view {
+            area = area.on_right_press(view);
+        }
+        area.into()
     };
-    let face_width =
-        if crate::theme_chrome::hides(ctx, yapfast_core::themes::chrome::Hide::AccountAvatar) {
-            14.0
-        } else {
-            50.0
-        };
+    let face_width = if hide_avatar { 14.0 } else { 50.0 };
     let card = row![
         container(face)
             .width(face_width)

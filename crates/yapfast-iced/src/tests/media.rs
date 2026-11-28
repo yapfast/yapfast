@@ -64,6 +64,109 @@ fn closing_the_viewer_lets_go_of_its_picture() {
 }
 
 #[test]
+fn image_zoom_resets_when_stepping_to_the_next_picture() {
+    use crate::{app::Message, image_viewer::Event, media_zoom::Change};
+    let (mut app, _folder) = preview();
+    only(
+        &mut app,
+        ChatMessage {
+            attachments: vec![
+                picture_at("first.png", 400, Placement::Message, false),
+                picture_at("second.png", 400, Placement::Message, false),
+            ],
+            ..Default::default()
+        },
+    );
+    let _ = app.update(Message::Image(Event::Open("i0".into(), 0)));
+    let _ = app.update(Message::Image(Event::Zoom(Change::In)));
+    assert!(shows(&app, "125%"));
+    let _ = app.update(Message::Image(Event::Step(1)));
+    assert!(shows(&app, "second.png"));
+    assert!(shows(&app, "100%"));
+}
+
+#[test]
+fn a_small_picture_expands_into_the_available_viewer_space() {
+    use crate::{app::Message, image_viewer::Event, media_zoom::Change};
+    let (mut app, _folder) = preview();
+    viewing(&mut app);
+    let window = app.shell.frame;
+    let point = iced::Point::new(window.width / 2.0 + 23.0, window.height / 2.0);
+    let on_picture = |app: &crate::app::App| {
+        clicked(app, point, iced::mouse::Button::Right)
+            .iter()
+            .any(|message| matches!(message, Message::Image(Event::Menu(..))))
+    };
+    assert!(!on_picture(&app));
+    let _ = app.update(Message::Image(Event::Zoom(Change::In)));
+    assert!(on_picture(&app));
+}
+
+#[test]
+fn double_click_and_double_tap_toggle_a_pictures_zoom() {
+    use iced::{Event, mouse, touch};
+    let (mut app, _folder) = preview();
+    viewing(&mut app);
+    let window = app.shell.frame;
+    let center = iced::Point::new(window.width / 2.0, window.height / 2.0);
+    super::interact(&mut app, |ui| {
+        ui.point_at(center);
+        let left = mouse::Button::Left;
+        ui.simulate([
+            Event::Mouse(mouse::Event::ButtonPressed(left)),
+            Event::Mouse(mouse::Event::ButtonReleased(left)),
+            Event::Mouse(mouse::Event::ButtonPressed(left)),
+            Event::Mouse(mouse::Event::ButtonReleased(left)),
+        ]);
+    });
+    assert!(shows(&app, "200%"));
+    super::interact(&mut app, |ui| {
+        let id = touch::Finger(0);
+        ui.simulate([
+            Event::Touch(touch::Event::FingerPressed {
+                id,
+                position: center,
+            }),
+            Event::Touch(touch::Event::FingerLifted {
+                id,
+                position: center,
+            }),
+            Event::Touch(touch::Event::FingerPressed {
+                id,
+                position: center,
+            }),
+            Event::Touch(touch::Event::FingerLifted {
+                id,
+                position: center,
+            }),
+        ]);
+    });
+    assert!(shows(&app, "100%"));
+}
+
+#[test]
+fn a_servers_menu_opens_its_icon_in_the_image_viewer() {
+    let (mut app, _folder) = preview();
+    let icon = "https://cdn.discordapp.com/icons/42/a_blue.png?size=128";
+    let mut server = app.client.state().servers[0].as_ref().clone();
+    server.icon = Some(icon.into());
+    let id = server.id.clone();
+    change(&mut app, |state| {
+        state.servers = vec![Arc::new(server)];
+    });
+    let _ =
+        crate::place_menus::open_place_menu(&mut app, &id, iced::Point::new(70.0, 100.0), false);
+    super::interact(&mut app, |ui| {
+        ui.click("View Server Icon").expect("view server icon");
+    });
+    assert!(app.win.menu.is_none());
+    assert!(app.viewer.is_open(app.client.state()));
+    assert!(app.viewer.avatar_urls().any(|url| {
+        url == "https://cdn.discordapp.com/icons/42/a_blue.gif?size=512#avatar-view"
+    }));
+}
+
+#[test]
 fn the_viewer_closes_when_its_message_goes_and_gives_the_keys_back() {
     let (mut app, _folder) = preview();
     viewing(&mut app);
@@ -534,6 +637,30 @@ fn a_full_screen_videos_frames_follow_the_window_layout() {
 }
 
 #[test]
+fn a_double_click_zooms_video_without_toggling_playback() {
+    use iced::{Event, mouse};
+    let (mut app, _folder) = preview();
+    a_video_full_screen(&mut app);
+    let window = app.shell.frame;
+    let center = iced::Point::new(window.width / 2.0, window.height / 2.0);
+    super::interact(&mut app, |ui| {
+        ui.point_at(center);
+        let left = mouse::Button::Left;
+        ui.simulate([
+            Event::Mouse(mouse::Event::ButtonPressed(left)),
+            Event::Mouse(mouse::Event::ButtonReleased(left)),
+            Event::Mouse(mouse::Event::ButtonPressed(left)),
+            Event::Mouse(mouse::Event::ButtonReleased(left)),
+        ]);
+    });
+    assert!(shows(&app, "200%"));
+    assert!(matches!(
+        video_commands(&mut app).as_slice(),
+        [yapfast_core::chat::VideoCommand::Size { .. }]
+    ));
+}
+
+#[test]
 fn a_video_full_screen_plays_pauses_and_moves_five_seconds_from_the_keys() {
     use yapfast_core::chat::VideoCommand;
     let (mut app, _folder) = preview();
@@ -583,6 +710,7 @@ fn a_video_full_screen_has_save_and_a_menu_of_the_videos_rows() {
 #[test]
 fn clicking_a_full_screen_videos_volume_slider_does_not_pause_it() {
     use crate::{app::Message, playback::Clip};
+    use iced::{Event, mouse, time, window};
     let (mut app, _folder) = preview();
     a_video_full_screen(&mut app);
     app.playback.clip_volume = 1;
@@ -596,13 +724,22 @@ fn clicking_a_full_screen_videos_volume_slider_does_not_pause_it() {
     // 28 px button, 6 px gap, 28 px mute button); the slider rises 112 px
     // above it, overlapping the bottom-right of the video.
     let slider_x = foot_right - 6.0 - 28.0 - 6.0 - 14.0;
+    let click_and_redraw = |at: iced::Point| {
+        let mut ui = iced_test::Simulator::with_size(iced::Settings::default(), window, app.view());
+        ui.point_at(at);
+        ui.simulate([
+            Event::Mouse(mouse::Event::ButtonPressed(mouse::Button::Left)),
+            Event::Mouse(mouse::Event::ButtonReleased(mouse::Button::Left)),
+        ]);
+        // A single click toggles playback after the double-click interval.
+        ui.simulate([Event::Window(window::Event::RedrawRequested(
+            time::Instant::now() + time::Duration::from_secs(1),
+        ))]);
+        ui.into_messages().collect::<Vec<_>>()
+    };
     // Upper half of the track (away from the initial 0.5 value) so the
     // slider publishes a new volume while overlapping the video.
-    let on_slider = clicked(
-        &app,
-        iced::Point::new(slider_x, foot_y - 74.0),
-        iced::mouse::Button::Left,
-    );
+    let on_slider = click_and_redraw(iced::Point::new(slider_x, foot_y - 74.0));
     assert!(
         on_slider
             .iter()
@@ -616,11 +753,7 @@ fn clicking_a_full_screen_videos_volume_slider_does_not_pause_it() {
         "did not toggle or close the video"
     );
     // Its top padding also overlaps the video and leaves playback alone.
-    let on_padding = clicked(
-        &app,
-        iced::Point::new(slider_x, foot_y - 104.0),
-        iced::mouse::Button::Left,
-    );
+    let on_padding = click_and_redraw(iced::Point::new(slider_x, foot_y - 104.0));
     assert!(
         !on_padding
             .iter()
@@ -629,7 +762,7 @@ fn clicking_a_full_screen_videos_volume_slider_does_not_pause_it() {
     );
     // Clicking the video itself still toggles playback.
     let middle = iced::Point::new(window.width / 2.0, window.height / 2.0);
-    let on_video = clicked(&app, middle, iced::mouse::Button::Left);
+    let on_video = click_and_redraw(middle);
     assert!(
         on_video
             .iter()

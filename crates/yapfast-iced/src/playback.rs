@@ -22,6 +22,7 @@ use crate::{
     app::{App, Message},
     controls::lights,
     fonts::BOLD,
+    media_zoom::{Change, Zoom},
     pictures::Icon,
     style::{faded, rounded},
     video::Video,
@@ -55,6 +56,7 @@ pub struct Playback {
     /// A message's video full screen; the size its cell asked for its
     /// frames at; the pointer on its volume's button or slider.
     pub clip_full: bool,
+    pub clip_zoom: Zoom,
     pub clip_cell: (u32, u32),
     pub clip_volume: u8,
 }
@@ -99,6 +101,7 @@ pub enum Clip {
     Turn(f32),
     /// Full screen, or back in its cell.
     Full(bool),
+    Zoom(Change),
     /// The pointer came onto a cell, by `{item}/{index}`, or left it.
     Point(String, bool),
 }
@@ -273,6 +276,7 @@ pub fn clip_event(app: &mut App, clip: Clip) -> Task<Message> {
             let scale = app.device_scale();
             let pixels = |side: f32| ((side * scale).round() as u32).max(1);
             app.playback.clip_time = None;
+            app.playback.clip_zoom = Zoom::default();
             // A slider gone with the last video's controls never said the
             // pointer left it.
             app.playback.clip_volume = 0;
@@ -326,6 +330,7 @@ pub fn clip_event(app: &mut App, clip: Clip) -> Task<Message> {
         // its cell, at the cell's.
         Clip::Full(full) => {
             app.playback.clip_full = full && video.is_some();
+            app.playback.clip_zoom = Zoom::default();
             app.playback.clip_volume = 0;
             if app.playback.clip_full {
                 resize_full_clip(app);
@@ -336,6 +341,18 @@ pub fn clip_event(app: &mut App, clip: Clip) -> Task<Message> {
             }
             // Full screen keeps the keys from the fields under it.
             return Task::batch([app.sync(), crate::composer::refocus(app)]);
+        }
+        Clip::Zoom(change) => {
+            if app.playback.clip_full
+                && video.is_some()
+                && app
+                    .playback
+                    .clip_zoom
+                    .change(change, !app.layout.reduce_motion)
+            {
+                resize_full_clip(app);
+            }
+            return Task::none();
         }
         Clip::Point(key, entered) => {
             crate::app::point(&mut app.pointed.clip, key, entered);
@@ -351,7 +368,7 @@ pub(crate) fn resize_full_clip(app: &mut App) {
         && let Some(video) = app.client.state().video.as_ref()
     {
         let size = crate::viewer::fitted(app.shell.frame, video.size);
-        let scale = app.device_scale();
+        let scale = app.device_scale() * app.playback.clip_zoom.factor();
         let pixels = |side: f32| ((side * scale).round() as u32).max(1);
         app.client.dispatch(Action::Video(VideoCommand::Size {
             width: pixels(size.width),
