@@ -122,8 +122,8 @@ recording. Each change is kept at once in
   Default (the theme's sound, the set's or the call tone), Custom to pick a
   file, and Uploaded file once one is picked, with a button to remove it.
   The files are WAV, Ogg, Opus or MP3, up to 1 MiB and four seconds, six
-  for call tones, kept decoded on this device; turning the switch off
-  keeps them and the choices.
+  for call tones, kept decoded on this device and loaded only while the
+  switch is on; turning it off keeps them and the choices.
   Advanced holds Discord's two startup switches on Windows and Linux
   outside the preview: Automatically open Yapfast when your computer starts
   up, and Start Yapfast minimized (to the tray), off until chosen and greyed

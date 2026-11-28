@@ -89,9 +89,11 @@ fn custom_sounds_show_call_tones_and_keep_files_when_turned_off() {
         ui.click("Custom sound set")
             .expect("turn the custom set off");
     });
+    assert!(app.layout.voice.custom_sounds.is_empty());
     let mut reopened = start(&folder, true);
     open(&mut reopened, Section::Sounds);
     assert!(!reopened.layout.voice.uses_custom_sounds());
+    assert!(reopened.layout.voice.custom_sounds.is_empty());
     interact(&mut reopened, |ui| {
         ui.click("Custom sound set")
             .expect("turn the custom set back on");

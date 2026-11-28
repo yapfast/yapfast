@@ -550,7 +550,8 @@ pub struct Voice {
     pub custom_sound_set: Option<bool>,
     /// Which sounds play their file; one with a file and no choice does.
     pub(crate) custom_sound_choices: BTreeMap<SoundSlot, Choice>,
-    /// The files, decoded, from this device's data folder.
+    /// The files, decoded, from this device's data folder; loaded only while
+    /// the custom set is on.
     #[serde(skip)]
     pub(crate) custom_sounds: crate::custom_sounds::CustomSounds,
 }
@@ -810,11 +811,8 @@ impl Layout {
     pub fn open(root: &Path, running: &str) -> Self {
         let fresh = !root.join(LAYOUT).exists();
         let mut layout = Self::read(root);
-        layout.voice.custom_sounds = crate::custom_sounds::load(root);
-        // Keep existing imports active when opening a layout from before the switch.
-        if layout.voice.custom_sound_set.is_none() && !layout.voice.custom_sounds.is_empty() {
-            layout.voice.custom_sound_set = Some(true);
-            store(root, "custom_sound_set", true);
+        if layout.voice.uses_custom_sounds() {
+            layout.voice.custom_sounds = custom_sounds::load(root);
         }
         if layout.first_version.is_none() {
             let first = yapfast_core::new_tags::first_version(fresh, running);

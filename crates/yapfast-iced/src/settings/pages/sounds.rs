@@ -80,7 +80,11 @@ impl Settings {
         let files = &mut self.sound_editor;
         match event {
             Event::Enable(on) => {
-                cx.layout.voice.custom_sound_set = Some(on);
+                // The files are held only while they can play.
+                let loaded = on.then(|| custom_sounds::load(cx.client.root()));
+                let voice = &mut cx.layout.voice;
+                voice.custom_sound_set = Some(on);
+                voice.custom_sounds = loaded.unwrap_or_default();
                 cx.keep("custom_sound_set", on);
                 cx.layout.voice.apply_rings();
                 *files = Editor::default();
