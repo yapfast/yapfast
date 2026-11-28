@@ -8,8 +8,9 @@ titles in the header's search box (`search::search_field`, its Clear
 showing the posts again) and New Post, then its posts as cards (tags, title with NEW, who
 wrote the first message and how it starts, the top reaction or the
 forum's own, replies, how long ago, the first picture), the active ones
-first and older ones a page at a time as the list nears its end. A click
-opens a post beside the forum, Shift and a click in its place. New Post
+first and older ones a page at a time as the list nears its end. Cards for
+read and archived posts show the title, author and preview in muted text.
+A click opens a post beside the forum, Shift and a click in its place. New Post
 shows the form in the list's place (`new_post_view`): the title, tags from
 a menu of up to five, the forum's post guidelines folding away, and the
 first message with files in a `thread::SideComposer`; Post makes it and

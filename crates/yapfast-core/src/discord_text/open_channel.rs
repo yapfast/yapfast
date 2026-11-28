@@ -1846,6 +1846,14 @@ impl OpenChannel {
                         .is_some_and(|joined| now.saturating_sub(joined) < NEW_MEMBER_MS)
             },
             forwarded: message.forwarded,
+            forward_origin: message.forward_origin.as_ref().map(|origin| {
+                let guild = origin.guild_id.as_deref().unwrap_or(discord::DM_GUILD);
+                crate::chat::ForwardOrigin {
+                    room: discord::room_id(guild, &origin.channel_id),
+                    item: format!("d:{}", origin.message_id),
+                    timestamp: origin.timestamp,
+                }
+            }),
             body,
             formatted: ordinary,
             time: crate::clock::time(timestamp),

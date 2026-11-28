@@ -134,23 +134,24 @@ fn call_volumes_play_while_dragged_and_are_remembered() {
     // Other tests' windows play their volumes as they open.
     let _volumes = crate::layout::tests::hold_volumes();
     let stored = || crate::layout::Layout::read(folder.path()).voice;
-    let _ = crate::call::update(&mut app, Event::DeviceVolume(true, 200, false));
+    let _ = crate::call::update(&mut app, Event::DeviceVolume(true, 400, false));
     let _ = crate::call::update(&mut app, Event::DeviceVolume(false, 50, false));
-    assert!((yapfast_core::volume::microphone() - 1.995).abs() < 1e-3);
+    assert!((yapfast_core::volume::microphone() - 7.943).abs() < 1e-3);
     assert!((yapfast_core::volume::speakers() - 0.143).abs() < 1e-3);
     assert_eq!(
         stored().microphone_volume,
         None,
         "a drag's steps aren't saved"
     );
-    let _ = crate::call::update(&mut app, Event::DeviceVolume(true, 200, true));
+    let _ = crate::call::update(&mut app, Event::DeviceVolume(true, 400, true));
     let _ = crate::call::update(&mut app, Event::DeviceVolume(false, 50, true));
-    assert_eq!(stored().microphone_volume, Some(200));
+    assert_eq!(stored().microphone_volume, Some(400));
     assert_eq!(stored().speaker_volume, Some(50));
     // A new window plays at the volumes kept, and the defaults at none.
     crate::layout::Voice::default().play_volumes();
     assert_eq!(yapfast_core::volume::microphone(), 1.0);
     stored().play_volumes();
+    assert!((yapfast_core::volume::microphone() - 7.943).abs() < 1e-3);
     assert!((yapfast_core::volume::speakers() - 0.143).abs() < 1e-3);
     crate::layout::Voice::default().play_volumes();
 }
@@ -755,8 +756,9 @@ fn someones_tile_right_clicked_sets_their_volume_and_keeps_it() {
     assert!(halved < 1.0, "plays quieter while dragged: {halved}");
     let stored = || crate::layout::Layout::read(folder.path()).voice.volumes;
     assert!(stored().is_empty(), "a drag's steps aren't saved");
-    let _ = crate::call::update(&mut app, Event::Volume(false, 50, true));
-    assert_eq!(stored().get("bob"), Some(&halved));
+    let _ = crate::call::update(&mut app, Event::Volume(false, 400, true));
+    assert!((gain() - 7.943).abs() < 1e-3);
+    assert_eq!(stored().get("bob"), Some(&gain()));
     // Back at its default it's forgotten.
     let default = yapfast_core::volume::to_slider(yapfast_core::volume::Kind::Voice.default_gain());
     let _ = crate::call::update(&mut app, Event::Volume(false, default.round() as u32, true));

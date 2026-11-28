@@ -15,7 +15,7 @@ use crate::{
     ctx::{Cx, Pref as Shown, Request},
     fonts::MEDIUM,
     form::{self, switch},
-    layout::TEXT_SIZES,
+    layout::{SCROLL_SPEEDS, TEXT_SIZES},
 };
 
 impl<'a> Page<'a> {
@@ -60,6 +60,10 @@ impl<'a> Page<'a> {
         .shown(format!("{px}px"))
         .on_release(pref(Pref::KeepTextPx))
         .view(theme);
+        let scroll_speed = SCROLL_SPEEDS
+            .iter()
+            .position(|&speed| speed == layout.prefs.scroll_speed())
+            .unwrap_or(1);
         let reduced = layout.reduced_motion();
         let sync = layout.sync_reduced_motion;
         let animate = ANIMATES
@@ -88,6 +92,16 @@ impl<'a> Page<'a> {
                 form::heading(theme, "TEXT READABILITY"),
                 text_size,
                 form::note(theme, "Adjust the size of the chat font."),
+            ]),
+            form::rule(theme),
+            form::group([
+                form::heading(theme, "SCROLL SPEED"),
+                choices(
+                    theme,
+                    &["50%", "100%", "150%", "200%", "300%"],
+                    scroll_speed,
+                    |index| pref(Pref::ScrollSpeed(index)),
+                ),
             ]),
             form::rule(theme),
             form::group([

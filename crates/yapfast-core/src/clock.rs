@@ -287,6 +287,34 @@ where
     }
 }
 
+/// When a forwarded message's original was sent, as Discord's client words
+/// it under the forward: its time today, `Yesterday at …`, the weekday
+/// within the week before, and the date alone beyond, such as `04/10/2026`.
+pub fn forwarded(seconds: u64, now: u64, twelve_hour: bool) -> String {
+    forwarded_in(&Local, seconds, now, twelve_hour, format_for(twelve_hour))
+}
+
+fn forwarded_in<Tz: TimeZone>(
+    zone: &Tz,
+    seconds: u64,
+    now: u64,
+    twelve_hour: bool,
+    dates: DateFormat,
+) -> String
+where
+    Tz::Offset: std::fmt::Display,
+{
+    let then = at(zone, seconds);
+    let days = (then.date_naive() - at(zone, now).date_naive()).num_days();
+    let time = time_in(zone, seconds, twelve_hour, false);
+    match days {
+        0 => time,
+        -1 => format!("Yesterday at {time}"),
+        days if days > -7 => then.format("%A").to_string(),
+        _ => then.format(dates.numeric()).to_string(),
+    }
+}
+
 /// How long something that started at `started` has gone on at `now`, both
 /// in Unix seconds, to the minute, as a busy voice channel's row shows it:
 /// `<1m`, `42m`, `1h 05m`, `2d 3h`. A start after `now`, from a clock that's
@@ -533,6 +561,33 @@ mod tests {
                 DateFormat::DayMonthYear
             ),
             "Yesterday at 23:30"
+        );
+    }
+
+    #[test]
+    fn forwarded_times_name_the_day_as_discords_client_does() {
+        // Tuesday 2026-10-06 23:30 UTC.
+        let now = 1_791_329_400;
+        let utc = FixedOffset::east_opt(0).unwrap();
+        let day = 86_400;
+        let at = |seconds, twelve_hour, dates| forwarded_in(&utc, seconds, now, twelve_hour, dates);
+        assert_eq!(at(now - 60, false, DateFormat::DayMonthYear), "23:29");
+        assert_eq!(
+            at(now - day, true, DateFormat::MonthDayYear),
+            "Yesterday at 11:30 PM"
+        );
+        assert_eq!(at(now - 2 * day, false, DateFormat::DayMonthYear), "Sunday");
+        assert_eq!(
+            at(now - 6 * day, false, DateFormat::DayMonthYear),
+            "Wednesday"
+        );
+        assert_eq!(
+            at(now - 7 * day, false, DateFormat::DayMonthYear),
+            "29/09/2026"
+        );
+        assert_eq!(
+            at(now - 7 * day, true, DateFormat::MonthDayYear),
+            "09/29/2026"
         );
     }
 

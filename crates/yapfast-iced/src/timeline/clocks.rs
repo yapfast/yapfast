@@ -1,7 +1,7 @@
 //! The times the timeline shows, moved on as they turn: each minute while
 //! something shows one, each midnight for the messages' days.
 
-use std::time::Duration;
+use std::{sync::Arc, time::Duration};
 
 use iced::Task;
 use yapfast_core::chat::ChatMessage;
@@ -57,6 +57,13 @@ impl Clock {
         }
         yapfast_core::clock::sent(message.timestamp, now, self.twelve_hour, self.seconds)
     }
+
+    /// When a forwarded message's original was sent; none when unknown.
+    pub fn forwarded(self, message: &ChatMessage, now: u64) -> Option<Arc<str>> {
+        let timestamp = message.forward_origin.as_ref()?.timestamp;
+        (timestamp != 0)
+            .then(|| yapfast_core::clock::forwarded(timestamp, now, self.twelve_hour).into())
+    }
 }
 
 /// Whether something on screen shows minutes.
@@ -111,10 +118,12 @@ pub fn day_turned(app: &mut App) -> Task<Message> {
         .zip(app.timeline.messages.iter())
     {
         look.time = clock.sent(message, now).into();
+        look.forward_time = clock.forwarded(message, now);
     }
     if let Some(aside) = &mut app.aside {
         for (look, message) in aside.looks.iter_mut().zip(aside.messages.iter()) {
             look.time = clock.sent(message, now).into();
+            look.forward_time = clock.forwarded(message, now);
         }
     }
     arm_clocks(app)

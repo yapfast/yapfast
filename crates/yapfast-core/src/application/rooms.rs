@@ -610,6 +610,7 @@ impl Application {
     pub(super) fn thread_opened(&mut self, room: String, result: Result<(), String>) {
         if let Err(error) = result {
             let opening = self.pending_open.take_if(|pending| *pending == room);
+            self.pending_jump.take_if(|(target, _)| *target == room);
             let beside = self.pending_aside.take_if(|pending| *pending == room);
             if opening.is_some() || beside.is_some() {
                 self.state.notice = Some(error);

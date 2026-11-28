@@ -27,6 +27,18 @@ const SPEED_MEMORY: Duration = Duration::from_millis(200);
 const SCROLL_FILTER: Duration = Duration::from_millis(800);
 /// How far, squared, the pointer may move and still count as put.
 const FILTER_DISTANCE_SQUARED: f32 = 4.0;
+
+thread_local! {
+    /// How far the wheel and the touchpad scroll, as a multiple of their
+    /// own distance: Settings → Accessibility's Scroll Speed.
+    static SCROLL_SPEED: std::cell::Cell<f32> = const { std::cell::Cell::new(1.0) };
+}
+
+/// The window's scroll distance multiplier, set on its UI thread.
+pub fn set_scroll_speed(multiplier: f32) {
+    SCROLL_SPEED.set(multiplier);
+}
+
 /// How far a list is scrolled on one axis, and the farthest it goes
 /// (none, or less, when what it holds fits).
 #[derive(Clone, Copy, Debug, Default, PartialEq)]
@@ -190,7 +202,7 @@ impl Flick {
         if !allowed(delta, rooms) {
             return Outcome::IGNORED;
         }
-        let mut delta = self.accelerate(now, delta);
+        let mut delta = self.accelerate(now, delta) * SCROLL_SPEED.get();
         let moved = self.frame(now, rooms);
         if let Some(glide) = &self.glides[0] {
             delta.x += glide.remaining(now);
@@ -212,6 +224,7 @@ impl Flick {
         self.stop();
         self.notches = None;
         self.last_scroll = Some((now, at, ScrollKind::Touchpad));
+        let delta = delta * SCROLL_SPEED.get();
         let moved = Vector::new(rooms.x.moved(delta.x), rooms.y.moved(delta.y));
         Outcome { taken: true, moved }
     }
@@ -299,6 +312,20 @@ mod tests {
 
     fn notch(flick: &mut Flick, now: Instant, offset: f32) -> Outcome {
         flick.wheel(now, Vector::new(0.0, WHEEL_NOTCH), AT, rooms(offset))
+    }
+
+    #[test]
+    fn scroll_speed_multiplies_wheel_and_touchpad_distance() {
+        set_scroll_speed(3.0);
+        let now = Instant::now();
+        let mut flick = Flick::default();
+        notch(&mut flick, now, 0.0);
+        let wheel = flick.frame(now + WHEEL_DURATION, rooms(0.0));
+        let touchpad = flick.touchpad(now, Vector::new(0.0, 20.0), AT, rooms(0.0));
+        set_scroll_speed(1.0);
+
+        assert!((wheel.y - 3.0 * WHEEL_NOTCH).abs() < 0.001);
+        assert_eq!(touchpad.moved.y, 60.0);
     }
 
     #[test]
