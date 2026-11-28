@@ -22,9 +22,12 @@ use yapfast_core::{
     application::{Application, StickerUse},
     chat::Sticker,
     keybinds::{Binding, Shortcut},
+    ring::{self, Tone},
     theme::Custom,
-    themes::Performance,
+    themes::{Performance, media::SoundSlot},
 };
+
+use crate::custom_sounds::{self, Choice};
 
 pub use yapfast_core::layout_file::LAYOUT;
 
@@ -544,6 +547,15 @@ pub struct Voice {
     pub sound_volume: Option<u8>,
     pub adjust_each_sound: bool,
     pub each_sound: std::collections::BTreeMap<yapfast_core::sounds::Sound, u8>,
+    /// Sound files of the user's own in place of Yapfast's sounds and call
+    /// tones, while on; off unless turned on.
+    pub custom_sound_set: Option<bool>,
+    /// Which sounds play their file; one with a file and no choice does.
+    pub(crate) custom_sound_choices: BTreeMap<SoundSlot, Choice>,
+    /// The files, decoded, from this device's data folder; loaded only while
+    /// the custom set is on.
+    #[serde(skip)]
+    pub(crate) custom_sounds: crate::custom_sounds::CustomSounds,
 }
 
 /// How calls decide when to send the microphone, as Discord's Input Mode.
@@ -576,6 +588,7 @@ impl Voice {
                 .min(push_to_talk::MOST_RELEASE_DELAY),
         );
         self.play_volumes();
+        self.apply_rings();
         for (person, gain) in &self.volumes {
             volume::set(volume::Kind::Voice, person, *gain);
         }
@@ -615,6 +628,47 @@ impl Voice {
             .filter(|_| self.adjust_each_sound)
             .unwrap_or(100);
         gain(self.sound_volume.unwrap_or(100)) * gain(each)
+    }
+
+    pub(crate) fn uses_custom_sounds(&self) -> bool {
+        self.custom_sound_set.unwrap_or(false)
+    }
+
+    pub(crate) fn sound_choice(&self, slot: SoundSlot) -> Choice {
+        let file = self.custom_sounds.contains_key(&slot);
+        match self.custom_sound_choices.get(&slot).copied() {
+            None if file => Choice::File,
+            Some(Choice::File) if !file => Choice::Default,
+            choice => choice.unwrap_or_default(),
+        }
+    }
+
+    pub(crate) fn apply_rings(&self) {
+        ring::set_custom(Tone::ALL.map(|tone| {
+            if !self.uses_custom_sounds() {
+                return None;
+            }
+            let slot = custom_sounds::ring_slot(tone);
+            match self.sound_choice(slot) {
+                Choice::Default => None,
+                Choice::File => self.custom_sounds.get(&slot).cloned(),
+            }
+        }));
+    }
+
+    /// Plays the user's file for `sound`, else the theme's sound or the set's.
+    pub fn play_sound(&self, sound: yapfast_core::sounds::Sound, speaker: Option<&str>) {
+        use yapfast_core::sounds;
+        let gain = self.sound_gain(sound);
+        if self.uses_custom_sounds() {
+            let slot = SoundSlot::of_sound(sound);
+            if self.sound_choice(slot) == Choice::File
+                && let Some(samples) = self.custom_sounds.get(&slot)
+            {
+                return sounds::play_decoded(samples.clone(), gain, speaker);
+            }
+        }
+        sounds::play(self.sound_set, sound, gain, speaker);
     }
 }
 
@@ -760,6 +814,9 @@ impl Layout {
     pub fn open(root: &Path, running: &str) -> Self {
         let fresh = !root.join(LAYOUT).exists();
         let mut layout = Self::read(root);
+        if layout.voice.uses_custom_sounds() {
+            layout.voice.custom_sounds = custom_sounds::load(root);
+        }
         if layout.first_version.is_none() {
             let first = yapfast_core::new_tags::first_version(fresh, running);
             if fresh {

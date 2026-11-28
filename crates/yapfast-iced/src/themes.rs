@@ -3320,11 +3320,18 @@ fn sounds(
         if let Some(sound) = slot.app_sound() {
             out.app.insert(sound, ThemedSound { samples, volume });
         } else if matches!(slot, media::SoundSlot::Ring | media::SoundSlot::Ringback) {
+            // Theme rings have always played in mono. Mix them when loading
+            // so the ringer can reuse the samples for every call.
+            let scale = |sample| (f32::from(sample) * volume).round() as i16;
             let scaled: Arc<[i16]> = samples[0]
+                .as_chunks::<2>()
+                .0
                 .iter()
-                .map(|sample| (f32::from(*sample) * volume).round() as i16)
-                .collect::<Vec<_>>()
-                .into();
+                .flat_map(|&[left, right]| {
+                    let mono = (i32::from(scale(left)) + i32::from(scale(right))) / 2;
+                    [mono as i16; 2]
+                })
+                .collect();
             out.rings.insert(slot, scaled);
         } else if slot.interface() {
             out.cues.insert(slot, SoundCue { samples, volume });
