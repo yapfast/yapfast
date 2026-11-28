@@ -20,8 +20,9 @@ that work:
 The repository's own `flake.nix` builds no shell, only the package that
 `nix profile add github:yapfast/yapfast#yapfast` installs: the Discord-only
 release build, from `nix/package.nix`. It shares libwebrtc and the
-system libraries with the development shell through `nix/native.nix`, and pins
-the same nixpkgs in its own `flake.lock`. `nix build` puts it in `result`.
+system libraries with the development shell through `nix/native.nix`. Both
+flakes pin the same revision of `nixos-unstable`. CI and nightly use Ubuntu
+26.04, and nightly installs Nix 2.36.0. `nix build` puts the package in `result`.
 It also builds the AppDir that the [AppImage](packaging.md#linux-appimage) is packed from.
 `nix/package.nix` holds one hash per Git dependency's repository and commit,
 in `outputHashes`. Moving a Git dependency to another commit needs a new
@@ -29,7 +30,7 @@ hash there; a `nix build` with the old one prints it.
 
 ## Dependencies
 
-Yapfast pins Rust 1.100 and iced 0.14.0. Cargo.lock pins the complete Rust
+Yapfast pins Rust 1.100.1 and iced 0.14.0. Cargo.lock pins the complete Rust
 graph. iced's two renderers and its text shaper, cosmic-text, are patched in
 `vendor/`; see [dependency sources](#dependency-sources) and [the vendored
 toolkit](client/toolkit.md).
@@ -60,7 +61,7 @@ that crate requires updating the archive URL and checksum in `nix/native.nix`
 (Linux) and `nix/flake.nix` (Windows) too.
 
 The Linux environment includes ALSA, PulseAudio, fontconfig, FreeType, GLib,
-Wayland, X11, Vulkan, OpenGL, OpenSSL, Clang 21, CMake, pkg-config, Protobuf
+Wayland, X11, Vulkan, OpenGL, OpenSSL, Clang 23, CMake, pkg-config, Protobuf
 and NASM. It uses the host's graphics driver under `/run/opengl-driver/lib`. A
 real display session is required to open the window. It draws on the CPU, with
 tiny-skia, by default; `--renderer gpu` or the GPU setting draws with wgpu, and
@@ -414,7 +415,7 @@ required. Published packages are still made by the Linux MSVC cross-build.
 A native development build names this machine's folders and must not be
 shipped. Install these prerequisites before running Cargo:
 
-- Rust through rustup; `rust-toolchain.toml` pins Rust 1.100. Use the
+- Rust through rustup; `rust-toolchain.toml` pins Rust 1.100.1. Use the
   `x86_64-pc-windows-msvc` toolchain.
 - Visual Studio Build Tools with the **Desktop development with C++**
   workload, including the MSVC x64/x86 build tools and a Windows 10 or 11 SDK.
