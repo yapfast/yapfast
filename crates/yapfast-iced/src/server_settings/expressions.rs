@@ -113,7 +113,10 @@ impl Line<'_> {
 /// table without emoji isn't shown.
 fn lines(page: &EmojiPage) -> Vec<Line<'_>> {
     let mut lines = Vec::new();
-    for (animated, title) in [(false, "Emoji"), (true, "Animated Emoji")] {
+    for (animated, title) in [
+        (false, crate::i18n::tr_mark!("Emoji")),
+        (true, crate::i18n::tr_mark!("Animated Emoji")),
+    ] {
         let start = lines.len();
         lines.push(Line::Heading {
             title,
@@ -277,7 +280,7 @@ impl<'a> View<'a> {
         let theme = self.cx.look.theme;
         let rules = self.cx.app.expression_rules(&core.server);
         let mut parts = column![
-            form::title(theme, "Emoji"),
+            form::title(theme, crate::i18n::tr!(self.cx.i18n, "Emoji")),
             form::note(
                 theme,
                 format!(
@@ -291,7 +294,7 @@ impl<'a> View<'a> {
         if (rules.manage || rules.create) && (page.free(false) > 0 || page.free(true) > 0) {
             parts = parts.push(action(
                 theme,
-                "Upload Emoji",
+                crate::i18n::tr!(self.cx.i18n, "Upload Emoji"),
                 Kind::Primary,
                 (core.reading.is_none() && page.upload.is_none())
                     .then(|| message(Settings::Pick(ServerPicture::Emoji))),
@@ -303,10 +306,16 @@ impl<'a> View<'a> {
                 .push(
                     container(
                         column![
-                            text("No Emoji").size(17).font(BOLD).color(theme.text),
-                            text("Get the party started by uploading an emoji")
-                                .size(15)
-                                .color(theme.secondary),
+                            text(crate::i18n::tr!(self.cx.i18n, "No Emoji"))
+                                .size(17)
+                                .font(BOLD)
+                                .color(theme.text),
+                            text(crate::i18n::tr!(
+                                self.cx.i18n,
+                                "Get the party started by uploading an emoji"
+                            ))
+                            .size(15)
+                            .color(theme.secondary),
                         ]
                         .spacing(8)
                         .align_x(Alignment::Center),
@@ -349,7 +358,10 @@ impl<'a> View<'a> {
         let name = move |name: &'a str| text(name).size(12).font(BOLD).color(ink);
         column![
             row![
-                text(title).size(16).font(BOLD).color(theme.text),
+                text(self.cx.i18n.text(title))
+                    .size(16)
+                    .font(BOLD)
+                    .color(theme.text),
                 text(format!("– {}", slots(free)))
                     .size(16)
                     .color(theme.secondary)
@@ -359,7 +371,7 @@ impl<'a> View<'a> {
             Space::new().height(Length::Fill),
             row![
                 container(name("IMAGE")).width(IMAGE_COLUMN),
-                container(name("NAME"))
+                container(name(crate::i18n::tr!(self.cx.i18n, "NAME")))
                     .padding(Padding {
                         left: 8.0,
                         ..Padding::ZERO
@@ -521,9 +533,16 @@ impl<'a> View<'a> {
                 .on_submit(emoji(EmojiInput::Finish));
         }
         let mut body = column![
-            text("Upload Emoji").size(20).font(BOLD).color(theme.text),
+            text(crate::i18n::tr!(self.cx.i18n, "Upload Emoji"))
+                .size(20)
+                .font(BOLD)
+                .color(theme.text),
             stage,
-            column![form::heading(theme, "NAME"), field].spacing(6),
+            column![
+                form::heading(theme, crate::i18n::tr!(self.cx.i18n, "NAME")),
+                field
+            ]
+            .spacing(6),
         ]
         .spacing(14)
         .padding(16);
@@ -561,7 +580,7 @@ impl<'a> View<'a> {
         let rules = self.cx.app.expression_rules(&core.server);
         let may_upload = (rules.manage || rules.create) && !page.full();
         let mut parts = vec![
-            form::title(theme, "Stickers"),
+            form::title(theme, crate::i18n::tr!(self.cx.i18n, "Stickers")),
             form::note(
                 theme,
                 "Stickers can be static (JPG, PNG) or animated (APNG, GIF). Stickers must be exactly 320 x 320 pixels and no larger than 512 KB. We will automatically resize static JPG, PNG and animated GIF stickers for you.",
@@ -739,7 +758,7 @@ impl<'a> View<'a> {
                     self.cx
                         .look
                         .glyph(Icon::CirclePlus, ADD_GLYPH, theme.secondary),
-                    text("Upload Sticker")
+                    text(crate::i18n::tr!(self.cx.i18n, "Upload Sticker"))
                         .size(14)
                         .font(SEMIBOLD)
                         .color(theme.secondary),
@@ -790,14 +809,17 @@ impl<'a> View<'a> {
                         .bare(),
                 ),
                 None if editing => Space::new().into(),
-                None => text("Preview").size(14).color(theme.muted).into(),
+                None => text(crate::i18n::tr!(self.cx.i18n, "Preview"))
+                    .size(14)
+                    .color(theme.muted)
+                    .into(),
             };
         let sunken = theme.sunken;
         let mut body = column![
             text(if editing {
                 "Edit Sticker"
             } else {
-                "Upload Sticker"
+                crate::i18n::tr!(self.cx.i18n, "Upload Sticker")
             })
             .size(20)
             .font(BOLD)
@@ -813,7 +835,7 @@ impl<'a> View<'a> {
             let has_file = draft.file.is_some();
             body = body.push(
                 column![
-                    form::heading(theme, "FILE"),
+                    form::heading(theme, crate::i18n::tr!(self.cx.i18n, "FILE")),
                     row![
                         container(
                             text(if has_file {
@@ -882,9 +904,12 @@ impl<'a> View<'a> {
                     StickerInput::Description,
                 )
                 .push(
-                    text("Descriptions are optional but must be more than 1 character.")
-                        .size(12)
-                        .color(theme.secondary),
+                    text(crate::i18n::tr!(
+                        self.cx.i18n,
+                        "Descriptions are optional but must be more than 1 character."
+                    ))
+                    .size(12)
+                    .color(theme.secondary),
                 ),
             );
         if let Some(error) = &draft.error {

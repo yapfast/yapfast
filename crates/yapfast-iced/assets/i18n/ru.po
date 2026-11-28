@@ -807,3 +807,699 @@ msgstr "К последним сообщениям"
 
 msgid "You're viewing older messages"
 msgstr "Вы просматриваете старые сообщения"
+
+msgid "Delete Message"
+msgstr "Удалить сообщение"
+
+msgid "Are you sure you want to delete this message?"
+msgstr "Удалить это сообщение?"
+
+msgid "Delete"
+msgstr "Удалить"
+
+msgid "Leaving Yapfast"
+msgstr "Переход из Yapfast"
+
+msgid "This link goes to"
+msgstr "Ссылка ведёт на"
+
+msgid "Go back"
+msgstr "Вернуться"
+
+msgid "Visit site"
+msgstr "Открыть сайт"
+
+msgid "Loading..."
+msgstr "Загрузка…"
+
+msgid "Server settings"
+msgstr "Настройки сервера"
+
+msgid "EXPRESSION"
+msgstr "САМОВЫРАЖЕНИЕ"
+
+msgid "PEOPLE"
+msgstr "УЧАСТНИКИ"
+
+msgid "MODERATION"
+msgstr "МОДЕРАЦИЯ"
+
+msgid "Delete Server"
+msgstr "Удалить сервер"
+
+msgid "Server Profile"
+msgstr "Профиль сервера"
+
+msgid "Engagement"
+msgstr "Вовлечённость"
+
+msgid "Boost Perks"
+msgstr "Преимущества бустов"
+
+msgid "Members"
+msgstr "Участники"
+
+msgid "Roles"
+msgstr "Роли"
+
+msgid "Invites"
+msgstr "Приглашения"
+
+msgid "Safety Setup"
+msgstr "Настройки безопасности"
+
+msgid "Audit Log"
+msgstr "Журнал аудита"
+
+msgid "Bans"
+msgstr "Блокировки"
+
+msgid "Emoji"
+msgstr "Эмодзи"
+
+msgid "Stickers"
+msgstr "Стикеры"
+
+msgid "Join voice"
+msgstr "Подключиться к голосовому каналу"
+
+msgid "Profile"
+msgstr "Профиль"
+
+msgid "Add friend"
+msgstr "Добавить друга"
+
+msgid "Accept friend request"
+msgstr "Принять запрос в друзья"
+
+msgid "Cancel friend request"
+msgstr "Отменить запрос в друзья"
+
+msgid "Pin"
+msgstr "Закрепить"
+
+msgid "Unpin"
+msgstr "Открепить"
+
+msgid "Start call"
+msgstr "Начать звонок"
+
+msgid "Add note"
+msgstr "Добавить заметку"
+
+msgid "Add friend nickname"
+msgstr "Добавить прозвище друга"
+
+msgid "Change friend nickname"
+msgstr "Изменить прозвище друга"
+
+msgid "Close DM"
+msgstr "Закрыть переписку"
+
+msgid "Leave group"
+msgstr "Выйти из группы"
+
+msgid "Invite to server"
+msgstr "Пригласить на сервер"
+
+msgid "Apps"
+msgstr "Приложения"
+
+msgid "Remove friend"
+msgstr "Удалить из друзей"
+
+msgid "Stop ignoring"
+msgstr "Перестать игнорировать"
+
+msgid "Mute"
+msgstr "Выключить звук"
+
+msgid "Unmute"
+msgstr "Включить звук"
+
+msgid "Copy link"
+msgstr "Копировать ссылку"
+
+msgid "Copy ID"
+msgstr "Копировать ID"
+
+msgid "Mention"
+msgstr "Упомянуть"
+
+msgid "Change nickname"
+msgstr "Изменить никнейм"
+
+msgid "Remove timeout"
+msgstr "Снять ограничение общения"
+
+msgid "Time out"
+msgstr "Ограничить общение"
+
+msgid "Kick"
+msgstr "Выгнать"
+
+msgid "Ban"
+msgstr "Заблокировать на сервере"
+
+msgid "Transfer Ownership"
+msgstr "Передать права владельца"
+
+msgid "Mute Soundboard"
+msgstr "Выключить звуковую панель"
+
+msgid "Deafen"
+msgstr "Отключить звук и микрофон"
+
+msgid "Move to"
+msgstr "Переместить в"
+
+msgid "Server mute"
+msgstr "Выключить микрофон на сервере"
+
+msgid "Server deafen"
+msgstr "Отключить звук на сервере"
+
+msgid "Disconnect"
+msgstr "Отключить"
+
+msgid "Mute server"
+msgstr "Выключить уведомления сервера"
+
+msgid "Unmute server"
+msgstr "Включить уведомления сервера"
+
+msgid "Mute folder"
+msgstr "Выключить уведомления папки"
+
+msgid "Unmute folder"
+msgstr "Включить уведомления папки"
+
+msgid "Show all channels"
+msgstr "Показать все каналы"
+
+msgid "Hide muted channels"
+msgstr "Скрыть каналы без уведомлений"
+
+msgid "Invite to channel"
+msgstr "Пригласить в канал"
+
+msgid "Add to Favorites"
+msgstr "Добавить в избранное"
+
+msgid "Remove from Favorites"
+msgstr "Удалить из избранного"
+
+msgid "Pin channel to top"
+msgstr "Закрепить канал сверху"
+
+msgid "Unpin channel"
+msgstr "Открепить канал"
+
+msgid "Add to channel list"
+msgstr "Добавить в список каналов"
+
+msgid "Remove from channel list"
+msgstr "Убрать из списка каналов"
+
+msgid "Unfollow channel category"
+msgstr "Отписаться от категории каналов"
+
+msgid "Create text channel"
+msgstr "Создать текстовый канал"
+
+msgid "Create category"
+msgstr "Создать категорию"
+
+msgid "Edit channel"
+msgstr "Редактировать канал"
+
+msgid "Duplicate channel"
+msgstr "Дублировать канал"
+
+msgid "Delete channel"
+msgstr "Удалить канал"
+
+msgid "Leave server"
+msgstr "Покинуть сервер"
+
+msgid "Join thread"
+msgstr "Присоединиться к ветке"
+
+msgid "Leave thread"
+msgstr "Покинуть ветку"
+
+msgid "Edit server profile"
+msgstr "Редактировать профиль на сервере"
+
+msgid "Mark folder as read"
+msgstr "Отметить папку как прочитанную"
+
+msgid "Create channel"
+msgstr "Создать канал"
+
+msgid "Create voice channel"
+msgstr "Создать голосовой канал"
+
+msgid "Edit category"
+msgstr "Редактировать категорию"
+
+msgid "Delete category"
+msgstr "Удалить категорию"
+
+msgid "Join call"
+msgstr "Присоединиться к звонку"
+
+msgid "No upcoming events"
+msgstr "Нет предстоящих событий"
+
+msgid "Close all folders"
+msgstr "Закрыть все папки"
+
+msgid "Servers"
+msgstr "Серверы"
+
+msgid "Making a link..."
+msgstr "Создание ссылки…"
+
+msgid "Copied"
+msgstr "Скопировано"
+
+msgid "Copy"
+msgstr "Копировать"
+
+msgid "Done"
+msgstr "Готово"
+
+msgid "Generate a new link"
+msgstr "Создать новую ссылку"
+
+msgid "You've been invited to join a server"
+msgstr "Вас пригласили на сервер"
+
+msgid "Join a Server"
+msgstr "Присоединиться к серверу"
+
+msgid "Paste an invite link or code to join a server you were invited to."
+msgstr "Вставьте ссылку или код приглашения, чтобы присоединиться к серверу."
+
+msgid "You joined. This server asks new members to fill in a form before they can talk, which Yapfast can't show yet. Finish it in Discord's web app."
+msgstr "Вы присоединились к серверу. Чтобы общаться, заполните анкету в веб-версии Discord. В Yapfast она пока недоступна."
+
+msgid "Discord asks for a captcha first. Solve it in your browser."
+msgstr "Discord просит пройти капчу. Пройдите её в браузере."
+
+msgid "Joining..."
+msgstr "Подключение…"
+
+msgid "Looking up the invite..."
+msgstr "Поиск приглашения…"
+
+msgid "You're already in this server."
+msgstr "Вы уже на этом сервере."
+
+msgid "Open in browser"
+msgstr "Открыть в браузере"
+
+msgid "Open Server"
+msgstr "Открыть сервер"
+
+msgid "Join in Browser"
+msgstr "Присоединиться в браузере"
+
+msgid "Find Invite"
+msgstr "Найти приглашение"
+
+msgid "Close"
+msgstr "Закрыть"
+
+msgid "Open the captcha again"
+msgstr "Открыть капчу снова"
+
+msgid "Text"
+msgstr "Текстовый"
+
+msgid "Voice"
+msgstr "Голосовой"
+
+msgid "CATEGORY NAME"
+msgstr "НАЗВАНИЕ КАТЕГОРИИ"
+
+msgid "New Category"
+msgstr "Новая категория"
+
+msgid "Leave without notifying other members"
+msgstr "Выйти без уведомления других участников"
+
+msgid "Sync permissions?"
+msgstr "Синхронизировать права доступа?"
+
+msgid "Keep Current Permissions"
+msgstr "Сохранить текущие права"
+
+msgid "Sync Permissions"
+msgstr "Синхронизировать права"
+
+msgid "ADD TO SERVER"
+msgstr "ДОБАВИТЬ НА СЕРВЕР"
+
+msgid "Change Server Icon"
+msgstr "Изменить значок сервера"
+
+msgid "Remove Icon"
+msgstr "Удалить значок"
+
+msgid "Customize how your server appears in invite links and, if enabled, in Server Discovery and Announcement Channel messages."
+msgstr "Настройте, как сервер выглядит в приглашениях, каталоге серверов и сообщениях каналов объявлений, если эти функции включены."
+
+msgid "NAME"
+msgstr "НАЗВАНИЕ"
+
+msgid "ICON"
+msgstr "ЗНАЧОК"
+
+msgid "Reading the picture..."
+msgstr "Загрузка изображения…"
+
+msgid "We recommend an image of at least 512x512."
+msgstr "Рекомендуем изображение размером не менее 512 × 512."
+
+msgid "DESCRIPTION"
+msgstr "ОПИСАНИЕ"
+
+msgid "Tell people what your server is about."
+msgstr "Расскажите, о чём ваш сервер."
+
+msgid "No Level"
+msgstr "Нет уровня"
+
+msgid "Show Boost progress bar"
+msgstr "Показывать прогресс бустов"
+
+msgid "This progress bar will display in your channel list, attached to your server name (or server banner if you have one set)."
+msgstr "Прогресс появится в списке каналов рядом с названием или баннером сервера."
+
+msgid "The recommended minimum size is 960x540 and recommended aspect ratio is 16:9."
+msgstr "Рекомендуемый минимальный размер — 960 × 540, соотношение сторон — 16:9."
+
+msgid "No image"
+msgstr "Нет изображения"
+
+msgid "Upload Background"
+msgstr "Загрузить фон"
+
+msgid "Remove Background"
+msgstr "Удалить фон"
+
+msgid "No Emoji"
+msgstr "Нет эмодзи"
+
+msgid "Get the party started by uploading an emoji"
+msgstr "Загрузите первый эмодзи"
+
+msgid "Upload Emoji"
+msgstr "Загрузить эмодзи"
+
+msgid "Upload Sticker"
+msgstr "Загрузить стикер"
+
+msgid "FILE"
+msgstr "ФАЙЛ"
+
+msgid "Descriptions are optional but must be more than 1 character."
+msgstr "Описание необязательно. Если вы его добавите, в нём должно быть больше одного символа."
+
+msgid "VERIFICATION LEVEL"
+msgstr "УРОВЕНЬ ПРОВЕРКИ"
+
+msgid "SENSITIVE CONTENT FILTERS"
+msgstr "ФИЛЬТРЫ ДЕЛИКАТНОГО КОНТЕНТА"
+
+msgid "Server Ban List"
+msgstr "Список блокировок сервера"
+
+msgid "Ban Reason"
+msgstr "Причина блокировки"
+
+msgid "Server Members"
+msgstr "Участники сервера"
+
+msgid "No members match these search results."
+msgstr "Участники по этому запросу не найдены."
+
+msgid "Showing"
+msgstr "Показано"
+
+msgid "Security Actions"
+msgstr "Меры безопасности"
+
+msgid "ENTER SERVER NAME"
+msgstr "ВВЕДИТЕ НАЗВАНИЕ СЕРВЕРА"
+
+msgid "You didn't enter the server name correctly"
+msgstr "Название сервера введено неверно"
+
+msgid "Deleting..."
+msgstr "Удаление…"
+
+msgid "VERIFICATION CODE"
+msgstr "КОД ПОДТВЕРЖДЕНИЯ"
+
+msgid "Verification code sent."
+msgstr "Код подтверждения отправлен."
+
+msgid "Transferring..."
+msgstr "Передача прав…"
+
+msgid "MEMBERS"
+msgstr "УЧАСТНИКИ"
+
+msgid "No roles"
+msgstr "Нет ролей"
+
+msgid "Default Permissions"
+msgstr "Права по умолчанию"
+
+msgid "ROLE NAME"
+msgstr "НАЗВАНИЕ РОЛИ"
+
+msgid "ROLE COLOR"
+msgstr "ЦВЕТ РОЛИ"
+
+msgid "Unlocks at Level 2"
+msgstr "Доступно с уровня 2"
+
+msgid "ROLE ICON"
+msgstr "ЗНАЧОК РОЛИ"
+
+msgid "No permissions found"
+msgstr "Права не найдены"
+
+msgid "No members were found."
+msgstr "Участники не найдены."
+
+msgid "Add members"
+msgstr "Добавить участников"
+
+msgid "Add reaction"
+msgstr "Добавить реакцию"
+
+msgid "View Reactions"
+msgstr "Посмотреть реакции"
+
+msgid "Edit message"
+msgstr "Редактировать сообщение"
+
+msgid "Reply"
+msgstr "Ответить"
+
+msgid "Create Thread"
+msgstr "Создать ветку"
+
+msgid "View Thread"
+msgstr "Открыть ветку"
+
+msgid "Copy text"
+msgstr "Копировать текст"
+
+msgid "Copy selection"
+msgstr "Копировать выделенное"
+
+msgid "End Poll Now"
+msgstr "Завершить опрос сейчас"
+
+msgid "Unpin message"
+msgstr "Открепить сообщение"
+
+msgid "Pin message"
+msgstr "Закрепить сообщение"
+
+msgid "Mark Unread"
+msgstr "Отметить как непрочитанное"
+
+msgid "Copy Message Link"
+msgstr "Копировать ссылку на сообщение"
+
+msgid "Delete message"
+msgstr "Удалить сообщение"
+
+msgid "Copy Message ID"
+msgstr "Копировать ID сообщения"
+
+msgid "Copy Link"
+msgstr "Копировать ссылку"
+
+msgid "Open Link"
+msgstr "Открыть ссылку"
+
+msgid "Upload a File"
+msgstr "Загрузить файл"
+
+msgid "Create Poll"
+msgstr "Создать опрос"
+
+msgid "In {name}"
+msgstr "В {name}"
+
+msgid "A copy of {name}, with its settings and permissions, in the same category."
+msgstr "Копия {name} с его настройками и правами доступа в той же категории."
+
+msgid "Are you sure you want to delete {name}? This cannot be undone."
+msgstr "Удалить {name}? Это действие нельзя отменить."
+
+msgid "CHANNEL TYPE"
+msgstr "ТИП КАНАЛА"
+
+msgid "CHANNEL NAME"
+msgstr "НАЗВАНИЕ КАНАЛА"
+
+msgid "Animated Emoji"
+msgstr "Анимированные эмодзи"
+
+msgid "Use category default"
+msgstr "Как в категории"
+
+msgid "Use server default"
+msgstr "Как на сервере"
+
+msgid "Suppress @everyone and @here"
+msgstr "Отключить уведомления от @everyone и @here"
+
+msgid "Suppress all role @mentions"
+msgstr "Отключить уведомления об упоминаниях ролей"
+
+msgid "All messages"
+msgstr "Все сообщения"
+
+msgid "Only @mentions"
+msgstr "Только @упоминания"
+
+msgid "Nothing"
+msgstr "Ничего"
+
+msgid "For 15 minutes"
+msgstr "На 15 минут"
+
+msgid "For 1 hour"
+msgstr "На 1 час"
+
+msgid "For 3 hours"
+msgstr "На 3 часа"
+
+msgid "For 8 hours"
+msgstr "На 8 часов"
+
+msgid "For 24 hours"
+msgstr "На 24 часа"
+
+msgid "Until I turn it back on"
+msgstr "Пока я не включу снова"
+
+msgid "Mute category"
+msgstr "Выключить уведомления категории"
+
+msgid "Unmute category"
+msgstr "Включить уведомления категории"
+
+msgid "Mute channel"
+msgstr "Выключить уведомления канала"
+
+msgid "Unmute channel"
+msgstr "Включить уведомления канала"
+
+msgid "Invite friends to {server}"
+msgstr "Пригласить друзей на сервер {server}"
+
+msgid "They'll land in {place}."
+msgstr "Они попадут в {place}."
+
+msgid "Leave '{name}'"
+msgstr "Покинуть «{name}»"
+
+msgid "Are you sure you want to leave {name}? You won't be able to rejoin this group unless you are re-invited."
+msgstr "Покинуть группу {name}? Чтобы вернуться, понадобится новое приглашение."
+
+msgid "Are you sure you want to leave {name}? You won't be able to rejoin this server unless you are re-invited."
+msgstr "Покинуть сервер {name}? Чтобы вернуться, понадобится новое приглашение."
+
+msgid "No System Messages"
+msgstr "Без системных сообщений"
+
+msgid "No Inactive Channel"
+msgstr "Без канала для неактивных"
+
+msgid "SYSTEM MESSAGES CHANNEL"
+msgstr "КАНАЛ СИСТЕМНЫХ СООБЩЕНИЙ"
+
+msgid "This is the channel we send system event messages to. These can be turned off at any time."
+msgstr "В этот канал отправляются системные сообщения. Их можно отключить в любой момент."
+
+msgid "DEFAULT NOTIFICATION SETTINGS"
+msgstr "НАСТРОЙКИ УВЕДОМЛЕНИЙ ПО УМОЛЧАНИЮ"
+
+msgid "This will determine whether members who have not explicitly set their notification settings receive a notification for every message sent in this server or not."
+msgstr "Эта настройка определяет, какие уведомления получат участники, оставившие настройки по умолчанию."
+
+msgid "All Messages"
+msgstr "Все сообщения"
+
+msgid "INACTIVE CHANNEL"
+msgstr "КАНАЛ ДЛЯ НЕАКТИВНЫХ"
+
+msgid "Automatically move members to this channel and mute them when they have been idle for longer than the inactive timeout. This does not affect browsers."
+msgstr "Участники будут автоматически перемещены в этот канал и заглушены по истечении времени бездействия. Это не касается клиентов в браузере."
+
+msgid "Servers who reach Boosting Level 1 and above get unique invite embeds with custom Server Invite Backgrounds. The recommended minimum size is 1920x1080 and recommended aspect ratio is 16:9."
+msgstr "С первого уровня бустов можно выбрать фон для приглашений. Рекомендуемый минимальный размер — 1920 × 1080, соотношение сторон — 16:9."
+
+msgid "Level {tier}"
+msgstr "Уровень {tier}"
+
+msgid "Unlocks at Level {level}"
+msgstr "Доступно с уровня {level}"
+
+msgid "1 minute"
+msgstr "1 минута"
+
+msgid "5 minutes"
+msgstr "5 минут"
+
+msgid "15 minutes"
+msgstr "15 минут"
+
+msgid "30 minutes"
+msgstr "30 минут"
+
+msgid "1 hour"
+msgstr "1 час"
+
+msgid "Send a random welcome message when someone joins this server."
+msgstr "Отправлять случайное приветствие, когда кто-то присоединяется к серверу."
+
+msgid "Prompt members to reply to welcome messages with a sticker."
+msgstr "Предлагать участникам отвечать на приветствия стикером."
+
+msgid "Send a message when someone boosts this server."
+msgstr "Отправлять сообщение, когда кто-то бустит сервер."
+
+msgid "Send helpful tips for server setup."
+msgstr "Отправлять подсказки по настройке сервера."

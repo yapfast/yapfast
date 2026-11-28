@@ -50,7 +50,11 @@ impl<'a> View<'a> {
             Space::new().width(HANDLE),
             container(form::heading(theme, format!("ROLES – {}", listed.len())))
                 .width(Length::Fill),
-            container(form::heading(theme, "MEMBERS")).width(MEMBERS + 2.0 * BUTTON + HANDLE),
+            container(form::heading(
+                theme,
+                crate::i18n::tr!(self.cx.i18n, "MEMBERS")
+            ))
+            .width(MEMBERS + 2.0 * BUTTON + HANDLE),
         ]
         .spacing(10)
         .padding(Padding {
@@ -61,7 +65,10 @@ impl<'a> View<'a> {
         });
         let mut list = column![header, form::rule(theme)];
         if listed.is_empty() {
-            list = list.push(form::note(theme, "No roles"));
+            list = list.push(form::note(
+                theme,
+                crate::i18n::tr!(self.cx.i18n, "No roles"),
+            ));
         }
         let count = listed.len();
         let mut rows = Vec::with_capacity(count);
@@ -85,7 +92,7 @@ impl<'a> View<'a> {
             .lifted(theme.raised, 6.0),
         );
         form::page([
-            form::title(theme, "Roles"),
+            form::title(theme, crate::i18n::tr!(self.cx.i18n, "Roles")),
             form::note(
                 theme,
                 "Use roles to group your server members and assign permissions.",
@@ -131,7 +138,7 @@ impl<'a> View<'a> {
                 .center(CARD_ICON)
                 .style(move |_| rounded(field, CARD_ICON / 2.0)),
             column![
-                text("Default Permissions")
+                text(crate::i18n::tr!(self.cx.i18n, "Default Permissions"))
                     .size(15)
                     .font(SEMIBOLD)
                     .color(theme.text),

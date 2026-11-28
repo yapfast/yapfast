@@ -204,9 +204,9 @@ impl<'a> View<'a> {
             action(
                 theme,
                 if confirm.is_empty() {
-                    "Close"
+                    crate::i18n::tr!(self.cx.i18n, "Close")
                 } else {
-                    "Cancel"
+                    crate::i18n::tr!(self.cx.i18n, "Cancel")
                 },
                 Kind::Ghost,
                 Some(message(close)),
@@ -347,10 +347,13 @@ impl<'a> View<'a> {
             );
         }
         if prompt.guild_picker || !prompt.guild_name.is_empty() {
-            body.push(form::heading(theme, "ADD TO SERVER"));
+            body.push(form::heading(
+                theme,
+                crate::i18n::tr!(self.cx.i18n, "ADD TO SERVER"),
+            ));
         }
         let sunken = theme.sunken;
-        let boxed = |content: Element<'static, Message>, right: f32| {
+        let boxed = |content: Element<'a, Message>, right: f32| {
             container(content)
                 .padding(iced::Padding {
                     left: 12.0,
@@ -396,7 +399,11 @@ impl<'a> View<'a> {
             let copied = self.s.copied.as_deref() == Some(prompt.address.as_str());
             let copy = action(
                 theme,
-                if copied { "Copied" } else { "Copy" },
+                if copied {
+                    crate::i18n::tr!(self.cx.i18n, "Copied")
+                } else {
+                    crate::i18n::tr!(self.cx.i18n, "Copy")
+                },
                 if copied { Kind::Plain } else { Kind::Primary },
                 Some(message(Event::Copy(prompt.address.clone()))),
             );

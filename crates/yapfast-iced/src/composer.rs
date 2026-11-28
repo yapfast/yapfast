@@ -550,14 +550,22 @@ fn plus(app: &mut App) -> Task<Message> {
         disabled: !look.attach,
         subtitle: None,
         check: crate::controls::Check::None,
-        ..MenuRow::new(MenuAct::Upload, "Upload a File", Icon::File)
+        ..MenuRow::new(
+            MenuAct::Upload,
+            crate::i18n::tr_mark!("Upload a File"),
+            Icon::File,
+        )
     }];
     if app.client.app.can_start_threads() {
         rows.push(MenuRow {
             disabled: false,
             subtitle: None,
             check: crate::controls::Check::None,
-            ..MenuRow::new(MenuAct::NewThread, "Create Thread", Icon::Thread)
+            ..MenuRow::new(
+                MenuAct::NewThread,
+                crate::i18n::tr_mark!("Create Thread"),
+                Icon::Thread,
+            )
         });
     }
     if app.client.app.can_create_polls() {
@@ -565,7 +573,11 @@ fn plus(app: &mut App) -> Task<Message> {
             disabled: false,
             subtitle: None,
             check: crate::controls::Check::None,
-            ..MenuRow::new(MenuAct::NewPoll, "Create Poll", Icon::ChartBar)
+            ..MenuRow::new(
+                MenuAct::NewPoll,
+                crate::i18n::tr_mark!("Create Poll"),
+                Icon::ChartBar,
+            )
         });
     }
     let at = iced::Point::new(

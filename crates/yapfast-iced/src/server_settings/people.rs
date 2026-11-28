@@ -405,9 +405,13 @@ impl<'a> View<'a> {
                 .collect(),
             Space::new().width(BUTTON).into(),
         );
-        let mut parts = column![form::title(theme, "Server Members"), head, headings]
-            .spacing(form::GAP)
-            .height(Length::Fill);
+        let mut parts = column![
+            form::title(theme, crate::i18n::tr!(self.cx.i18n, "Server Members")),
+            head,
+            headings
+        ]
+        .spacing(form::GAP)
+        .height(Length::Fill);
         if page.indexing {
             parts = parts.push(form::note(
                 theme,
@@ -419,15 +423,18 @@ impl<'a> View<'a> {
             let loading: Element<'a, Message> = if page.indexing {
                 Space::new().into()
             } else {
-                form::note(theme, "Loading...")
+                form::note(theme, crate::i18n::tr!(self.cx.i18n, "Loading..."))
             };
             parts = parts.push(container(loading).height(Length::Fill));
         } else if shown.is_empty() {
             parts = parts.push(
                 container(
-                    text("No members match these search results.")
-                        .size(15)
-                        .color(theme.secondary),
+                    text(crate::i18n::tr!(
+                        self.cx.i18n,
+                        "No members match these search results."
+                    ))
+                    .size(15)
+                    .color(theme.secondary),
                 )
                 .center(Length::Fill),
             );
@@ -614,7 +621,11 @@ impl<'a> View<'a> {
             .width(PAGE_SIZE)
             .view(self.cx.look);
             footer = footer
-                .push(text("Showing").size(14).color(theme.secondary))
+                .push(
+                    text(crate::i18n::tr!(self.cx.i18n, "Showing"))
+                        .size(14)
+                        .color(theme.secondary),
+                )
                 .push(size);
             format!("members of {count}")
         } else {
@@ -683,7 +694,7 @@ impl<'a> View<'a> {
             ));
         }
         let parts = column![
-            form::title(theme, "Invites"),
+            form::title(theme, crate::i18n::tr!(self.cx.i18n, "Invites")),
             form::note(
                 theme,
                 "Create an invite link anyone can use to join, or invite friends directly.",
@@ -838,7 +849,7 @@ impl<'a> View<'a> {
         .enabled(ready)
         .view(self.cx.look);
         let mut body = column![
-            text("Security Actions")
+            text(crate::i18n::tr!(self.cx.i18n, "Security Actions"))
                 .size(20)
                 .font(BOLD)
                 .color(theme.text),

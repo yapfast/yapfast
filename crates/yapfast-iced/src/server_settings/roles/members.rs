@@ -75,12 +75,20 @@ impl<'a> View<'a> {
         }
         let shown = page.shown_members();
         match &draft.members {
-            None => parts = parts.push(form::note(theme, "Loading...")),
+            None => {
+                parts = parts.push(form::note(
+                    theme,
+                    crate::i18n::tr!(self.cx.i18n, "Loading..."),
+                ))
+            }
             Some(Err(error)) => {
                 parts = parts.push(form::error(theme, error.as_str()));
             }
             Some(Ok(_)) if shown.is_empty() => {
-                parts = parts.push(form::note(theme, "No members were found."));
+                parts = parts.push(form::note(
+                    theme,
+                    crate::i18n::tr!(self.cx.i18n, "No members were found."),
+                ));
             }
             Some(Ok(_)) => {}
         }
@@ -177,7 +185,10 @@ impl<'a> View<'a> {
         let picked = adding.chosen.len();
         let height = ADD_HEIGHT.min(self.cx.look.window.height - ADD_ROOM);
         let body = column![
-            text("Add members").size(20).font(BOLD).color(theme.text),
+            text(crate::i18n::tr!(self.cx.i18n, "Add members"))
+                .size(20)
+                .font(BOLD)
+                .color(theme.text),
             text(format!("Select up to 30 members to add to role {role}"))
                 .size(14)
                 .color(theme.secondary),

@@ -359,7 +359,10 @@ impl<'a> View<'a> {
         let mut page = column![].spacing(form::GAP).width(Length::Fill);
         let mut fill = false;
         if core.loading() {
-            page = page.push(form::note(theme, "Loading..."));
+            page = page.push(form::note(
+                theme,
+                crate::i18n::tr!(self.cx.i18n, "Loading..."),
+            ));
         }
         if let Some(shown) = &core.page {
             let (view, fills) = match shown {
@@ -403,7 +406,7 @@ impl<'a> View<'a> {
             self.server_nav(core),
             page,
             message(Event::Close),
-            "Server settings",
+            crate::i18n::tr!(self.cx.i18n, "Server settings"),
         )
         .bar(bar)
         .fill(fill)
@@ -454,12 +457,14 @@ impl<'a> View<'a> {
         let mut group = "";
         for section in app.settings_sections(&core.server) {
             let heading = match section {
-                SettingsSection::Emoji | SettingsSection::Stickers => "EXPRESSION",
+                SettingsSection::Emoji | SettingsSection::Stickers => {
+                    crate::i18n::tr!(self.cx.i18n, "EXPRESSION")
+                }
                 SettingsSection::Members | SettingsSection::Roles | SettingsSection::Invites => {
-                    "PEOPLE"
+                    crate::i18n::tr!(self.cx.i18n, "PEOPLE")
                 }
                 SettingsSection::Safety | SettingsSection::AuditLog | SettingsSection::Bans => {
-                    "MODERATION"
+                    crate::i18n::tr!(self.cx.i18n, "MODERATION")
                 }
                 _ => "",
             };
@@ -469,7 +474,7 @@ impl<'a> View<'a> {
             }
             let (label, icon) = section_look(section);
             rows.push(Nav::Page {
-                label: label.into(),
+                label: self.cx.i18n.text(label).into(),
                 icon,
                 selected: core.section == section,
                 danger: false,
@@ -479,7 +484,7 @@ impl<'a> View<'a> {
         if app.may_give_up(&core.server) {
             rows.push(Nav::Line);
             rows.push(Nav::Page {
-                label: "Delete Server".into(),
+                label: crate::i18n::tr!(self.cx.i18n, "Delete Server").into(),
                 icon: Icon::Trash,
                 selected: false,
                 danger: true,
@@ -511,17 +516,17 @@ impl<'a> View<'a> {
 /// A page's name and icon in the column.
 fn section_look(section: SettingsSection) -> (&'static str, Icon) {
     match section {
-        SettingsSection::Profile => ("Server Profile", Icon::Pencil),
-        SettingsSection::Engagement => ("Engagement", Icon::Bell),
-        SettingsSection::BoostPerks => ("Boost Perks", Icon::Pin),
-        SettingsSection::Members => ("Members", Icon::Users),
-        SettingsSection::Roles => ("Roles", Icon::Shield),
-        SettingsSection::Invites => ("Invites", Icon::Chain),
-        SettingsSection::Safety => ("Safety Setup", Icon::Lock),
-        SettingsSection::AuditLog => ("Audit Log", Icon::History),
-        SettingsSection::Bans => ("Bans", Icon::Gavel),
-        SettingsSection::Emoji => ("Emoji", Icon::Smile),
-        SettingsSection::Stickers => ("Stickers", Icon::StickyNote),
+        SettingsSection::Profile => (crate::i18n::tr_mark!("Server Profile"), Icon::Pencil),
+        SettingsSection::Engagement => (crate::i18n::tr_mark!("Engagement"), Icon::Bell),
+        SettingsSection::BoostPerks => (crate::i18n::tr_mark!("Boost Perks"), Icon::Pin),
+        SettingsSection::Members => (crate::i18n::tr_mark!("Members"), Icon::Users),
+        SettingsSection::Roles => (crate::i18n::tr_mark!("Roles"), Icon::Shield),
+        SettingsSection::Invites => (crate::i18n::tr_mark!("Invites"), Icon::Chain),
+        SettingsSection::Safety => (crate::i18n::tr_mark!("Safety Setup"), Icon::Lock),
+        SettingsSection::AuditLog => (crate::i18n::tr_mark!("Audit Log"), Icon::History),
+        SettingsSection::Bans => (crate::i18n::tr_mark!("Bans"), Icon::Gavel),
+        SettingsSection::Emoji => (crate::i18n::tr_mark!("Emoji"), Icon::Smile),
+        SettingsSection::Stickers => (crate::i18n::tr_mark!("Stickers"), Icon::StickyNote),
     }
 }
 

@@ -807,3 +807,699 @@ msgstr "Zu den neuesten Nachrichten springen"
 
 msgid "You're viewing older messages"
 msgstr "Du siehst dir ältere Nachrichten an"
+
+msgid "Delete Message"
+msgstr "Nachricht löschen"
+
+msgid "Are you sure you want to delete this message?"
+msgstr "Möchtest du diese Nachricht wirklich löschen?"
+
+msgid "Delete"
+msgstr "Löschen"
+
+msgid "Leaving Yapfast"
+msgstr "Yapfast verlassen"
+
+msgid "This link goes to"
+msgstr "Dieser Link führt zu"
+
+msgid "Go back"
+msgstr "Zurück"
+
+msgid "Visit site"
+msgstr "Website öffnen"
+
+msgid "Loading..."
+msgstr "Wird geladen …"
+
+msgid "Server settings"
+msgstr "Servereinstellungen"
+
+msgid "EXPRESSION"
+msgstr "AUSDRUCK"
+
+msgid "PEOPLE"
+msgstr "PERSONEN"
+
+msgid "MODERATION"
+msgstr "MODERATION"
+
+msgid "Delete Server"
+msgstr "Server löschen"
+
+msgid "Server Profile"
+msgstr "Serverprofil"
+
+msgid "Engagement"
+msgstr "Interaktion"
+
+msgid "Boost Perks"
+msgstr "Boost-Vorteile"
+
+msgid "Members"
+msgstr "Mitglieder"
+
+msgid "Roles"
+msgstr "Rollen"
+
+msgid "Invites"
+msgstr "Einladungen"
+
+msgid "Safety Setup"
+msgstr "Sicherheitseinstellungen"
+
+msgid "Audit Log"
+msgstr "Audit-Log"
+
+msgid "Bans"
+msgstr "Sperren"
+
+msgid "Emoji"
+msgstr "Emoji"
+
+msgid "Stickers"
+msgstr "Sticker"
+
+msgid "Join voice"
+msgstr "Sprachkanal beitreten"
+
+msgid "Profile"
+msgstr "Profil"
+
+msgid "Add friend"
+msgstr "Freund hinzufügen"
+
+msgid "Accept friend request"
+msgstr "Freundschaftsanfrage annehmen"
+
+msgid "Cancel friend request"
+msgstr "Freundschaftsanfrage zurückziehen"
+
+msgid "Pin"
+msgstr "Anheften"
+
+msgid "Unpin"
+msgstr "Loslösen"
+
+msgid "Start call"
+msgstr "Anruf starten"
+
+msgid "Add note"
+msgstr "Notiz hinzufügen"
+
+msgid "Add friend nickname"
+msgstr "Spitznamen hinzufügen"
+
+msgid "Change friend nickname"
+msgstr "Spitznamen ändern"
+
+msgid "Close DM"
+msgstr "Direktnachricht schließen"
+
+msgid "Leave group"
+msgstr "Gruppe verlassen"
+
+msgid "Invite to server"
+msgstr "Auf den Server einladen"
+
+msgid "Apps"
+msgstr "Apps"
+
+msgid "Remove friend"
+msgstr "Freund entfernen"
+
+msgid "Stop ignoring"
+msgstr "Nicht mehr ignorieren"
+
+msgid "Mute"
+msgstr "Stummschalten"
+
+msgid "Unmute"
+msgstr "Stummschaltung aufheben"
+
+msgid "Copy link"
+msgstr "Link kopieren"
+
+msgid "Copy ID"
+msgstr "ID kopieren"
+
+msgid "Mention"
+msgstr "Erwähnen"
+
+msgid "Change nickname"
+msgstr "Spitznamen ändern"
+
+msgid "Remove timeout"
+msgstr "Timeout aufheben"
+
+msgid "Time out"
+msgstr "Timeout verhängen"
+
+msgid "Kick"
+msgstr "Kicken"
+
+msgid "Ban"
+msgstr "Bannen"
+
+msgid "Transfer Ownership"
+msgstr "Eigentumsrechte übertragen"
+
+msgid "Mute Soundboard"
+msgstr "Soundboard stummschalten"
+
+msgid "Deafen"
+msgstr "Ton und Mikrofon deaktivieren"
+
+msgid "Move to"
+msgstr "Verschieben nach"
+
+msgid "Server mute"
+msgstr "Serverweit stummschalten"
+
+msgid "Server deafen"
+msgstr "Serverweit taubschalten"
+
+msgid "Disconnect"
+msgstr "Trennen"
+
+msgid "Mute server"
+msgstr "Server stummschalten"
+
+msgid "Unmute server"
+msgstr "Server-Stummschaltung aufheben"
+
+msgid "Mute folder"
+msgstr "Ordner stummschalten"
+
+msgid "Unmute folder"
+msgstr "Ordner-Stummschaltung aufheben"
+
+msgid "Show all channels"
+msgstr "Alle Kanäle anzeigen"
+
+msgid "Hide muted channels"
+msgstr "Stummgeschaltete Kanäle ausblenden"
+
+msgid "Invite to channel"
+msgstr "In den Kanal einladen"
+
+msgid "Add to Favorites"
+msgstr "Zu Favoriten hinzufügen"
+
+msgid "Remove from Favorites"
+msgstr "Aus Favoriten entfernen"
+
+msgid "Pin channel to top"
+msgstr "Kanal oben anheften"
+
+msgid "Unpin channel"
+msgstr "Kanal loslösen"
+
+msgid "Add to channel list"
+msgstr "Zur Kanalliste hinzufügen"
+
+msgid "Remove from channel list"
+msgstr "Aus der Kanalliste entfernen"
+
+msgid "Unfollow channel category"
+msgstr "Kanalkategorie entfolgen"
+
+msgid "Create text channel"
+msgstr "Textkanal erstellen"
+
+msgid "Create category"
+msgstr "Kategorie erstellen"
+
+msgid "Edit channel"
+msgstr "Kanal bearbeiten"
+
+msgid "Duplicate channel"
+msgstr "Kanal duplizieren"
+
+msgid "Delete channel"
+msgstr "Kanal löschen"
+
+msgid "Leave server"
+msgstr "Server verlassen"
+
+msgid "Join thread"
+msgstr "Thread beitreten"
+
+msgid "Leave thread"
+msgstr "Thread verlassen"
+
+msgid "Edit server profile"
+msgstr "Serverprofil bearbeiten"
+
+msgid "Mark folder as read"
+msgstr "Ordner als gelesen markieren"
+
+msgid "Create channel"
+msgstr "Kanal erstellen"
+
+msgid "Create voice channel"
+msgstr "Sprachkanal erstellen"
+
+msgid "Edit category"
+msgstr "Kategorie bearbeiten"
+
+msgid "Delete category"
+msgstr "Kategorie löschen"
+
+msgid "Join call"
+msgstr "An Anruf teilnehmen"
+
+msgid "No upcoming events"
+msgstr "Keine bevorstehenden Events"
+
+msgid "Close all folders"
+msgstr "Alle Ordner schließen"
+
+msgid "Servers"
+msgstr "Server"
+
+msgid "Making a link..."
+msgstr "Link wird erstellt …"
+
+msgid "Copied"
+msgstr "Kopiert"
+
+msgid "Copy"
+msgstr "Kopieren"
+
+msgid "Done"
+msgstr "Fertig"
+
+msgid "Generate a new link"
+msgstr "Neuen Link erstellen"
+
+msgid "You've been invited to join a server"
+msgstr "Du wurdest auf einen Server eingeladen"
+
+msgid "Join a Server"
+msgstr "Server beitreten"
+
+msgid "Paste an invite link or code to join a server you were invited to."
+msgstr "Füge einen Einladungslink oder -code ein, um dem Server beizutreten."
+
+msgid "You joined. This server asks new members to fill in a form before they can talk, which Yapfast can't show yet. Finish it in Discord's web app."
+msgstr "Du bist beigetreten. Fülle in der Discord-Web-App das Formular für neue Mitglieder aus, um schreiben zu können. Yapfast kann es noch nicht anzeigen."
+
+msgid "Discord asks for a captcha first. Solve it in your browser."
+msgstr "Discord verlangt ein Captcha. Löse es im Browser."
+
+msgid "Joining..."
+msgstr "Beitritt läuft …"
+
+msgid "Looking up the invite..."
+msgstr "Einladung wird gesucht …"
+
+msgid "You're already in this server."
+msgstr "Du bist bereits auf diesem Server."
+
+msgid "Open in browser"
+msgstr "Im Browser öffnen"
+
+msgid "Open Server"
+msgstr "Server öffnen"
+
+msgid "Join in Browser"
+msgstr "Im Browser beitreten"
+
+msgid "Find Invite"
+msgstr "Einladung suchen"
+
+msgid "Close"
+msgstr "Schließen"
+
+msgid "Open the captcha again"
+msgstr "Captcha erneut öffnen"
+
+msgid "Text"
+msgstr "Text"
+
+msgid "Voice"
+msgstr "Sprache"
+
+msgid "CATEGORY NAME"
+msgstr "KATEGORIENAME"
+
+msgid "New Category"
+msgstr "Neue Kategorie"
+
+msgid "Leave without notifying other members"
+msgstr "Verlassen, ohne andere Mitglieder zu benachrichtigen"
+
+msgid "Sync permissions?"
+msgstr "Berechtigungen synchronisieren?"
+
+msgid "Keep Current Permissions"
+msgstr "Aktuelle Berechtigungen behalten"
+
+msgid "Sync Permissions"
+msgstr "Berechtigungen synchronisieren"
+
+msgid "ADD TO SERVER"
+msgstr "ZUM SERVER HINZUFÜGEN"
+
+msgid "Change Server Icon"
+msgstr "Serversymbol ändern"
+
+msgid "Remove Icon"
+msgstr "Symbol entfernen"
+
+msgid "Customize how your server appears in invite links and, if enabled, in Server Discovery and Announcement Channel messages."
+msgstr "Lege fest, wie dein Server in Einladungslinks und, sofern aktiviert, in der Serversuche und in Ankündigungen angezeigt wird."
+
+msgid "NAME"
+msgstr "NAME"
+
+msgid "ICON"
+msgstr "SYMBOL"
+
+msgid "Reading the picture..."
+msgstr "Bild wird gelesen …"
+
+msgid "We recommend an image of at least 512x512."
+msgstr "Wir empfehlen ein Bild mit mindestens 512 × 512 Pixeln."
+
+msgid "DESCRIPTION"
+msgstr "BESCHREIBUNG"
+
+msgid "Tell people what your server is about."
+msgstr "Beschreibe, worum es auf deinem Server geht."
+
+msgid "No Level"
+msgstr "Keine Stufe"
+
+msgid "Show Boost progress bar"
+msgstr "Boost-Fortschritt anzeigen"
+
+msgid "This progress bar will display in your channel list, attached to your server name (or server banner if you have one set)."
+msgstr "Der Fortschritt erscheint in der Kanalliste beim Servernamen oder beim Serverbanner, falls eines festgelegt ist."
+
+msgid "The recommended minimum size is 960x540 and recommended aspect ratio is 16:9."
+msgstr "Empfohlen sind mindestens 960 × 540 Pixel und ein Seitenverhältnis von 16:9."
+
+msgid "No image"
+msgstr "Kein Bild"
+
+msgid "Upload Background"
+msgstr "Hintergrund hochladen"
+
+msgid "Remove Background"
+msgstr "Hintergrund entfernen"
+
+msgid "No Emoji"
+msgstr "Keine Emojis"
+
+msgid "Get the party started by uploading an emoji"
+msgstr "Lade dein erstes Emoji hoch"
+
+msgid "Upload Emoji"
+msgstr "Emoji hochladen"
+
+msgid "Upload Sticker"
+msgstr "Sticker hochladen"
+
+msgid "FILE"
+msgstr "DATEI"
+
+msgid "Descriptions are optional but must be more than 1 character."
+msgstr "Eine Beschreibung ist optional und muss mehr als ein Zeichen enthalten."
+
+msgid "VERIFICATION LEVEL"
+msgstr "VERIFIZIERUNGSSTUFE"
+
+msgid "SENSITIVE CONTENT FILTERS"
+msgstr "FILTER FÜR SENSIBLE INHALTE"
+
+msgid "Server Ban List"
+msgstr "Server-Sperrliste"
+
+msgid "Ban Reason"
+msgstr "Grund für die Sperre"
+
+msgid "Server Members"
+msgstr "Servermitglieder"
+
+msgid "No members match these search results."
+msgstr "Keine Mitglieder entsprechen der Suche."
+
+msgid "Showing"
+msgstr "Angezeigt"
+
+msgid "Security Actions"
+msgstr "Sicherheitsmaßnahmen"
+
+msgid "ENTER SERVER NAME"
+msgstr "SERVERNAMEN EINGEBEN"
+
+msgid "You didn't enter the server name correctly"
+msgstr "Der Servername wurde falsch eingegeben"
+
+msgid "Deleting..."
+msgstr "Wird gelöscht …"
+
+msgid "VERIFICATION CODE"
+msgstr "BESTÄTIGUNGSCODE"
+
+msgid "Verification code sent."
+msgstr "Bestätigungscode gesendet."
+
+msgid "Transferring..."
+msgstr "Wird übertragen …"
+
+msgid "MEMBERS"
+msgstr "MITGLIEDER"
+
+msgid "No roles"
+msgstr "Keine Rollen"
+
+msgid "Default Permissions"
+msgstr "Standardberechtigungen"
+
+msgid "ROLE NAME"
+msgstr "ROLLENNAME"
+
+msgid "ROLE COLOR"
+msgstr "ROLLENFARBE"
+
+msgid "Unlocks at Level 2"
+msgstr "Ab Stufe 2 verfügbar"
+
+msgid "ROLE ICON"
+msgstr "ROLLENSYMBOL"
+
+msgid "No permissions found"
+msgstr "Keine Berechtigungen gefunden"
+
+msgid "No members were found."
+msgstr "Keine Mitglieder gefunden."
+
+msgid "Add members"
+msgstr "Mitglieder hinzufügen"
+
+msgid "Add reaction"
+msgstr "Reaktion hinzufügen"
+
+msgid "View Reactions"
+msgstr "Reaktionen anzeigen"
+
+msgid "Edit message"
+msgstr "Nachricht bearbeiten"
+
+msgid "Reply"
+msgstr "Antworten"
+
+msgid "Create Thread"
+msgstr "Thread erstellen"
+
+msgid "View Thread"
+msgstr "Thread anzeigen"
+
+msgid "Copy text"
+msgstr "Text kopieren"
+
+msgid "Copy selection"
+msgstr "Auswahl kopieren"
+
+msgid "End Poll Now"
+msgstr "Umfrage jetzt beenden"
+
+msgid "Unpin message"
+msgstr "Nachricht loslösen"
+
+msgid "Pin message"
+msgstr "Nachricht anheften"
+
+msgid "Mark Unread"
+msgstr "Als ungelesen markieren"
+
+msgid "Copy Message Link"
+msgstr "Nachrichtenlink kopieren"
+
+msgid "Delete message"
+msgstr "Nachricht löschen"
+
+msgid "Copy Message ID"
+msgstr "Nachrichten-ID kopieren"
+
+msgid "Copy Link"
+msgstr "Link kopieren"
+
+msgid "Open Link"
+msgstr "Link öffnen"
+
+msgid "Upload a File"
+msgstr "Datei hochladen"
+
+msgid "Create Poll"
+msgstr "Umfrage erstellen"
+
+msgid "In {name}"
+msgstr "In {name}"
+
+msgid "A copy of {name}, with its settings and permissions, in the same category."
+msgstr "Eine Kopie von {name} mit denselben Einstellungen und Berechtigungen in derselben Kategorie."
+
+msgid "Are you sure you want to delete {name}? This cannot be undone."
+msgstr "Möchtest du {name} wirklich löschen? Das lässt sich nicht rückgängig machen."
+
+msgid "CHANNEL TYPE"
+msgstr "KANALTYP"
+
+msgid "CHANNEL NAME"
+msgstr "KANALNAME"
+
+msgid "Animated Emoji"
+msgstr "Animierte Emojis"
+
+msgid "Use category default"
+msgstr "Kategorie-Standard verwenden"
+
+msgid "Use server default"
+msgstr "Serverstandard verwenden"
+
+msgid "Suppress @everyone and @here"
+msgstr "@everyone und @here unterdrücken"
+
+msgid "Suppress all role @mentions"
+msgstr "Alle Rollen-@Erwähnungen unterdrücken"
+
+msgid "All messages"
+msgstr "Alle Nachrichten"
+
+msgid "Only @mentions"
+msgstr "Nur @Erwähnungen"
+
+msgid "Nothing"
+msgstr "Nichts"
+
+msgid "For 15 minutes"
+msgstr "Für 15 Minuten"
+
+msgid "For 1 hour"
+msgstr "Für 1 Stunde"
+
+msgid "For 3 hours"
+msgstr "Für 3 Stunden"
+
+msgid "For 8 hours"
+msgstr "Für 8 Stunden"
+
+msgid "For 24 hours"
+msgstr "Für 24 Stunden"
+
+msgid "Until I turn it back on"
+msgstr "Bis ich es wieder einschalte"
+
+msgid "Mute category"
+msgstr "Kategorie stummschalten"
+
+msgid "Unmute category"
+msgstr "Kategorie-Stummschaltung aufheben"
+
+msgid "Mute channel"
+msgstr "Kanal stummschalten"
+
+msgid "Unmute channel"
+msgstr "Kanal-Stummschaltung aufheben"
+
+msgid "Invite friends to {server}"
+msgstr "Freunde auf {server} einladen"
+
+msgid "They'll land in {place}."
+msgstr "Sie gelangen zu {place}."
+
+msgid "Leave '{name}'"
+msgstr "„{name}“ verlassen"
+
+msgid "Are you sure you want to leave {name}? You won't be able to rejoin this group unless you are re-invited."
+msgstr "Möchtest du {name} wirklich verlassen? Du kannst der Gruppe nur mit einer neuen Einladung wieder beitreten."
+
+msgid "Are you sure you want to leave {name}? You won't be able to rejoin this server unless you are re-invited."
+msgstr "Möchtest du {name} wirklich verlassen? Du kannst dem Server nur mit einer neuen Einladung wieder beitreten."
+
+msgid "No System Messages"
+msgstr "Keine Systemnachrichten"
+
+msgid "No Inactive Channel"
+msgstr "Kein Inaktivitätskanal"
+
+msgid "SYSTEM MESSAGES CHANNEL"
+msgstr "SYSTEMNACHRICHTENKANAL"
+
+msgid "This is the channel we send system event messages to. These can be turned off at any time."
+msgstr "Systemnachrichten werden in diesen Kanal gesendet. Du kannst sie jederzeit deaktivieren."
+
+msgid "DEFAULT NOTIFICATION SETTINGS"
+msgstr "STANDARDEINSTELLUNGEN FÜR BENACHRICHTIGUNGEN"
+
+msgid "This will determine whether members who have not explicitly set their notification settings receive a notification for every message sent in this server or not."
+msgstr "Diese Einstellung legt fest, welche Benachrichtigungen Mitglieder mit Standardeinstellungen erhalten."
+
+msgid "All Messages"
+msgstr "Alle Nachrichten"
+
+msgid "INACTIVE CHANNEL"
+msgstr "INAKTIVITÄTSKANAL"
+
+msgid "Automatically move members to this channel and mute them when they have been idle for longer than the inactive timeout. This does not affect browsers."
+msgstr "Nach Ablauf der Inaktivitätszeit werden Mitglieder in diesen Kanal verschoben und stummgeschaltet. Browser-Clients sind davon ausgenommen."
+
+msgid "Servers who reach Boosting Level 1 and above get unique invite embeds with custom Server Invite Backgrounds. The recommended minimum size is 1920x1080 and recommended aspect ratio is 16:9."
+msgstr "Ab Boost-Stufe 1 können Server eigene Einladungshintergründe verwenden. Empfohlen sind mindestens 1920 × 1080 Pixel und ein Seitenverhältnis von 16:9."
+
+msgid "Level {tier}"
+msgstr "Stufe {tier}"
+
+msgid "Unlocks at Level {level}"
+msgstr "Ab Stufe {level} verfügbar"
+
+msgid "1 minute"
+msgstr "1 Minute"
+
+msgid "5 minutes"
+msgstr "5 Minuten"
+
+msgid "15 minutes"
+msgstr "15 Minuten"
+
+msgid "30 minutes"
+msgstr "30 Minuten"
+
+msgid "1 hour"
+msgstr "1 Stunde"
+
+msgid "Send a random welcome message when someone joins this server."
+msgstr "Beim Beitritt eine zufällige Willkommensnachricht senden."
+
+msgid "Prompt members to reply to welcome messages with a sticker."
+msgstr "Mitgliedern vorschlagen, mit einem Sticker auf Willkommensnachrichten zu antworten."
+
+msgid "Send a message when someone boosts this server."
+msgstr "Eine Nachricht senden, wenn jemand den Server boostet."
+
+msgid "Send helpful tips for server setup."
+msgstr "Tipps zur Servereinrichtung senden."

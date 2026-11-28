@@ -64,7 +64,9 @@ impl<'a> View<'a> {
             container(
                 row![
                     self.cx.look.glyph(Icon::ChevronLeft, 16, theme.secondary),
-                    text("Back").size(14).font(SEMIBOLD)
+                    text(crate::i18n::tr!(self.cx.i18n, "Back"))
+                        .size(14)
+                        .font(SEMIBOLD)
                 ]
                 .spacing(4)
                 .align_y(Alignment::Center),
@@ -202,9 +204,9 @@ impl<'a> View<'a> {
         let name = form::entry(theme, NAME, "", &draft.name)
             .on_input_maybe(editable.then_some(|text| input(RoleInput::Name(text))));
         column![
-            form::group([form::heading(theme, "ROLE NAME"), name.into()]),
+            form::group([form::heading(theme, crate::i18n::tr!(self.cx.i18n, "ROLE NAME")), name.into()]),
             form::group([
-                form::heading(theme, "ROLE COLOR"),
+                form::heading(theme, crate::i18n::tr!(self.cx.i18n, "ROLE COLOR")),
                 form::note(
                     theme,
                     "Members use the color of the highest role they have on the roles list."
@@ -365,10 +367,16 @@ impl<'a> View<'a> {
         let sunken = theme.sunken;
         let mut side = column![].spacing(form::TIGHT);
         if !unlocked {
-            side = side.push(form::note(theme, "Unlocks at Level 2"));
+            side = side.push(form::note(
+                theme,
+                crate::i18n::tr!(self.cx.i18n, "Unlocks at Level 2"),
+            ));
         }
         if reading {
-            side = side.push(form::note(theme, "Reading the picture..."));
+            side = side.push(form::note(
+                theme,
+                crate::i18n::tr!(self.cx.i18n, "Reading the picture..."),
+            ));
         }
         let mut buttons = vec![
             action(
@@ -415,7 +423,7 @@ impl<'a> View<'a> {
             .into(),
         ]));
         form::group([
-            form::heading(theme, "ROLE ICON"),
+            form::heading(theme, crate::i18n::tr!(self.cx.i18n, "ROLE ICON")),
             form::note(
                 theme,
                 "Upload an image under 256 KB or use an emoji. We recommend at least 64x64 pixels. Members will see the icon for their highest role if they have multiple roles.",
@@ -537,7 +545,10 @@ impl<'a> View<'a> {
                 .height(Length::Fill)
                 .into()
         } else {
-            form::note(theme, "No permissions found")
+            form::note(
+                theme,
+                crate::i18n::tr!(self.cx.i18n, "No permissions found"),
+            )
         };
         column![
             row![

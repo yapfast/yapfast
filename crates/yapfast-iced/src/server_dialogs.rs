@@ -356,14 +356,18 @@ impl<'a> View<'a> {
         let link = invite.link.as_deref().unwrap_or_default();
         let copied = !link.is_empty() && choice.copied.as_deref() == Some(link);
         let shown = if invite.making {
-            text("Making a link...").color(theme.muted)
+            text(crate::i18n::tr!(self.cx.i18n, "Making a link...")).color(theme.muted)
         } else {
             text(link).color(theme.text)
         };
         let sunken = theme.sunken;
         let copy = action(
             theme,
-            if copied { "Copied" } else { "Copy" },
+            if copied {
+                crate::i18n::tr!(self.cx.i18n, "Copied")
+            } else {
+                crate::i18n::tr!(self.cx.i18n, "Copy")
+            },
             if copied { Kind::Plain } else { Kind::Primary },
             (!link.is_empty()).then(|| message(Event::Copy(link.to_owned()))),
         );
@@ -387,10 +391,15 @@ impl<'a> View<'a> {
         .style(move |_| rounded(sunken, 8));
         let mut body = vec![
             self.cx.look.dialog_head(
-                format!("Invite friends to {}", invite.server),
+                crate::i18n::tr!(self.cx.i18n, "Invite friends to {server}")
+                    .replace("{server}", &invite.server),
                 message(Event::CloseInvite),
             ),
-            form::note(theme, format!("They'll land in {place}.")),
+            form::note(
+                theme,
+                crate::i18n::tr!(self.cx.i18n, "They'll land in {place}.")
+                    .replace("{place}", &place),
+            ),
             form::heading(theme, "INVITE LINK"),
             link_box.into(),
         ];
@@ -419,14 +428,14 @@ impl<'a> View<'a> {
             buttons([
                 action(
                     theme,
-                    "Done",
+                    crate::i18n::tr!(self.cx.i18n, "Done"),
                     Kind::Ghost,
                     Some(message(Event::CloseInvite)),
                 )
                 .into(),
                 action(
                     theme,
-                    "Generate a new link",
+                    crate::i18n::tr!(self.cx.i18n, "Generate a new link"),
                     Kind::Plain,
                     (!invite.making).then(|| message(Event::Remake)),
                 )
@@ -451,9 +460,9 @@ impl<'a> View<'a> {
         let preview = join.preview.as_ref();
         let busy = join.resolving || join.joining;
         let title = if join.from_link {
-            "You've been invited to join a server"
+            crate::i18n::tr!(self.cx.i18n, "You've been invited to join a server")
         } else {
-            "Join a Server"
+            crate::i18n::tr!(self.cx.i18n, "Join a Server")
         };
         let mut body = vec![
             self.cx
@@ -464,7 +473,10 @@ impl<'a> View<'a> {
             body.extend([
                 form::note(
                     theme,
-                    "Paste an invite link or code to join a server you were invited to.",
+                    crate::i18n::tr!(
+                        self.cx.i18n,
+                        "Paste an invite link or code to join a server you were invited to."
+                    ),
                 ),
                 form::heading(theme, "INVITE LINK"),
                 form::field(theme, JOIN_FIELD, "https://discord.gg/yapfast", typed)
@@ -494,15 +506,21 @@ impl<'a> View<'a> {
             );
         }
         let status = if join.form.is_some() {
-            "You joined. This server asks new members to fill in a form before they can talk, which Yapfast can't show yet. Finish it in Discord's web app."
+            crate::i18n::tr!(
+                self.cx.i18n,
+                "You joined. This server asks new members to fill in a form before they can talk, which Yapfast can't show yet. Finish it in Discord's web app."
+            )
         } else if join.captcha.is_some() {
-            "Discord asks for a captcha first. Solve it in your browser."
+            crate::i18n::tr!(
+                self.cx.i18n,
+                "Discord asks for a captcha first. Solve it in your browser."
+            )
         } else if join.joining {
-            "Joining..."
+            crate::i18n::tr!(self.cx.i18n, "Joining...")
         } else if join.resolving {
-            "Looking up the invite..."
+            crate::i18n::tr!(self.cx.i18n, "Looking up the invite...")
         } else if join.member {
-            "You're already in this server."
+            crate::i18n::tr!(self.cx.i18n, "You're already in this server.")
         } else {
             ""
         };
@@ -513,23 +531,23 @@ impl<'a> View<'a> {
             body.push(form::note_in(error.as_str(), theme.danger));
         }
         let confirm = if join.form.is_some() {
-            "Open in browser"
+            crate::i18n::tr!(self.cx.i18n, "Open in browser")
         } else if join.member {
-            "Open Server"
+            crate::i18n::tr!(self.cx.i18n, "Open Server")
         } else if preview.is_some() {
-            "Join in Browser"
+            crate::i18n::tr!(self.cx.i18n, "Join in Browser")
         } else if join.from_link {
             ""
         } else {
-            "Find Invite"
+            crate::i18n::tr!(self.cx.i18n, "Find Invite")
         };
         let mut row_ = vec![
             action(
                 theme,
                 if join.form.is_some() || confirm.is_empty() {
-                    "Close"
+                    crate::i18n::tr!(self.cx.i18n, "Close")
                 } else {
-                    "Cancel"
+                    crate::i18n::tr!(self.cx.i18n, "Cancel")
                 },
                 Kind::Ghost,
                 Some(message(Event::CloseJoin)),
@@ -540,7 +558,7 @@ impl<'a> View<'a> {
             row_.push(
                 action(
                     theme,
-                    "Open the captcha again",
+                    crate::i18n::tr!(self.cx.i18n, "Open the captcha again"),
                     Kind::Plain,
                     Some(message(Event::OpenCaptcha)),
                 )
@@ -574,7 +592,16 @@ impl<'a> View<'a> {
         let draft = self.s.channel.as_ref()?;
         let theme = self.cx.look.theme;
         let category = asked.kind == ChannelKind::Category;
-        let thing = if category { "category" } else { "channel" };
+        let create = if category {
+            crate::i18n::tr!(self.cx.i18n, "Create category")
+        } else {
+            crate::i18n::tr!(self.cx.i18n, "Create channel")
+        };
+        let delete = if category {
+            crate::i18n::tr!(self.cx.i18n, "Delete category")
+        } else {
+            crate::i18n::tr!(self.cx.i18n, "Delete channel")
+        };
         let named = |name: &str| {
             if asked.kind == ChannelKind::Text {
                 format!("#{name}")
@@ -584,29 +611,32 @@ impl<'a> View<'a> {
         };
         let (title, detail, confirm) = match &asked.ask {
             ChannelAsk::Create { .. } => (
-                format!("Create {thing}"),
+                create.to_owned(),
                 if asked.name.is_empty() {
-                    format!("In {}", asked.server_name)
+                    crate::i18n::tr!(self.cx.i18n, "In {name}")
+                        .replace("{name}", &asked.server_name)
                 } else {
-                    format!("In {}", asked.name)
+                    crate::i18n::tr!(self.cx.i18n, "In {name}").replace("{name}", &asked.name)
                 },
-                format!("Create {thing}"),
+                create.to_owned(),
             ),
             ChannelAsk::Duplicate(_) => (
-                "Duplicate channel".to_owned(),
-                format!(
-                    "A copy of {}, with its settings and permissions, in the same category.",
-                    named(&asked.name)
-                ),
-                "Create channel".to_owned(),
+                crate::i18n::tr!(self.cx.i18n, "Duplicate channel").to_owned(),
+                crate::i18n::tr!(
+                    self.cx.i18n,
+                    "A copy of {name}, with its settings and permissions, in the same category."
+                )
+                .replace("{name}", &named(&asked.name)),
+                crate::i18n::tr!(self.cx.i18n, "Create channel").to_owned(),
             ),
             ChannelAsk::Delete(_) => (
-                format!("Delete {thing}"),
-                format!(
-                    "Are you sure you want to delete {}? This cannot be undone.",
-                    named(&asked.name)
-                ),
-                format!("Delete {thing}"),
+                delete.to_owned(),
+                crate::i18n::tr!(
+                    self.cx.i18n,
+                    "Are you sure you want to delete {name}? This cannot be undone."
+                )
+                .replace("{name}", &named(&asked.name)),
+                delete.to_owned(),
             ),
         };
         let deleting = matches!(asked.ask, ChannelAsk::Delete(_));
@@ -619,10 +649,13 @@ impl<'a> View<'a> {
         ];
         if matches!(asked.ask, ChannelAsk::Create { .. }) && !category {
             body.extend([
-                form::heading(theme, "CHANNEL TYPE"),
+                form::heading(theme, crate::i18n::tr!(self.cx.i18n, "CHANNEL TYPE")),
                 controls::choices(
                     theme,
-                    &["Text", "Voice"],
+                    &[
+                        crate::i18n::tr!(self.cx.i18n, "Text"),
+                        crate::i18n::tr!(self.cx.i18n, "Voice"),
+                    ],
                     usize::from(draft.voice),
                     |index| message(Event::ChannelVoice(index == 1)),
                 ),
@@ -630,9 +663,15 @@ impl<'a> View<'a> {
         }
         if !deleting {
             let (field, placeholder) = if category {
-                ("CATEGORY NAME", "New Category")
+                (
+                    crate::i18n::tr!(self.cx.i18n, "CATEGORY NAME"),
+                    crate::i18n::tr!(self.cx.i18n, "New Category"),
+                )
             } else {
-                ("CHANNEL NAME", "new-channel")
+                (
+                    crate::i18n::tr!(self.cx.i18n, "CHANNEL NAME"),
+                    "new-channel",
+                )
             };
             body.extend([
                 form::heading(theme, field),
@@ -649,7 +688,7 @@ impl<'a> View<'a> {
         body.push(buttons([
             action(
                 theme,
-                "Cancel",
+                crate::i18n::tr!(self.cx.i18n, "Cancel"),
                 Kind::Ghost,
                 Some(message(Event::CloseChannel)),
             )
@@ -679,20 +718,24 @@ impl<'a> View<'a> {
     fn leave_view(self) -> Option<Element<'a, Message>> {
         let leave = self.cx.state.leave.as_ref()?;
         let theme = self.cx.look.theme;
-        let what = if leave.group { "group" } else { "server" };
+        let detail = if leave.group {
+            crate::i18n::tr!(
+                self.cx.i18n,
+                "Are you sure you want to leave {name}? You won't be able to rejoin this group unless you are re-invited."
+            )
+        } else {
+            crate::i18n::tr!(
+                self.cx.i18n,
+                "Are you sure you want to leave {name}? You won't be able to rejoin this server unless you are re-invited."
+            )
+        };
         let ready = !leave.leaving;
         let mut body = vec![
             self.cx.look.dialog_head(
-                format!("Leave '{}'", leave.name),
+                crate::i18n::tr!(self.cx.i18n, "Leave '{name}'").replace("{name}", &leave.name),
                 message(Event::CloseLeave),
             ),
-            form::note(
-                theme,
-                format!(
-                    "Are you sure you want to leave {}? You won't be able to rejoin this {what} unless you are re-invited.",
-                    leave.name
-                ),
-            ),
+            form::note(theme, detail.replace("{name}", &leave.name)),
         ];
         if leave.group {
             body.push(
@@ -704,10 +747,13 @@ impl<'a> View<'a> {
                                 ..iced::Padding::ZERO
                             }
                         ),
-                        text("Leave without notifying other members")
-                            .size(14)
-                            .color(theme.secondary)
-                            .width(Length::Fill)
+                        text(crate::i18n::tr!(
+                            self.cx.i18n,
+                            "Leave without notifying other members"
+                        ))
+                        .size(14)
+                        .color(theme.secondary)
+                        .width(Length::Fill)
                     ]
                     .spacing(10),
                 )
@@ -724,14 +770,18 @@ impl<'a> View<'a> {
         body.push(buttons([
             action(
                 theme,
-                "Cancel",
+                crate::i18n::tr!(self.cx.i18n, "Cancel"),
                 Kind::Ghost,
                 Some(message(Event::CloseLeave)),
             )
             .into(),
             action(
                 theme,
-                format!("Leave {what}"),
+                if leave.group {
+                    crate::i18n::tr!(self.cx.i18n, "Leave group")
+                } else {
+                    crate::i18n::tr!(self.cx.i18n, "Leave server")
+                },
                 Kind::Danger,
                 ready.then(|| message(Event::Leave)),
             )
@@ -756,7 +806,7 @@ impl<'a> View<'a> {
         let theme = self.cx.look.theme;
         let body = vec![
             self.cx.look.dialog_head(
-                "Sync permissions?".to_owned(),
+                crate::i18n::tr!(self.cx.i18n, "Sync permissions?").to_owned(),
                 message(Event::MoveSync(None)),
             ),
             form::note(
@@ -769,14 +819,14 @@ impl<'a> View<'a> {
             buttons([
                 action(
                     theme,
-                    "Keep Current Permissions",
+                    crate::i18n::tr!(self.cx.i18n, "Keep Current Permissions"),
                     Kind::Ghost,
                     Some(message(Event::MoveSync(Some(false)))),
                 )
                 .into(),
                 action(
                     theme,
-                    "Sync Permissions",
+                    crate::i18n::tr!(self.cx.i18n, "Sync Permissions"),
                     Kind::Primary,
                     Some(message(Event::MoveSync(Some(true)))),
                 )

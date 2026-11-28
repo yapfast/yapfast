@@ -121,8 +121,9 @@ recording. Each change is kept at once in
   available, Yapfast uses English. An explicit choice is saved as a
   language tag in `layout.json`. Translated text updates immediately,
   including Settings navigation, labels and hints in the conversation
-  sidebar and header, the voice dock, message history controls and the
-  friend requests screen. Settings search
+  sidebar and header, the voice dock, message history controls, the
+  friend requests screen, context menus and server settings navigation.
+  Settings search
   matches translated section names. Text outside the catalogs uses its
   English source string.
 

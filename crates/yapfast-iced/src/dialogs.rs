@@ -73,10 +73,16 @@ pub fn delete_view(focus: bool, cx: Ctx<'_>) -> Option<Element<'_, Message>> {
     let theme = cx.look.theme;
     let line = theme.line;
     let mut body = column![
-        text("Delete Message").size(20).font(BOLD).color(theme.text),
-        text("Are you sure you want to delete this message?")
-            .size(15)
-            .color(theme.secondary),
+        text(crate::i18n::tr!(cx.i18n, "Delete Message"))
+            .size(20)
+            .font(BOLD)
+            .color(theme.text),
+        text(crate::i18n::tr!(
+            cx.i18n,
+            "Are you sure you want to delete this message?"
+        ))
+        .size(15)
+        .color(theme.secondary),
     ]
     .spacing(12)
     .padding(16);
@@ -106,14 +112,14 @@ pub fn delete_view(focus: bool, cx: Ctx<'_>) -> Option<Element<'_, Message>> {
             Space::new().width(Length::Fill),
             action(
                 theme,
-                "Cancel",
+                crate::i18n::tr!(cx.i18n, "Cancel"),
                 Kind::Ghost,
                 Some(Message::Dialog(Event::CancelDelete))
             )
             .ring(!focus),
             action(
                 theme,
-                "Delete",
+                crate::i18n::tr!(cx.i18n, "Delete"),
                 Kind::Danger,
                 Some(Message::Dialog(Event::ConfirmDelete))
             )
@@ -137,11 +143,13 @@ pub fn leaving_view<'a>(link: Option<&'a str>, cx: Ctx<'a>) -> Option<Element<'a
     let theme = cx.look.theme;
     let sunken = theme.sunken;
     let body = column![
-        text("Leaving Yapfast")
+        text(crate::i18n::tr!(cx.i18n, "Leaving Yapfast"))
             .size(18)
             .font(BOLD)
             .color(theme.text),
-        text("This link goes to").size(15).color(theme.secondary),
+        text(crate::i18n::tr!(cx.i18n, "This link goes to"))
+            .size(15)
+            .color(theme.secondary),
         text(yapfast_core::links::host(link))
             .size(17)
             .font(BOLD)
@@ -159,13 +167,13 @@ pub fn leaving_view<'a>(link: Option<&'a str>, cx: Ctx<'a>) -> Option<Element<'a
             Space::new().width(Length::Fill),
             action(
                 theme,
-                "Go back",
+                crate::i18n::tr!(cx.i18n, "Go back"),
                 Kind::Ghost,
                 Some(Message::Dialog(Event::Leave(false)))
             ),
             action(
                 theme,
-                "Visit site",
+                crate::i18n::tr!(cx.i18n, "Visit site"),
                 Kind::Primary,
                 Some(Message::Dialog(Event::Leave(true)))
             ),
