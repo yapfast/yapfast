@@ -304,5 +304,10 @@ change spans several places):
     pipeline and the clip mask: a scrolled frame cost 9 ms, now 1.3 ms.
     On whole pixels every pixel is as before. Tests in `blit.rs`.
 
+44. `engine.rs` `draw_quad`: when deciding if a path can skip the clip
+    mask, check the clip rounded to the same pixel edges as the mask and
+    damage clear. At fractional scale a call's speaking ring could paint
+    pixels outside those edges and leave a thin line when removed.
+
 Unmarked lines are iced's. Updating iced means taking the new
 iced_tiny_skia and carrying each marked change over.
