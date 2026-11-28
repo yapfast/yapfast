@@ -390,6 +390,11 @@ pub enum Event {
     /// An app's slash command a row names, by its name: written in the
     /// composer for its list to find.
     UseCommand(String),
+    /// Jump to a message in `room`, such as a forwarded message's original.
+    JumpInRoom {
+        room: String,
+        item: String,
+    },
 }
 
 /// What each of the timeline's events does.
@@ -517,6 +522,10 @@ pub fn update(app: &mut App, event: Event) -> Task<Message> {
                 app.sync(),
                 iced::widget::operation::focus(crate::composer::COMPOSER),
             ])
+        }
+        Event::JumpInRoom { room, item } => {
+            app.client.dispatch(Action::JumpInRoom { room, item });
+            app.sync()
         }
     }
 }

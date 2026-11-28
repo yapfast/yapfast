@@ -58,7 +58,8 @@
 // latest speaking value, and whether it ever said it was speaking. POST /_control/bob-speak makes Bob say two
 // seconds of a tone in every call Alice is in. POST /_control/voice-drop closes her call's voice
 // connections with 4015, as a voice server restarting does, for them to
-// resume with op 7. POST /_control/voice-discovery?off makes the voice
+// resume with op 7. Add ?failures=N to reject the first N call reconnect
+// handshakes while the voice server restarts. POST /_control/voice-discovery?off makes the voice
 // server ignore UDP address discovery, so that joining fails as a blocked
 // network makes it, and without ?off answer again. Each call connection gets an RTCP receiver report about
 // its audio every 50 packets, as Discord's voice server sends; POST
@@ -360,6 +361,8 @@
 // the clip. They go to #general, or with ?channel=ID to that channel or thread.
 // POST /_control/voice-message makes Bob send a voice message, the two
 // seconds of testing/fixtures/voice-tone.ogg, to #general or ?channel=ID.
+// POST /_control/sounds makes Bob attach sound files, which play in their
+// cards: an MP3, an Ogg and a three-second WAV, to #general or ?channel=ID.
 // POST /_control/bob-away makes Bob idle with a custom status,
 // /_control/bob-mobile puts him online on his phone alone, and
 // /_control/bob-offline takes him offline.
@@ -1366,6 +1369,9 @@ function contentType(filename: string): string {
     mp4: "video/mp4",
     webm: "video/webm",
     mov: "video/quicktime",
+    mp3: "audio/mpeg",
+    ogg: "audio/ogg",
+    wav: "audio/wav",
     txt: "text/plain; charset=utf-8",
   };
   return types[extension] ?? "application/octet-stream";
@@ -2537,7 +2543,7 @@ function guildChannels(): GuildChannel[] {
     channel(CATEGORY, "Channels", 4, 0, null),
     channel(GENERAL, "general", 0, 0, CATEGORY),
     channel(FORUM, "ideas", 15, 1, CATEGORY),
-    channel(LOUNGE, "Lounge", 2, 1, CATEGORY),
+    { ...channel(LOUNGE, "Lounge", 2, 1, CATEGORY), user_limit: 4 },
     channel(CREATE_ROOM, "Create Room", 2, 2, CATEGORY),
     ...(roomMade ? [channel(ALICES_ROOM, "Alice's room", 2, 3, CATEGORY)] : []),
     ...(leadsRoomMade ? [leadsRoom()] : []),
@@ -3939,6 +3945,7 @@ type CallAudio = {
 };
 /** What /_control/voice-link set: a heartbeat ACK's delay, and the audio lost. */
 const voiceLink = { ping: 0, loss: 0 };
+const voiceRecovery = { failures: 0, holdResume: false, rateLimit: false, resumes: 0, limited: 0 };
 /** Address discovery asks the voice server passes over, as if lost on the
  *  way: POST /_control/discovery-drop?count=N sets how many more; GET
  *  reports those lost and answered so far. */
@@ -5030,6 +5037,16 @@ function voiceMessage(ws: Socket, text: string) {
   }
   const d = payload.d ?? {};
   const reply = (op: number, data: unknown) => ws.send(JSON.stringify({ op, d: data }));
+  if (payload.op === 7) {
+    voiceRecovery.resumes++;
+    if (voiceRecovery.holdResume) return;
+  }
+  if (voiceRecovery.failures > 0 && (payload.op === 7 ||
+      (payload.op === 0 && !String(d.token).startsWith("stream-token-")))) {
+    voiceRecovery.failures--;
+    ws.close(4015, "Voice server crashed.");
+    return;
+  }
   switch (payload.op) {
     case 0: // Identify
       if (d.token !== VOICE_TOKEN && d.token !== MOVED_VOICE_TOKEN && !String(d.token).startsWith("stream-token-") && !String(d.token).startsWith("call-token-")) {
@@ -8353,6 +8370,44 @@ function postVoiceMessage(origin: string, channel: string) {
   dispatch("MESSAGE_CREATE", dispatched(post(channel, users.bob, "", now, { files: [recording], flags: 1 << 13 }), origin));
 }
 
+/** Three seconds of a soft 440 Hz tone, as a 16-bit mono WAV at 44.1 kHz. */
+function toneWav(): Uint8Array {
+  const rate = 44_100;
+  const frames = rate * 3;
+  const wav = Buffer.alloc(44 + frames * 2);
+  wav.write("RIFF", 0);
+  wav.writeUInt32LE(36 + frames * 2, 4);
+  wav.write("WAVEfmt ", 8);
+  wav.writeUInt32LE(16, 16);
+  wav.writeUInt16LE(1, 20);
+  wav.writeUInt16LE(1, 22);
+  wav.writeUInt32LE(rate, 24);
+  wav.writeUInt32LE(rate * 2, 28);
+  wav.writeUInt16LE(2, 32);
+  wav.writeUInt16LE(16, 34);
+  wav.write("data", 36);
+  wav.writeUInt32LE(frames * 2, 40);
+  for (let at = 0; at < frames; at++) {
+    // Swells in and fades out over a tenth of a second.
+    const edge = Math.min(1, at / 4410, (frames - at) / 4410);
+    wav.writeInt16LE(Math.round(Math.sin((2 * Math.PI * 440 * at) / rate) * 3000 * edge), 44 + at * 2);
+  }
+  return new Uint8Array(wav);
+}
+
+function postSounds(origin: string, channel: string) {
+  const now = Date.now();
+  const sounds: [string, Uint8Array][] = [
+    ["chime.mp3", new Uint8Array(readFileSync(new URL("soundboard-tone.mp3", fixtures)))],
+    ["tone.ogg", new Uint8Array(readFileSync(new URL("voice-tone.ogg", fixtures)))],
+    ["tone.wav", toneWav()],
+  ];
+  const attached = sounds.map(([filename, data], index) =>
+    addFile({ id: snowflake(now, 1 + index), channel, filename, contentType: contentType(filename), data }),
+  );
+  dispatch("MESSAGE_CREATE", dispatched(post(channel, users.bob, "Some sounds", now, { files: attached }), origin));
+}
+
 function postVideo(origin: string, channel: string) {
   const now = Date.now();
   const video = addFile({
@@ -9045,6 +9100,10 @@ const server = Bun.serve<SocketData>({
       return new Response("upgrade failed", { status: 400 });
     }
     if (path === "/voice/" && req.headers.get("upgrade")?.toLowerCase() === "websocket") {
+      if (voiceRecovery.rateLimit && voiceRecovery.resumes > 0) {
+        voiceRecovery.limited++;
+        return new Response("rate limited", { status: 429, headers: { "Retry-After": "60" } });
+      }
       if (server.upgrade(req, { data: { sequence: 0, identified: false, session: "", origin, voice: true } })) {
         return undefined;
       }
@@ -9315,8 +9374,18 @@ const server = Bun.serve<SocketData>({
     }
     if (req.method === "POST" && path === "/_control/voice-drop") {
       const calls = [...voiceSockets].filter((ws) => !ws.data.stream && ws.data.callKey);
-      for (const ws of calls) ws.close(4015, "Voice server crashed.");
+      voiceRecovery.failures = Number(url.searchParams.get("failures") ?? 0);
+      voiceRecovery.holdResume = url.searchParams.has("hold-resume");
+      voiceRecovery.rateLimit = url.searchParams.has("rate-limit-reconnect");
+      voiceRecovery.resumes = 0;
+      voiceRecovery.limited = 0;
+      const code = Number(url.searchParams.get("code") ?? 4015);
+      const reason = code === 4015 ? "Voice server crashed." : "Call terminated.";
+      for (const ws of calls) ws.close(code, reason);
       return new Response(`dropped ${calls.length} call connection(s)\n`, { status: calls.length ? 200 : 409 });
+    }
+    if (req.method === "GET" && path === "/_control/voice-drop") {
+      return Response.json({ resumes: voiceRecovery.resumes, limited: voiceRecovery.limited });
     }
     if (req.method === "POST" && path === "/_control/voice-move") {
       // Discord moves Alice's call in the server to another voice server: it
@@ -9605,6 +9674,10 @@ const server = Bun.serve<SocketData>({
     if (req.method === "POST" && path === "/_control/clip") {
       postVideo(origin, url.searchParams.get("channel") ?? GENERAL);
       return new Response("video posted\n");
+    }
+    if (req.method === "POST" && path === "/_control/sounds") {
+      postSounds(origin, url.searchParams.get("channel") ?? GENERAL);
+      return new Response("sounds posted\n");
     }
     if (req.method === "POST" && path === "/_control/voice-message") {
       postVoiceMessage(origin, url.searchParams.get("channel") ?? GENERAL);

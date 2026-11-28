@@ -569,6 +569,7 @@ fn a_link_preview_and_a_file_show_in_their_cards() {
             placement: yapfast_core::chat::Placement::Message,
             spoiler: false,
             video: false,
+            audio: false,
             gif: None,
             url: None,
             description: None,
@@ -1099,6 +1100,63 @@ fn a_right_click_on_an_authors_avatar_or_name_opens_their_menu() {
     // The body still opens the message's.
     interact(&mut app, |ui| right_click(ui, text));
     assert_eq!(persons(&app), (false, true));
+}
+
+#[test]
+fn a_timed_out_author_has_a_clock_before_their_name_while_it_lasts() {
+    use iced::Point;
+    use iced_test::selector::Candidate;
+    let (mut app, _folder) = preview();
+    let text = "Yep. I should be free after dinner.";
+    // How far right of the body Riley's name starts on the line above it.
+    let indent = |app: &mut crate::app::App| {
+        let mut indent = None;
+        interact(app, |ui| {
+            let body = ui.find(text).expect("the message");
+            let body = body.visible_bounds().expect("in view");
+            let _ = ui.find(|candidate: Candidate<'_>| {
+                if let Candidate::Text {
+                    content: "Riley",
+                    visible_bounds: Some(bounds),
+                    ..
+                } = candidate
+                    && bounds.y < body.y
+                    && body.y - bounds.y < 40.0
+                    && bounds.x >= body.x - 4.0
+                {
+                    indent = Some(bounds.x - body.x);
+                }
+                None::<()>
+            });
+        });
+        indent.expect("Riley's name above the message")
+    };
+    assert!(indent(&mut app).abs() < 4.0, "no clock: the name leads");
+    // The core sets it only for an account that may time Riley out.
+    let now = super::now_ms();
+    alter(&mut app, text, |message| {
+        message.author_timed_out_until = Some(now + 10 * 60 * 1000);
+    });
+    let clocked = indent(&mut app);
+    assert!(clocked > 14.0, "the clock before the name, {clocked}");
+    // Its tooltip says only moderators see it.
+    interact(&mut app, |ui| {
+        let body = ui.find(text).expect("the message");
+        let body = body.visible_bounds().expect("in view");
+        // The author line's middle is its gap and half its height above
+        // the body; the 32 px tooltip ends 6 px above the clock.
+        let clock = Point::new(body.x + 7.0, body.y - 12.0);
+        let over = iced::Rectangle::new(
+            Point::new(body.x + 20.0, body.y - 55.0),
+            iced::Size::new(200.0, 18.0),
+        );
+        assert!(super::hover_draws(ui, clock, over), "the clock's tooltip");
+    });
+    // An ended timeout shows no clock, whatever the core last said.
+    alter(&mut app, text, |message| {
+        message.author_timed_out_until = Some(now - 1000);
+    });
+    assert!(indent(&mut app).abs() < 4.0, "ended: the name leads again");
 }
 
 #[test]

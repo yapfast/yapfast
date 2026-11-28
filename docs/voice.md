@@ -236,7 +236,7 @@ and left it showing another device once the list changed. Yapfast calls'
 own audio goes through WebRTC's device module, which these don't cover.
 
 Right-clicking someone in a call, in the sidebar or on their tile, sets how
-loud they sound from 0% to 200%, and their stream's sound too while they're
+loud they sound from 0% to 400%, and their stream's sound too while they're
 live. A drag snaps to 100% near it. The sliders follow Discord's, read from its
 web client: below 100% the gain is `(slider / 100)^2.8`, so 50% is about −17 dB
 and 40% a gain of 0.077; above it each 100% adds 6 dB (`volume::from_slider`).
@@ -251,16 +251,17 @@ track's volume through WebRTC's `SetVolume` by track id.
 
 Settings › Voice & video has a volume under each device, as Discord's
 does: "Microphone volume" sets how loud every call sends you, and "Speaker
-volume" how loud every call plays, both from 0% to 200% on the same curve
+volume" how loud every call plays, both from 0% to 400% on the same curve
 as a person's volume, with 100% marked. Dragging plays each step at once,
 and letting go saves the value in `layout.json` (`microphone_volume`,
 `speaker_volume`). Everyone in a call, and their stream's sound, plays at
 their own volume times the speakers' (`volume::heard`), so Yapfast calls
-set it on each track as above and Discord voice mixes with it. The
-microphone's volume applies with leveling, as one gain ramped across each
-10 ms block, and like leveling it never pushes a peak past 90% of full
-scale, so a boosted microphone doesn't clip on a shout; leveling hears the
-voice before the volume, so changing it doesn't move your usual level.
+set it on each track as above, up to WebRTC's gain limit of 10, and Discord
+voice mixes with it. The microphone's volume applies with leveling, as one
+gain ramped across each 10 ms block, and like leveling it never pushes a
+peak past 90% of full scale, so a boosted microphone doesn't clip on a shout.
+Leveling hears the voice before the volume, so changing it doesn't move your
+usual level.
 Yapfast's own sounds keep their volume in Settings › Sounds.
 
 Settings' "Even out your voice", on unless turned off, levels the microphone

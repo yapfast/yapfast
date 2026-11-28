@@ -71,14 +71,25 @@ pub(super) fn command(
                 });
             });
         }
-        DiscordCommand::SendSticker { room, id } => {
+        DiscordCommand::SendSticker {
+            room,
+            id,
+            reply,
+            quiet_reply,
+        } => {
             tokio::spawn(async move {
-                let result = match discord::parse_room(&room) {
-                    Some((guild, channel)) => discord
-                        .send_sticker(guild, channel, &id)
+                let reply = match reply.as_deref().map(super::render::sent_id) {
+                    Some(None) => Err("You can reply once that message has been sent.".to_owned()),
+                    Some(Some(id)) => Ok(Some(id)),
+                    None => Ok(None),
+                };
+                let result = match (discord::parse_room(&room), reply) {
+                    (_, Err(why)) => Err(why),
+                    (Some((guild, channel)), Ok(reply)) => discord
+                        .send_sticker(guild, channel, &id, reply, !quiet_reply)
                         .await
                         .map_err(|error| format!("Couldn't send the sticker: {error}")),
-                    None => Err("Stickers aren't on Matrix.".into()),
+                    (None, _) => Err("Stickers aren't on Matrix.".into()),
                 };
                 let _ = events.send(Event::StickerSent { room, result });
             });

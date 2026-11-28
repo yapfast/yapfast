@@ -1364,13 +1364,14 @@ fn preview<'a>(palette: &palette::Theme, width: f32) -> Element<'a, Message> {
 
 impl<'a> Page<'a> {
     /// Appearance's "Use the system title bar", where Yapfast can draw its
-    /// own: the desktop's way until it's chosen.
+    /// own: the desktop's way until it's chosen. Under the desktop's,
+    /// "Show Discord's bar under it".
     pub(super) fn title_bar_switch(self) -> Element<'a, Message> {
         if !crate::window_bar::offered() {
             return Space::new().into();
         }
         let system = !self.cx.own_title_bar;
-        switch(
+        let title_bar = switch(
             "Use the system title bar",
             system,
             Some(crate::app::settings(SettingsEvent::Pref(
@@ -1378,7 +1379,25 @@ impl<'a> Page<'a> {
             ))),
         )
         .description("Your desktop draws the window's title bar and buttons, as on its other windows. Off, Yapfast draws its own.")
-        .view(self.cx.look)
+        .view(self.cx.look);
+        if !system {
+            return title_bar;
+        }
+        // Under the desktop's bar, Discord's own may go, for the room it
+        // takes or the two bars it makes.
+        let discord_bar = self.cx.layout.discord_bar.unwrap_or(true);
+        let under = switch(
+            "Show Discord's bar under it",
+            discord_bar,
+            Some(crate::app::settings(SettingsEvent::Pref(
+                super::pages::Pref::DiscordBar(!discord_bar),
+            ))),
+        )
+        .description("Back and Forward, where you are, the Inbox and Help, as Discord's app always shows them. Off, the desktop's title bar alone.")
+        .view(self.cx.look);
+        iced::widget::column![title_bar, under]
+            .spacing(form::GAP)
+            .into()
     }
 }
 

@@ -43,6 +43,10 @@ Session secrets use Windows Credential Manager. Encrypted SDK stores live under
 the user's application-data directory. Keep the first verified session while
 device verification and recovery are being tested.
 
+In Task Manager's **Processes** tab, the process row uses Yapfast's name and
+the icon embedded in the executable. The window listed under it can show the
+application icon chosen in Settings → Appearance.
+
 ## Rendering on Windows
 
 Yapfast draws on the CPU, with tiny-skia, unless "Render with the GPU" in

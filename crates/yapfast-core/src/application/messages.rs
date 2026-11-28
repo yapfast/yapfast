@@ -346,7 +346,7 @@ impl Application {
             .state
             .message(&item)
             .and_then(|message| message.attachments.get(index))
-            .is_some_and(|attachment| attachment.video);
+            .is_some_and(|attachment| attachment.video || attachment.audio);
         let Some(room) = self.state.room_of(&item).cloned().filter(|_| video) else {
             return vec![];
         };
@@ -584,7 +584,7 @@ impl Application {
         else {
             return;
         };
-        let sample = |body: String, formatted, attachments, forwarded| {
+        let sample = |body: String, formatted, attachments, forwarded, forward_origin| {
             let item = uuid::Uuid::new_v4().to_string();
             Arc::new(ChatMessage {
                 id: item.clone(),
@@ -597,6 +597,7 @@ impl Application {
                 formatted,
                 attachments,
                 forwarded,
+                forward_origin,
                 ..sample_actions()
             })
         };
@@ -606,9 +607,14 @@ impl Application {
             message.formatted,
             message.attachments.clone(),
             true,
+            Some(crate::chat::ForwardOrigin {
+                room: forwarding.room.clone(),
+                item: forwarding.item.clone(),
+                timestamp: message.timestamp,
+            }),
         ));
         if let Some(note) = note {
-            messages.push(sample(note, true, vec![], false));
+            messages.push(sample(note, true, vec![], false, None));
         }
         if self.state.selected.as_deref() == Some(target) {
             self.state.messages = Arc::new(messages.clone());
@@ -765,7 +771,12 @@ impl Application {
             effects = self.open(room.clone(), true);
         }
         if self.state.selected.as_ref() == Some(&room) {
+            self.pending_jump = None;
             effects.extend(self.jump(item, false));
+        } else {
+            // A room that isn't listed opens once it is.
+            self.pending_jump =
+                (self.pending_open.as_deref() == Some(room.as_str())).then_some((room, item));
         }
         effects
     }

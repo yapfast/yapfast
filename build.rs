@@ -1,6 +1,5 @@
-//! Gives the Windows executable its icon: compiles packaging/windows/yapfast.rc
-//! with the available resource compiler and links the result. Tells the
-//! program which build it is.
+//! Links the Windows executable's icon and version information with the
+//! available resource compiler. Tells the program which build it is.
 
 use std::{env, fs, path::PathBuf, process::Command};
 
@@ -9,7 +8,7 @@ fn main() {
     println!("cargo:rerun-if-changed=assets/icons/app/yapfast.ico");
     build_info();
     if env::var("CARGO_CFG_TARGET_OS").as_deref() == Ok("windows") {
-        windows_icon();
+        windows_resources();
     }
 }
 
@@ -81,14 +80,28 @@ fn git(arguments: &[&str]) -> Option<String> {
     Some(text.trim().to_owned())
 }
 
-fn windows_icon() {
-    let resources = PathBuf::from(env::var_os("OUT_DIR").unwrap()).join("yapfast.res");
-    // The script has no preprocessor directives.
+fn windows_resources() {
+    let out = PathBuf::from(env::var_os("OUT_DIR").unwrap());
+    let resources = out.join("yapfast.res");
+    let script = out.join("yapfast.rc");
+    let version = concat!(
+        env!("CARGO_PKG_VERSION_MAJOR"),
+        ",",
+        env!("CARGO_PKG_VERSION_MINOR"),
+        ",",
+        env!("CARGO_PKG_VERSION_PATCH"),
+        ",0"
+    );
+    // Expand the package version here so the resource compiler needs no preprocessor.
+    let source = include_str!("packaging/windows/yapfast.rc")
+        .replace("@VERSION_NUMBERS@", version)
+        .replace("@VERSION_STRING@", env!("CARGO_PKG_VERSION"));
+    fs::write(&script, source).expect("could not write the Windows resource script");
     let status = match Command::new("llvm-rc")
         .current_dir("packaging/windows")
         .args(["-no-preprocess", "-FO"])
         .arg(&resources)
-        .arg("yapfast.rc")
+        .arg(&script)
         .status()
     {
         Ok(status) => status,
@@ -100,7 +113,7 @@ fn windows_icon() {
                 .current_dir("packaging/windows")
                 .args(["/fo"])
                 .arg(&resources)
-                .arg("yapfast.rc")
+                .arg(&script)
                 .status()
                 .unwrap_or_else(|error| panic!("could not run the Windows SDK's rc.exe: {error}"))
         }

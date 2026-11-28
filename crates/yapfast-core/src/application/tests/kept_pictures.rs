@@ -60,6 +60,7 @@ fn closed_channels_keep_metadata_without_pinning_previews() {
             gif: None,
             spoiler: false,
             video: false,
+            audio: false,
             url: None,
             description: None,
         }],

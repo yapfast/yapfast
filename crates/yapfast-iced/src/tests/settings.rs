@@ -36,6 +36,83 @@ fn stored(folder: &tempfile::TempDir) -> serde_json::Value {
     .expect("JSON")
 }
 
+#[test]
+fn custom_sounds_show_call_tones_and_keep_files_when_turned_off() {
+    use yapfast_core::themes::media::SoundSlot;
+
+    use crate::custom_sounds::Choice;
+
+    let (mut app, folder) = preview();
+    open(&mut app, Section::Sounds);
+    assert!(!app.layout.voice.adjust_each_sound);
+    assert!(!shows(&app, "Incoming call"));
+    interact(&mut app, |ui| {
+        ui.click("Custom sound set").expect("the switch");
+    });
+    assert!(shows(&app, "Incoming call"));
+    assert!(shows(&app, "Outgoing call"));
+    assert!(!shows(&app, "Uploaded file"));
+
+    interact(&mut app, |ui| {
+        let row = super::last(ui, "Outgoing call");
+        let source = ui
+            .find(
+                |candidate: iced_test::selector::Candidate<'_>| match candidate {
+                    iced_test::selector::Candidate::Text {
+                        content: "Default",
+                        visible_bounds: Some(bounds),
+                        ..
+                    } if (bounds.center_y() - row.y).abs() < 8.0 => Some(bounds.center()),
+                    _ => None,
+                },
+            )
+            .expect("the outgoing call's source");
+        ui.point_at(source);
+        let _ = ui.simulate(iced_test::simulator::click());
+    });
+    // A file or the default, no other set's sounds: the only Glow is the
+    // sound set's, above the rows.
+    assert!(shows(&app, "Custom"));
+    interact(&mut app, |ui| {
+        assert!(super::last(ui, "Glow").y < super::last(ui, "Incoming call").y);
+    });
+    interact(&mut app, |ui| {
+        ui.click("Custom").expect("the file picker option");
+    });
+    assert!(!shows(&app, "Custom"));
+    assert_eq!(
+        app.layout.voice.sound_choice(SoundSlot::Ringback),
+        Choice::Default,
+    );
+    crate::custom_sounds::save(folder.path(), SoundSlot::Ring, &[100, -100]).unwrap();
+    interact(&mut app, |ui| {
+        ui.click("Custom sound set")
+            .expect("turn the custom set off");
+    });
+    assert!(app.layout.voice.custom_sounds.is_empty());
+    let mut reopened = start(&folder, true);
+    open(&mut reopened, Section::Sounds);
+    assert!(!reopened.layout.voice.uses_custom_sounds());
+    assert!(reopened.layout.voice.custom_sounds.is_empty());
+    interact(&mut reopened, |ui| {
+        ui.click("Custom sound set")
+            .expect("turn the custom set back on");
+    });
+    assert!(shows(&reopened, "Uploaded file"));
+    assert_eq!(
+        reopened.layout.voice.sound_choice(SoundSlot::Ring),
+        Choice::File
+    );
+    assert_eq!(
+        reopened.layout.voice.sound_choice(SoundSlot::Ringback),
+        Choice::Default,
+    );
+    reopened.shell.frame.width = 800.0;
+    crate::window_bar::fit_window(&mut reopened);
+    assert!(shows(&reopened, "Outgoing call"));
+    assert!(shows(&reopened, "Uploaded file"));
+}
+
 /// The text glow switch stops a theme's soft edge, and is kept.
 #[test]
 fn the_text_glow_switch_stops_the_soft_edge_and_is_kept() {
@@ -1495,9 +1572,17 @@ fn preferences_are_kept_across_a_restart() {
         "{time}"
     );
     open(&mut app, Section::Notifications);
-    interact(&mut app, |ui| {
-        ui.click("Flash the taskbar").expect("the switch");
-    });
+    // Only Windows offers it, as Discord's client does.
+    if cfg!(windows) {
+        interact(&mut app, |ui| {
+            ui.click("Flash the taskbar").expect("the switch");
+        });
+    } else {
+        assert!(!shows(&app, "Flash the taskbar"));
+        let _ = app.update(crate::settings::pref_message(
+            crate::settings::Pref::FlashTaskbar(false),
+        ));
+    }
     open(&mut app, Section::Advanced);
     interact(&mut app, |ui| {
         ui.click("Developer Mode").expect("the switch");
@@ -1941,6 +2026,19 @@ fn accessibility_keeps_the_text_size_and_the_animations() {
     assert_eq!(crate::message::text_size(app.ctx()), 20.0);
 }
 
+#[test]
+fn accessibility_keeps_scroll_speed() {
+    let (mut app, folder) = preview();
+    assert_eq!(app.layout.prefs.scroll_speed(), 100);
+    open(&mut app, Section::Accessibility);
+    interact(&mut app, |ui| {
+        ui.click("300%").expect("the scroll speed preset");
+    });
+    assert_eq!(app.layout.prefs.scroll_speed(), 300);
+    assert_eq!(stored(&folder)["scroll_speed"], 300);
+    assert_eq!(start(&folder, true).layout.prefs.scroll_speed(), 300);
+}
+
 /// Enable Reduced Motion stills GIFs, emoji and stickers as Discord's
 /// client does, until they're chosen again; off, they play as chosen.
 /// Synced to the desktop, the desktop's wish decides, and unsyncing keeps
@@ -2322,4 +2420,33 @@ fn a_theme_review_shows_the_whole_window_in_the_stock_look() {
         Market::CancelReview,
     )));
     assert_eq!(app.theme.id, "nord");
+}
+
+/// Under the desktop's title bar, Appearance turns Discord's bar off and
+/// on again, and the content takes its room; Yapfast's own bar has no such
+/// switch.
+#[test]
+fn discords_bar_under_the_desktops_can_be_turned_off() {
+    let (mut app, folder) = preview();
+    app.shell.own_title_bar = false;
+    app.shell.bar_under_frame = true;
+    open(&mut app, Section::Appearance);
+    let frame = app.shell.frame;
+    assert_eq!(app.window.height, frame.height - crate::window_bar::HEIGHT);
+    interact(&mut app, |ui| {
+        ui.click("Show Discord's bar under it").expect("the switch");
+    });
+    assert!(!app.shell.bar_under_frame);
+    assert_eq!(
+        app.window.height, frame.height,
+        "the content takes its room"
+    );
+    assert_eq!(stored(&folder)["discord_bar"], false);
+    interact(&mut app, |ui| {
+        ui.click("Show Discord's bar under it").expect("the switch");
+    });
+    assert!(app.shell.bar_under_frame);
+    assert_eq!(app.window.height, frame.height - crate::window_bar::HEIGHT);
+    app.shell.own_title_bar = true;
+    assert!(!shows(&app, "Show Discord's bar under it"));
 }

@@ -16,7 +16,9 @@ use std::{
 use realfft::RealFftPlanner;
 use serde::{Deserialize, Serialize};
 
-use crate::audio_io::{Output, RATE};
+use crate::audio_io::Output;
+pub use crate::audio_io::RATE;
+
 const TAU: f32 = std::f32::consts::TAU;
 
 /// The instrument every sound plays on.
@@ -446,9 +448,8 @@ pub fn play(set: SoundSet, sound: Sound, volume: f32, speaker: Option<&str>) {
     let started = std::thread::Builder::new()
         .name("yapfast-sound".into())
         .spawn(move || {
-            let mut samples = render(set, sound);
-            samples.iter_mut().for_each(|sample| *sample *= volume);
-            if let Err(error) = play_samples(&samples, speaker.as_deref()) {
+            let samples = render(set, sound).into_iter().map(|sample| sample * volume);
+            if let Err(error) = play_samples(samples, speaker.as_deref()) {
                 tracing::warn!(
                     error = format!("{error:#}"),
                     ?sound,
@@ -461,15 +462,14 @@ pub fn play(set: SoundSet, sound: Sound, volume: f32, speaker: Option<&str>) {
     }
 }
 
-/// How many of a theme's sounds play at once; more are dropped, so a pointer
+/// How many decoded sounds play at once; more are dropped, so a pointer
 /// sweeping across buttons can't pile up streams.
 const MOST_AT_ONCE: usize = 4;
 
 static PLAYING: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
 
-/// Plays decoded 48 kHz interleaved stereo, a theme's sound decoded once and
-/// shared, at `volume` from [`gain`], as [`play`] does. Dropped while
-/// [`MOST_AT_ONCE`] are still playing.
+/// Plays shared, decoded 48 kHz interleaved stereo at `volume` from [`gain`].
+/// Dropped while [`MOST_AT_ONCE`] are still playing.
 pub fn play_decoded(samples: Arc<[i16]>, volume: f32, speaker: Option<&str>) {
     use std::sync::atomic::Ordering;
     if volume <= 0.0 {
@@ -483,14 +483,13 @@ pub fn play_decoded(samples: Arc<[i16]>, volume: f32, speaker: Option<&str>) {
     let started = std::thread::Builder::new()
         .name("yapfast-sound".into())
         .spawn(move || {
-            let scaled: Vec<f32> = samples
+            let scaled = samples
                 .iter()
-                .map(|sample| f32::from(*sample) / f32::from(i16::MAX) * volume)
-                .collect();
-            if let Err(error) = play_samples(&scaled, speaker.as_deref()) {
+                .map(|sample| f32::from(*sample) / f32::from(i16::MAX) * volume);
+            if let Err(error) = play_samples(scaled, speaker.as_deref()) {
                 tracing::warn!(
                     error = format!("{error:#}"),
-                    "could not play a theme's sound"
+                    "could not play a decoded sound"
                 );
             }
             PLAYING.fetch_sub(1, Ordering::AcqRel);
@@ -502,19 +501,22 @@ pub fn play_decoded(samples: Arc<[i16]>, volume: f32, speaker: Option<&str>) {
 }
 
 /// Plays interleaved stereo samples to the end.
-fn play_samples(samples: &[f32], speaker: Option<&str>) -> anyhow::Result<()> {
+fn play_samples(
+    mut samples: impl ExactSizeIterator<Item = f32>,
+    speaker: Option<&str>,
+) -> anyhow::Result<()> {
     use anyhow::Context;
     // Speakers that are gone play on the default ones.
     let mut output = Output::<i16>::open_or_default(speaker, "Sound", RATE, 2, None)
         .context("could not open the speakers")?;
     let mut chunk = [0i16; RATE as usize / 50 * 2];
-    for part in samples.chunks(chunk.len()) {
-        for (sample, value) in chunk.iter_mut().zip(part) {
+    while samples.len() > 0 {
+        let filled = samples.len().min(chunk.len());
+        let part = &mut chunk[..filled];
+        for (sample, value) in part.iter_mut().zip(&mut samples) {
             *sample = (value.clamp(-1.0, 1.0) * f32::from(i16::MAX)) as i16;
         }
-        output
-            .write(&chunk[..part.len()])
-            .context("could not play")?;
+        output.write(part).context("could not play")?;
     }
     output.drain().context("could not finish playing")?;
     Ok(())

@@ -153,6 +153,7 @@ fn favourite_gifs_show_from_disk_and_stars_wait_for_discords() {
             gif: Some(gif.clone()),
             spoiler: false,
             video: false,
+            audio: false,
             url: None,
             description: None,
         }],
@@ -770,13 +771,25 @@ fn the_sticker_picker_opens_sends_and_lists_the_servers_stickers() {
     ));
 
     // A click sends the sticker as a message of its own, and the picker
-    // closes, letting go of its pictures and its lists.
+    // closes, letting go of its pictures and its lists. While the composer
+    // replies, it goes as the reply, without the ping when that's off, as
+    // Discord's client sends it.
+    app.apply(Event::Timeline {
+        room: "discord:10:21".into(),
+        messages: timeline(vec![message("d:3", false)]),
+    });
+    app.dispatch(Action::Reply("d:3".into()));
+    app.dispatch(Action::ReplyPing(false));
     let sent = backend(app.dispatch(Action::PickSticker("5".into())));
     assert!(matches!(
         sent.as_slice(),
-        [Command::Discord(DiscordCommand::SendSticker { room, id })]
-            if room == "discord:10:21" && id == "5"
+        [Command::Discord(DiscordCommand::SendSticker { room, id, reply: Some(reply), quiet_reply: true })]
+            if room == "discord:10:21" && id == "5" && reply == "d:3"
     ));
+    assert!(
+        app.state.compose().is_some(),
+        "the reply bar stays until Discord takes the sticker"
+    );
     assert!(!app.state.stickers.open && app.state.stickers.pictures.is_empty());
     assert!(app.state.stickers.servers.is_empty());
     // The rest is read with the picker open again.
@@ -791,6 +804,15 @@ fn the_sticker_picker_opens_sends_and_lists_the_servers_stickers() {
         app.state.notice.as_deref(),
         Some("Couldn't send the sticker: no")
     );
+    assert!(
+        app.state.compose().is_some(),
+        "a failed one keeps the reply"
+    );
+    app.apply(Event::StickerSent {
+        room: "discord:10:21".into(),
+        result: Ok(()),
+    });
+    assert!(app.state.compose().is_none(), "the reply was sent");
 
     // Sending a sticker counts it, and Frequently Used lists it first.
     let frequent: Vec<String> = app

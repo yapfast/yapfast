@@ -8,7 +8,7 @@ fn forwarding_sends_a_message_to_the_conversations_chosen() {
     app.dispatch(Action::Preview);
     let item = app.state.messages[1].item.clone();
     let body = app.state.messages[1].body.clone();
-    app.dispatch(Action::StartForward(item));
+    app.dispatch(Action::StartForward(item.clone()));
     // Choosing again leaves it out; a voice channel can't be chosen.
     app.dispatch(Action::ChooseForward("games".into()));
     app.dispatch(Action::ChooseForward("general".into()));
@@ -24,8 +24,23 @@ fn forwarding_sends_a_message_to_the_conversations_chosen() {
         panic!("no forward");
     };
     assert!(forward.forwarded && forward.body == body);
+    let origin = forward.forward_origin.as_ref().expect("forward origin");
+    assert_eq!(origin.room, "general");
+    assert_eq!(origin.item, item);
     assert_eq!(note.body, "for you");
+    assert!(note.forward_origin.is_none());
     assert_eq!(app.state.notice.as_deref(), Some("Message forwarded."));
+    // Jumping from the forwarded message opens the original room and seeks to it.
+    let origin = origin.clone();
+    app.dispatch(Action::JumpInRoom {
+        room: origin.room,
+        item: origin.item.clone(),
+    });
+    assert_eq!(app.state.selected.as_deref(), Some("general"));
+    assert_eq!(
+        app.state.jump.as_ref().map(|(jumped, _)| jumped.as_str()),
+        Some(origin.item.as_str())
+    );
 
     let mut app = connected();
     let mut sent = message("e:$bob", false);

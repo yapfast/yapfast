@@ -109,6 +109,7 @@ unsafe extern "C" {
         height: c_uint,
         fps: c_uint,
         kbps: c_uint,
+        high_quality: c_uint,
         report: *mut std::ffi::c_char,
         report_size: usize,
     ) -> *mut Raw;
@@ -134,9 +135,7 @@ unsafe extern "C" {
 /// RTP's video clock.
 pub const CLOCK: u64 = 90_000;
 
-/// How much work the H264 encoder puts into each frame: x264's superfast
-/// preset, or its faster one, for a sharper picture at about twice the CPU.
-/// VP8 takes no effort.
+/// How much work an encoder puts into each frame. VP8 has one preset.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, serde::Deserialize, serde::Serialize)]
 #[serde(rename_all = "snake_case")]
 pub enum Effort {
@@ -186,7 +185,7 @@ type Opened = (*mut Raw, Encode, Drain, SetBitrate, Free, String);
 
 impl Encoder {
     /// An encoder for `width` by `height` frames, which must be even. With
-    /// `hardware`, H264 goes to the GPU's encoder where there is one, and to
+    /// a hardware preset, H264 goes to the GPU's encoder where there is one, and to
     /// x264 otherwise. H265 and AV1 have only the GPU's.
     pub fn new(
         codec: Codec,
@@ -195,15 +194,16 @@ impl Encoder {
         fps: u32,
         kbps: u32,
         effort: Effort,
-        hardware: bool,
+        hardware: Option<Effort>,
     ) -> Result<Self> {
         if width == 0 || height == 0 || !width.is_multiple_of(2) || !height.is_multiple_of(2) {
             bail!("{codec:?} frames need an even size, not {width}x{height}");
         }
-        let opened = match hardware.then(|| open_hardware(codec, width, height, fps, kbps)) {
-            Some(Some(opened)) => opened,
-            _ => open_software(codec, width, height, fps, kbps, effort)?,
-        };
+        let opened =
+            match hardware.and_then(|gpu| open_hardware(codec, width, height, fps, kbps, gpu)) {
+                Some(opened) => opened,
+                None => open_software(codec, width, height, fps, kbps, effort)?,
+            };
         let (raw, encode, drain, set_bitrate, free, engine) = opened;
         let pixels = (width * height) as usize;
         Ok(Self {
@@ -486,7 +486,14 @@ fn open_software(
 
 /// The GPU's encoder for `codec`, if it has one that opens.
 #[cfg(hwenc)]
-fn open_hardware(codec: Codec, width: u32, height: u32, fps: u32, kbps: u32) -> Option<Opened> {
+fn open_hardware(
+    codec: Codec,
+    width: u32,
+    height: u32,
+    fps: u32,
+    kbps: u32,
+    effort: Effort,
+) -> Option<Opened> {
     let number = match codec {
         Codec::H264 => 0,
         Codec::H265 => 1,
@@ -503,6 +510,7 @@ fn open_hardware(codec: Codec, width: u32, height: u32, fps: u32, kbps: u32) -> 
             height,
             fps,
             kbps,
+            c_uint::from(effort == Effort::High),
             report.as_mut_ptr().cast(),
             report.len(),
         )
@@ -527,7 +535,7 @@ fn open_hardware(codec: Codec, width: u32, height: u32, fps: u32, kbps: u32) -> 
 }
 
 #[cfg(not(hwenc))]
-fn open_hardware(_: Codec, _: u32, _: u32, _: u32, _: u32) -> Option<Opened> {
+fn open_hardware(_: Codec, _: u32, _: u32, _: u32, _: u32, _: Effort) -> Option<Opened> {
     None
 }
 
@@ -551,7 +559,7 @@ mod tests {
         codec: Codec,
         effort: Effort,
         (width, height): (u32, u32),
-        hardware: bool,
+        hardware: Option<Effort>,
     ) -> Result<Encoder> {
         assert!(Encoder::new(codec, 63, 36, 30, 500, effort, hardware).is_err());
         Encoder::new(codec, width, height, 30, 500, effort, hardware)
@@ -582,7 +590,7 @@ mod tests {
 
     #[test]
     fn encodes_vp8_keyframes_and_deltas() {
-        let encoder = test_encoder(Codec::Vp8, Effort::Light, (64, 36), false).unwrap();
+        let encoder = test_encoder(Codec::Vp8, Effort::Light, (64, 36), None).unwrap();
         let (frames, _) = encode_four(encoder);
         for (keyframe, data) in &frames {
             // A keyframe's tag has bit 0 clear, and its size follows the start code.
@@ -599,7 +607,7 @@ mod tests {
 
     /// Main profile H264 at `size` that decodes: parameter sets and an IDR
     /// first, a forced IDR third. Returns the engine.
-    fn check_h264(effort: Effort, size: (u32, u32), hardware: bool) -> String {
+    fn check_h264(effort: Effort, size: (u32, u32), hardware: Option<Effort>) -> String {
         let encoder = test_encoder(Codec::H264, effort, size, hardware).unwrap();
         let (frames, engine) = encode_four(encoder);
         {
@@ -636,7 +644,7 @@ mod tests {
     #[test]
     fn encodes_main_profile_h264_that_decodes() {
         for effort in [Effort::Light, Effort::High] {
-            assert_eq!(check_h264(effort, (64, 36), false), "x264");
+            assert_eq!(check_h264(effort, (64, 36), None), "x264");
         }
     }
 
@@ -645,8 +653,9 @@ mod tests {
     /// so this reads the units' types.
     #[test]
     fn encodes_h265_on_the_gpu() {
-        assert!(Encoder::new(Codec::H265, 320, 180, 30, 500, Effort::Light, false).is_err());
-        let Ok(encoder) = test_encoder(Codec::H265, Effort::Light, (320, 180), true) else {
+        assert!(Encoder::new(Codec::H265, 320, 180, 30, 500, Effort::Light, None).is_err());
+        let Ok(encoder) = test_encoder(Codec::H265, Effort::Light, (320, 180), Some(Effort::High))
+        else {
             eprintln!("no GPU encoder for H265 here");
             return;
         };
@@ -675,8 +684,9 @@ mod tests {
     /// OBUs that packetize whole.
     #[test]
     fn encodes_av1_on_the_gpu() {
-        assert!(Encoder::new(Codec::Av1, 320, 180, 30, 500, Effort::Light, false).is_err());
-        let Ok(encoder) = test_encoder(Codec::Av1, Effort::Light, (320, 180), true) else {
+        assert!(Encoder::new(Codec::Av1, 320, 180, 30, 500, Effort::Light, None).is_err());
+        let Ok(encoder) = test_encoder(Codec::Av1, Effort::Light, (320, 180), Some(Effort::High))
+        else {
             eprintln!("no GPU encoder for AV1 here");
             return;
         };
@@ -698,8 +708,10 @@ mod tests {
     /// the same stream either way.
     #[test]
     fn encodes_h264_on_the_gpu_or_falls_back() {
-        let engine = check_h264(Effort::Light, (320, 180), true);
-        eprintln!("encoded with {engine}");
+        for preset in [Effort::Light, Effort::High] {
+            let engine = check_h264(Effort::Light, (320, 180), Some(preset));
+            eprintln!("encoded with {engine} at {preset:?} GPU effort");
+        }
     }
 
     /// Three frames alive at once keep the bytes they were encoded with while
@@ -707,7 +719,7 @@ mod tests {
     /// the encoder overwrites.
     #[test]
     fn frames_keep_their_bytes_past_more_encodes() {
-        let mut encoder = Encoder::new(Codec::Vp8, 64, 36, 30, 500, Effort::Light, false).unwrap();
+        let mut encoder = Encoder::new(Codec::Vp8, 64, 36, 30, 500, Effort::Light, None).unwrap();
         let mut rgba = vec![0u8; 64 * 36 * 4];
         let paint = |rgba: &mut [u8], frame: u64| {
             for (index, pixel) in rgba.as_chunks_mut::<4>().0.iter_mut().enumerate() {
@@ -827,7 +839,7 @@ mod tests {
         }
 
         let mut encoder =
-            Encoder::new(Codec::H264, 1280, 720, 30, 500, Effort::Light, false).unwrap();
+            Encoder::new(Codec::H264, 1280, 720, 30, 500, Effort::Light, None).unwrap();
         assert_eq!(encoder.out.capacity(), 512 * 1024);
         encoder.encode = produces_bulky;
         encoder.drain = drains_bulky;
@@ -859,7 +871,7 @@ mod tests {
     /// three.
     #[test]
     fn encoding_thirty_frames_reuses_three_buffers() {
-        let mut encoder = Encoder::new(Codec::Vp8, 64, 36, 30, 500, Effort::Light, false).unwrap();
+        let mut encoder = Encoder::new(Codec::Vp8, 64, 36, 30, 500, Effort::Light, None).unwrap();
         let mut rgba = vec![0u8; 64 * 36 * 4];
         let mut held = VecDeque::new();
         for frame in 0..30u64 {

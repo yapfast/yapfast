@@ -1,3 +1,25 @@
 // Yapfast's icon, which Explorer shows for yapfast.exe and its shortcuts, and the
 // window loads by its number (src/icon.rs). scripts/make-windows-icon draws it.
 1 ICON "../../assets/icons/app/yapfast.ico"
+
+// Windows displays FileDescription in the Task Manager Processes tab.
+1 VERSIONINFO
+FILEVERSION @VERSION_NUMBERS@
+PRODUCTVERSION @VERSION_NUMBERS@
+BEGIN
+    BLOCK "StringFileInfo"
+    BEGIN
+        BLOCK "040904B0"
+        BEGIN
+            VALUE "FileDescription", "Yapfast\0"
+            VALUE "FileVersion", "@VERSION_STRING@\0"
+            VALUE "ProductName", "Yapfast\0"
+            VALUE "ProductVersion", "@VERSION_STRING@\0"
+            VALUE "OriginalFilename", "yapfast.exe\0"
+        END
+    END
+    BLOCK "VarFileInfo"
+    BEGIN
+        VALUE "Translation", 0x0409, 1200
+    END
+END

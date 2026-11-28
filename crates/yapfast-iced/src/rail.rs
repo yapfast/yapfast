@@ -607,6 +607,32 @@ fn hidden_people(state: &AppState) -> HashSet<&str> {
         .collect()
 }
 
+/// What a server's tooltip says under its name while its invites are
+/// paused, as Discord's client words it.
+pub const INVITES_PAUSED: &str = "Invites paused for this server";
+
+/// Whether the server a rail tile is for has its invites paused now, as
+/// its tooltip tells one who may Manage Server: the core says when they
+/// resume only to such an account. Asked only under the pointer.
+fn invites_paused(state: &AppState, id: &str) -> bool {
+    let now = yapfast_core::clock::now_ms() / 1000;
+    state
+        .servers
+        .iter()
+        .find(|server| server.id == id)
+        .and_then(|server| server.invites_paused_until)
+        .is_some_and(|until| until > now)
+}
+
+/// The paused invites' line in a server's tooltip, in its text colour.
+fn paused_line<'a>(theme: &crate::theme::Theme) -> Element<'a, Message> {
+    text(INVITES_PAUSED)
+        .size(14)
+        .font(MEDIUM)
+        .color(theme.text)
+        .into()
+}
+
 /// A voice channel whose people count on its server's speaker and
 /// tooltip, as Discord's: one this account may see, not a Stage, not the
 /// inactive channel, not muted.
@@ -2215,10 +2241,14 @@ impl<'a> View<'a> {
         } else {
             Cow::Borrowed(item.name.as_str())
         };
-        // Who is in which voice channel, made only under the pointer.
+        // Who is in which voice channel, and whether its invites are
+        // paused, made only under the pointer.
         let label = name.clone();
+        let paused = pointed && invites_paused(self.cx.state, &item.id);
         let tip = if pointed && !item.busy.0.is_empty() {
-            self.voice_card(name, &item.busy.0)
+            self.voice_card(name, paused, &item.busy.0)
+        } else if paused {
+            self.paused_tip(name)
         } else {
             controls::tip(self.cx.look.theme, name)
         };
@@ -2786,17 +2816,26 @@ impl<'a> View<'a> {
     }
 
     /// A server's tooltip while people are in its voice channels: its
-    /// name, then each busy channel's name over its people's faces (a
-    /// screen for a channel someone shares theirs in, else a speaker), the
-    /// first [`CARD_ROOMS`] channels and [`CARD_FACES`] faces each, and
-    /// how many more. Discord's puts everyone in one row; by channel, it
+    /// name, that its invites are paused when `paused` (Discord's puts it
+    /// between the two), then each busy channel's name over its people's
+    /// faces (a screen for a channel someone shares theirs in, else a
+    /// speaker), the first [`CARD_ROOMS`] channels and [`CARD_FACES`]
+    /// faces each, and how many more. Discord's puts everyone in one row; by channel, it
     /// says who is together.
-    fn voice_card(self, name: Cow<'a, str>, busy: &'a [Arc<ChatRoom>]) -> Element<'a, Message> {
+    fn voice_card(
+        self,
+        name: Cow<'a, str>,
+        paused: bool,
+        busy: &'a [Arc<ChatRoom>],
+    ) -> Element<'a, Message> {
         let theme = self.cx.look.theme;
         let hidden = hidden_people(self.cx.state);
         let mut card = column![text(name).size(14).font(BOLD).color(theme.text)]
             .spacing(8)
             .width(CARD_WIDTH);
+        if paused {
+            card = card.push(paused_line(theme));
+        }
         for room in busy.iter().take(CARD_ROOMS) {
             let people: Vec<&'a VoicePerson> = room
                 .people
@@ -2836,6 +2875,23 @@ impl<'a> View<'a> {
             .padding([10, 12])
             .style(controls::tip_style(theme))
             .into()
+    }
+
+    /// A server's tooltip while its invites are paused, for one who may
+    /// Manage Server: its name, and under it that they're paused, as
+    /// Discord's.
+    fn paused_tip(self, name: Cow<'a, str>) -> Element<'a, Message> {
+        let theme = self.cx.look.theme;
+        container(
+            column![
+                text(name).size(14).font(BOLD).color(theme.text),
+                paused_line(theme),
+            ]
+            .spacing(4),
+        )
+        .padding([10, 12])
+        .style(controls::tip_style(theme))
+        .into()
     }
 
     /// Overlapping faces, the first [`CARD_FACES`], and how many more, on

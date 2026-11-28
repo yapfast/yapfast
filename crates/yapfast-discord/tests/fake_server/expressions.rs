@@ -258,7 +258,7 @@ async fn picks_the_stickers_of_the_default_packs() {
     // shows.
     let mut live = discord.live();
     discord
-        .send_sticker(&guild, &general, &wumpus.id)
+        .send_sticker(&guild, &general, &wumpus.id, None, true)
         .await
         .unwrap();
     let sent = live_where(&mut live, |event| match event {
@@ -269,9 +269,31 @@ async fn picks_the_stickers_of_the_default_packs() {
     assert_eq!(sent.content, "");
     assert_eq!(sent.attachments[0].shown, Shown::Sticker);
     assert!(sent.attachments[0].url.contains(&wumpus.id));
+    assert!(sent.reply.is_none());
+    // Picked while replying, it's the reply, as Discord's client sends it.
+    discord
+        .send_sticker(&guild, &general, &wumpus.id, Some(&sent.id), false)
+        .await
+        .unwrap();
+    let reply = live_where(&mut live, |event| match event {
+        Live::Created(message) if message.id != sent.id && !message.attachments.is_empty() => {
+            Some(message)
+        }
+        _ => None,
+    })
+    .await;
+    assert_eq!(reply.attachments[0].shown, Shown::Sticker);
+    assert!(
+        matches!(&reply.reply, Some(yapfast_discord::message::Reply::Message { id, .. }) if *id == sent.id),
+        "the sticker replies: {:?}",
+        reply.reply
+    );
     // One Discord doesn't have isn't sent.
     assert!(
-        discord.send_sticker(&guild, &general, "1").await.is_err(),
+        discord
+            .send_sticker(&guild, &general, "1", None, true)
+            .await
+            .is_err(),
         "a sticker that doesn't exist isn't sent"
     );
 }

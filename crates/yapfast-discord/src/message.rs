@@ -85,6 +85,20 @@ pub(crate) const IS_SPOILER: u64 = 1 << 3;
 /// The flag of an attachment, or an embed's picture, that moves.
 const IS_ANIMATED: u64 = 1 << 5;
 
+/// Whether an attached file plays as sound where it shows, as Discord's
+/// client plays it: by its name, unless it has a picture's width and
+/// height.
+fn plays_as_audio(name: &str, sized: bool) -> bool {
+    let extension = name
+        .rsplit_once('.')
+        .map(|(_, extension)| extension.to_ascii_lowercase());
+    !sized
+        && matches!(
+            extension.as_deref(),
+            Some("mp3" | "m4a" | "ogg" | "opus" | "wav" | "flac")
+        )
+}
+
 /// Whether an attachment or an embed's picture moves: Discord marks it
 /// animated, or it's a GIF.
 pub(crate) fn animated(media: &Value) -> bool {
@@ -169,6 +183,9 @@ pub struct Message {
     /// shows as its own.
     #[serde(default)]
     pub forwarded: bool,
+    /// Where a forwarded message came from, from its `message_reference`.
+    #[serde(default)]
+    pub forward_origin: Option<ForwardOrigin>,
     /// Can be forwarded, as Discord's client decides from the message
     /// alone: written, and without a poll, a call or an activity.
     #[serde(default)]
@@ -198,6 +215,22 @@ pub struct Message {
     /// What a voice message's recording, its first attachment, sounds like.
     #[serde(default)]
     pub voice: Option<VoiceMessage>,
+}
+
+/// Where a forwarded message came from, from its `message_reference`.
+#[derive(Clone, Debug, Default, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub struct ForwardOrigin {
+    /// The server the original message was sent in; `None` for a DM.
+    #[serde(default)]
+    pub guild_id: Option<String>,
+    /// The channel or DM the original message was sent in.
+    pub channel_id: String,
+    /// The original message's id.
+    pub message_id: String,
+    /// When the original message was sent, from its id, in seconds since
+    /// the Unix epoch.
+    #[serde(default)]
+    pub timestamp: u64,
 }
 
 /// The interaction an app's message answers, from its
@@ -470,6 +503,9 @@ pub struct Attachment {
     /// attached video, or a link's through the media proxy.
     #[serde(default)]
     pub video_url: Option<String>,
+    /// A sound file, such as an MP3, that plays in its card, from `url`.
+    #[serde(default)]
+    pub audio: bool,
     /// The address a GIF or moving picture linked on its own was sent as,
     /// which Discord's client keeps it among the favourites by: a GIF's page,
     /// or the picture's own address.
@@ -770,6 +806,33 @@ pub fn parse(value: &Value) -> Option<Message> {
         snapshot @ Value::Object(_) if forwarded => snapshot,
         _ => value,
     };
+    let forward_origin = if forwarded {
+        let reference = &value["message_reference"];
+        match (
+            reference["channel_id"].as_str(),
+            reference["message_id"].as_str(),
+        ) {
+            (Some(channel_id), Some(message_id))
+                if !channel_id.is_empty() && !message_id.is_empty() =>
+            {
+                // Discord's client dates the original by its id, not by
+                // the snapshot's timestamp.
+                let timestamp = snowflake_ms(message_id) / 1000;
+                Some(ForwardOrigin {
+                    guild_id: reference["guild_id"]
+                        .as_str()
+                        .filter(|id| !id.is_empty())
+                        .map(str::to_owned),
+                    channel_id: channel_id.to_owned(),
+                    message_id: message_id.to_owned(),
+                    timestamp,
+                })
+            }
+            _ => None,
+        }
+    } else {
+        None
+    };
     // `null` says the original was deleted; no field at all says nothing.
     // An app's answer to a command used on a message quotes that message,
     // and one to a button or menu the message that has it, when Discord
@@ -805,6 +868,8 @@ pub fn parse(value: &Value) -> Option<Message> {
             let video = kind.starts_with("video/");
             let url: Arc<str> = attachment["url"].as_str()?.into();
             let name = attachment["filename"].as_str()?;
+            let sized = attachment["width"].as_u64().unwrap_or_default() > 0
+                && attachment["height"].as_u64().unwrap_or_default() > 0;
             Some(Attachment {
                 name: name.into(),
                 size: attachment["size"].as_u64(),
@@ -822,6 +887,7 @@ pub fn parse(value: &Value) -> Option<Message> {
                     .then(|| scaled_url(attachment, VIEW_WIDTH, VIEW_HEIGHT, true))
                     .flatten(),
                 video_url: video.then(|| url.to_string()),
+                audio: plays_as_audio(name, sized),
                 link_url: None,
                 animated: image && animated(attachment),
                 url,
@@ -888,6 +954,7 @@ pub fn parse(value: &Value) -> Option<Message> {
             view_url: Some(url),
             still_url: None,
             video_url: None,
+            audio: false,
             link_url: None,
             animated: false,
             shown: Shown::Sticker,
@@ -954,6 +1021,7 @@ pub fn parse(value: &Value) -> Option<Message> {
         },
         pinned: value["pinned"].as_bool().unwrap_or(false),
         forwarded,
+        forward_origin,
         forwardable: written(kind)
             && value["flags"].as_u64().unwrap_or_default() & !FORWARDABLE_FLAGS == 0
             && [
@@ -1806,10 +1874,10 @@ impl Names {
             learned |= changed(&mut self.member_styles, key, Style::parse(style));
         }
         // Present when known, null when they aren't timed out; a time past
-        // is a timeout that ended.
+        // is a timeout that ended. A moderator's messages show it.
         if let Some(until) = member.get("communication_disabled_until") {
             let until = until.as_str().and_then(iso_ms);
-            changed(&mut self.timeouts, key, until);
+            learned |= changed(&mut self.timeouts, key, until);
         }
         // Present when known, null when they don't boost it.
         if let Some(since) = member.get("premium_since") {
@@ -2666,6 +2734,28 @@ mod tests {
     }
 
     #[test]
+    fn sound_files_play_by_their_names() {
+        let file = |name: &str, sized: bool| {
+            let mut file =
+                json!({"filename": name, "size": 1, "url": format!("https://cdn/{name}")});
+            if sized {
+                file["width"] = json!(640);
+                file["height"] = json!(360);
+            }
+            file
+        };
+        let message = parse(&json!({
+            "id": "1", "channel_id": "2", "author": {"id": "3", "username": "ann"},
+            "content": "",
+            "attachments": [file("song.MP3", false), file("take.wav", false),
+                            file("loop.ogg", false), file("film.ogg", true), file("notes.txt", false)],
+        }))
+        .unwrap();
+        let audio: Vec<_> = message.attachments.iter().map(|a| a.audio).collect();
+        assert_eq!(audio, [true, true, true, false, false]);
+    }
+
+    #[test]
     fn parses_replies_attachments_and_reactions() {
         let message = parse(&json!({
             "id": "1300000000000000000",
@@ -2786,12 +2876,42 @@ mod tests {
         }))
         .unwrap();
         assert!(message.forwarded && !message.editable);
+        assert_eq!(
+            message.forward_origin,
+            Some(ForwardOrigin {
+                guild_id: Some("10".into()),
+                channel_id: "12".into(),
+                message_id: "9".into(),
+                timestamp: snowflake_ms("9") / 1000,
+            })
+        );
         assert_eq!(message.content, "look");
         assert_eq!(
             message.attachments[0].video_url.as_deref(),
             Some("https://cdn/clip.mp4")
         );
         assert_eq!(message.attachments[1].shown, Shown::Sticker);
+
+        // A forward from a DM has no guild_id.
+        let dm_forward = parse(&json!({
+            "id": "1300000000000000001",
+            "channel_id": "11",
+            "type": 0,
+            "content": "",
+            "author": {"id": "1", "username": "me"},
+            "message_reference": {"type": 1, "channel_id": "55", "message_id": "1300000000000000000"},
+            "message_snapshots": [{"message": {"type": 0, "content": "from dm"}}],
+        }))
+        .unwrap();
+        assert_eq!(
+            dm_forward.forward_origin,
+            Some(ForwardOrigin {
+                guild_id: None,
+                channel_id: "55".into(),
+                message_id: "1300000000000000000".into(),
+                timestamp: snowflake_ms("1300000000000000000") / 1000,
+            })
+        );
 
         // A reply's reference has the default type, so it shows its own content.
         let reply = parse(&json!({
@@ -2801,6 +2921,7 @@ mod tests {
         }))
         .unwrap();
         assert!(!reply.forwarded);
+        assert!(reply.forward_origin.is_none());
         assert_eq!(reply.content, "mine");
     }
 

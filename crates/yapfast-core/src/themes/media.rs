@@ -18,7 +18,10 @@ macro_rules! bail {
 
 /// Where a theme's sound plays: one of Yapfast's own sounds, which it
 /// replaces, or an interface event, which only themes give a sound.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[derive(
+    Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, serde::Deserialize, serde::Serialize,
+)]
+#[serde(rename_all = "kebab-case")]
 pub enum SoundSlot {
     Join,
     Leave,
@@ -154,7 +157,6 @@ impl SoundSlot {
     }
 
     /// The slot that replaces a Yapfast sound.
-    #[cfg(test)]
     pub fn of_sound(sound: crate::sounds::Sound) -> Self {
         Self::ALL
             .into_iter()
