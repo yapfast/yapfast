@@ -1,0 +1,26 @@
+msgid ""
+msgstr ""
+"Language: ru\n"
+"Content-Type: text/plain; charset=UTF-8\n"
+"Content-Transfer-Encoding: 8bit\n"
+
+msgid "Language & Time"
+msgstr "Язык и время"
+
+msgid "Interface language"
+msgstr "Язык интерфейса"
+
+msgid "System language"
+msgstr "Язык системы"
+
+msgid "Time format"
+msgstr "Формат времени"
+
+msgid "Auto"
+msgstr "Авто"
+
+msgid "12-hour"
+msgstr "12-часовой"
+
+msgid "24-hour"
+msgstr "24-часовой"

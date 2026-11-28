@@ -2,13 +2,12 @@
 //!
 //! iced's default font system loads every font on the system (9,474 faces
 //! on the machine it was measured on) and copies the fonts given through its
-//! API. [`install`] replaces it with one that holds DM Sans, Manrope and
-//! Twemoji from the binary's own bytes and the system's monospace face for code. The
+//! API. [`install`] replaces it with one that holds DM Sans and Twemoji from
+//! the binary's own bytes and the system's monospace face for code. The
 //! display name fonts join it the first time a name needs one
-//! ([`name_font`]). DM Sans covers Latin and Manrope covers Cyrillic. An
-//! uncovered script loads the system's font for it the first time the
-//! shaper meets it, and a character the stocked fonts and its script's
-//! font lack (𝔟, ⓒ, ⠃: often the Common script's, which no
+//! ([`name_font`]), a script DM Sans lacks loads the system's font for it
+//! the first time the shaper meets it, and a character DM Sans, Twemoji and
+//! its script's font lack (𝔟, ⓒ, ⠃: often the Common script's, which no
 //! script asks for) loads the system's font for that character the first
 //! time the shaper can't draw it ([`load_wanted`]). fontdb maps system font
 //! files rather than reading them, so nothing is copied.
@@ -31,9 +30,6 @@ use iced::{
 /// own font files are loaded ([`crate::custom_font`]), their faces under
 /// the same name.
 pub const FAMILY: &str = "DM Sans";
-/// The bundled DM Sans faces while custom fonts occupy the main family.
-pub(crate) const LATIN_FALLBACK: &str = "Yapfast Latin";
-const CYRILLIC_FALLBACK: &str = "Manrope";
 
 pub const REGULAR: Font = Font::with_name(FAMILY);
 pub const MEDIUM: Font = Font {
@@ -59,26 +55,6 @@ pub const TWEMOJI: &str = "Yapfast Twemoji";
 const DM_SANS: &[u8] = include_bytes!("../fonts/DMSans[opsz,wght].ttf");
 /// Its italic, for Markdown's emphasis.
 const DM_SANS_ITALIC: &[u8] = include_bytes!("../fonts/DMSans-Italic[opsz,wght].ttf");
-const MANROPE: &[u8] = include_bytes!("../fonts/Manrope-Cyrillic[wght].ttf");
-
-pub(super) fn bundled_text_fonts() -> cosmic_text::fontdb::Database {
-    use cosmic_text::fontdb::{Database, Source, Style};
-
-    let mut db = Database::new();
-    for bytes in [DM_SANS, DM_SANS_ITALIC] {
-        db.load_font_source(Source::Binary(Arc::new(bytes)));
-    }
-    for id in db.load_font_source(Source::Binary(Arc::new(MANROPE))) {
-        if let Some(face) = db.face(id) {
-            // Like system fallbacks, the upright face is also available for
-            // italic requests. Manrope ships no separate italic face.
-            let mut italic = face.clone();
-            italic.style = Style::Italic;
-            db.push_face_info(italic);
-        }
-    }
-    db
-}
 
 /// The theme's body face that text asking for DM Sans takes, and the one
 /// it takes now: none while the person's own font files are loaded.
@@ -132,9 +108,12 @@ fn update_alias(theme: Option<Option<&'static str>>) {
     fonts.load_font(Cow::Owned(vec![0]));
 }
 
-/// Makes the window's font system with the bundled text fonts, `twemoji`
-/// (which the app packs), and the system's monospace face for code. What
-/// the bundled fonts lack can use a system fallback ([`load_wanted`]).
+/// Makes the window's font system: DM Sans and its italic, `twemoji` (the
+/// font `crates/yapfast-iced/build.rs` packs, or nothing), and the system's
+/// monospace face for code, with DM Sans then Twemoji as the fallback list,
+/// so a display name font's missing space comes from DM Sans and ❤ from
+/// Twemoji. What those two lack takes the system's font for the character
+/// ([`load_wanted`]).
 pub fn install(twemoji: &'static [u8]) {
     // `install` replaces the entire font database. Forget the theme-font
     // registry with it so a later load cannot mistake a face from the old
@@ -142,7 +121,11 @@ pub fn install(twemoji: &'static [u8]) {
     *theme_fonts()
         .lock()
         .unwrap_or_else(std::sync::PoisonError::into_inner) = ThemeFonts::default();
-    let mut db = bundled_text_fonts();
+    let mut db = cosmic_text::fontdb::Database::new();
+    db.load_font_source(cosmic_text::fontdb::Source::Binary(Arc::new(DM_SANS)));
+    db.load_font_source(cosmic_text::fontdb::Source::Binary(Arc::new(
+        DM_SANS_ITALIC,
+    )));
     if !twemoji.is_empty() {
         db.load_font_source(cosmic_text::fontdb::Source::Binary(Arc::new(twemoji)));
     }
@@ -161,9 +144,10 @@ pub fn install(twemoji: &'static [u8]) {
         db.set_monospace_family(mono);
     }
     db.set_sans_serif_family(FAMILY);
+    let fallback = Fallback(&[FAMILY, TWEMOJI]);
     let mut system = font_system().write().expect("font system");
     *system.raw() =
-        cosmic_text::FontSystem::new_with_locale_and_db_and_fallback("en-US".into(), db, Fallback);
+        cosmic_text::FontSystem::new_with_locale_and_db_and_fallback("en-US".into(), db, fallback);
 }
 
 /// The system's monospace face, as fontconfig ranks them.
@@ -195,7 +179,7 @@ fn fc_match(args: &[&str]) -> Option<String> {
     if !BROKEN.swap(true, Ordering::Relaxed) {
         tracing::warn!(
             failure,
-            "fc-match did not run; characters the bundled fonts lack may show as boxes"
+            "fc-match did not run; text in scripts DM Sans lacks shows as boxes"
         );
     }
     None
@@ -225,11 +209,11 @@ fn monospace_file() -> Option<String> {
 }
 
 /// The fallback list, and the scripts the shaper asks about.
-pub(super) struct Fallback;
+struct Fallback(&'static [&'static str]);
 
 impl cosmic_text::Fallback for Fallback {
     fn common_fallback(&self) -> &[&'static str] {
-        &[FAMILY, LATIN_FALLBACK, TWEMOJI]
+        self.0
     }
 
     fn forbidden_fallback(&self) -> &[&'static str] {
@@ -242,9 +226,6 @@ impl cosmic_text::Fallback for Fallback {
     /// face will have, so the script's text takes it ahead of any font
     /// chosen for single characters.
     fn script_fallback(&self, script: unicode_script::Script, _locale: &str) -> &[&'static str] {
-        if script == unicode_script::Script::Cyrillic {
-            return &[CYRILLIC_FALLBACK];
-        }
         let Some(language) = script_language(script) else {
             return &[];
         };
@@ -254,7 +235,7 @@ impl cosmic_text::Fallback for Fallback {
     }
 
     /// cosmic-text (patch 1 in `vendor/cosmic-text`) hands over each
-    /// cluster the bundled fonts and the script's font lack, every time it
+    /// cluster DM Sans, Twemoji and the script's font lack, every time it
     /// shapes one, and tries the families named here next.
     fn missing(&self, cluster: &str, families: &mut Vec<&'static str>) {
         if ask(cluster, families) {
@@ -379,6 +360,7 @@ fn script_language(script: unicode_script::Script) -> Option<&'static str> {
             })
         }
         Script::Bopomofo => "zh-tw",
+        Script::Cyrillic => "ru",
         Script::Greek => "el",
         Script::Arabic => "ar",
         Script::Hebrew => "he",
@@ -1226,6 +1208,7 @@ mod tests {
             (Script::Hangul, "ko"),
             (Script::Devanagari, "hi"),
             (Script::Thai, "th"),
+            (Script::Cyrillic, "ru"),
             (Script::Greek, "el"),
         ] {
             assert_eq!(script_language(script), Some(language), "{script:?}");

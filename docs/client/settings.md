@@ -119,9 +119,9 @@ recording. Each change is kept at once in
   supported desktop language at startup, matching regional tags to their
   base language (for example, `de-AT` to `de`). If no supported language is
   available, Yapfast uses English. An explicit choice is saved as a
-  language tag in `layout.json`. The language changes immediately in
-  Settings navigation and search, Language & Time, and Advanced. The
-  content of the other pages and the main window still uses English.
+  language tag in `layout.json`. Language & Time updates immediately, and
+  its translated name appears in Settings navigation and search. Other
+  screens use their English source text.
 
   Time format offers Auto, 12-hour and 24-hour. Auto uses the system's
   regional time setting at startup and falls back to 24-hour if it is
@@ -138,12 +138,23 @@ recording. Each change is kept at once in
   there's no tray, and the renderer's switch: while it differs from the
   renderer drawing, when it takes effect and Restart Yapfast.
 
-  Interface messages live in
-  `crates/yapfast-iced/assets/locales/<language>/settings.ftl`. Keep the
-  message ID when changing its wording. For a new label, add an ID to the
-  English catalog and to `i18n::Key`, then look it up through `Ctx::i18n`.
-  A missing translation falls back to the English message. The catalog tests
-  check syntax, duplicate IDs, and that registered messages format.
+  English text lives in the view code, for example
+  `tr!(self.cx.i18n, "Interface language")`. Use `tr_mark!` for a source
+  string stored in a constant and translate it through `Ctx::i18n` when
+  displaying it. The Russian and German catalogs live in
+  `crates/yapfast-iced/assets/locales/<language>/settings.po`. Missing,
+  empty and fuzzy entries display the English source string.
+
+  Extract a fresh template with a version of GNU gettext that supports
+  Rust. Run this from the repository root and use `msgmerge --update`
+  with the template to refresh each `settings.po` after editing English
+  strings.
+
+  ```sh
+  git ls-files -- 'crates/yapfast-iced/src/*.rs' |
+    xgettext --language=Rust --from-code=UTF-8 --keyword='tr!:2' \
+      --keyword='tr_mark!:1' --files-from=- --output=settings.pot
+  ```
 - Appearance (`appearance.rs`): each theme as a small window in its own
   colours, as many 150 px or wider across as fit; a click shows one and
   keeps it. New theme opens the editor on a copy of the theme shown (Start

@@ -1,15 +1,30 @@
-//! Interface messages shipped with the window.
+//! Source strings and GNU gettext catalogs for the window.
 
-use std::borrow::Cow;
+use std::collections::HashMap;
 
-use anyhow::{Context, Result, anyhow};
-use fluent_bundle::{FluentBundle, FluentResource};
+use polib::po_file;
 use unic_langid::LanguageIdentifier;
+
+/// Translate a literal using the window's selected language.
+macro_rules! tr {
+    ($locale:expr, $source:literal $(,)?) => {
+        ($locale).text($source)
+    };
+}
+pub(crate) use tr;
+
+/// Mark a source string stored in a constant for gettext extraction.
+macro_rules! tr_mark {
+    ($source:literal) => {
+        $source
+    };
+}
+pub(crate) use tr_mark;
 
 pub struct Language {
     pub tag: &'static str,
     pub name: &'static str,
-    source: &'static str,
+    source: Option<&'static str>,
 }
 
 macro_rules! language {
@@ -17,12 +32,20 @@ macro_rules! language {
         Language {
             tag: $tag,
             name: $name,
-            source: include_str!(concat!("../assets/locales/", $tag, "/settings.ftl")),
+            source: Some(include_str!(concat!(
+                "../assets/locales/",
+                $tag,
+                "/settings.po"
+            ))),
         }
     };
 }
 
-const ENGLISH: Language = language!("en", "English");
+const ENGLISH: Language = Language {
+    tag: "en",
+    name: "English",
+    source: None,
+};
 pub static LANGUAGES: &[Language] = &[
     ENGLISH,
     language!("ru", "Русский"),
@@ -41,87 +64,18 @@ pub fn choice(preferred: Option<&str>) -> usize {
     })
 }
 
-macro_rules! keys {
-    ($($key:ident => $id:literal),+ $(,)?) => {
-        #[derive(Clone, Copy)]
-        pub enum Key {
-            $($key),+
-        }
-
-        impl Key {
-            #[cfg(test)]
-            const ALL: &[Self] = &[$(Self::$key),+];
-
-            pub fn id(self) -> &'static str {
-                match self {
-                    $(Self::$key => $id),+
-                }
-            }
-        }
-    };
-}
-
-keys! {
-    SettingsSearch => "settings-search",
-    SettingsClose => "settings-close",
-    SettingsEditProfile => "settings-edit-profile",
-    GroupAccount => "settings-group-account",
-    GroupExperience => "settings-group-experience",
-    GroupApp => "settings-group-app",
-    Account => "settings-account",
-    Voice => "settings-voice",
-    Messages => "settings-messages",
-    Accessibility => "settings-accessibility",
-    Notifications => "settings-notifications",
-    Discord => "settings-discord",
-    Sounds => "settings-sounds",
-    Advanced => "settings-advanced",
-    LanguageTime => "settings-language-time",
-    Appearance => "settings-appearance",
-    Themes => "settings-themes",
-    Games => "settings-games",
-    Keybinds => "settings-keybinds",
-    About => "settings-about",
-    Language => "language-time-language",
-    SystemLanguage => "language-time-system-language",
-    TimeFormat => "language-time-format",
-    TimeAuto => "language-time-auto",
-    TimeHour12 => "language-time-12-hour",
-    TimeHour24 => "language-time-24-hour",
-    OpenOnStartup => "advanced-open-on-startup",
-    StartMinimized => "advanced-start-minimized",
-    StartMinimizedDescription => "advanced-start-minimized-description",
-    DiscordLinks => "advanced-discord-links",
-    DiscordLinksDescription => "advanced-discord-links-description",
-    CloseToTray => "advanced-close-to-tray",
-    CloseToTrayDescription => "advanced-close-to-tray-description",
-    NoTrayDescription => "advanced-no-tray-description",
-    MultipleWindows => "advanced-multiple-windows",
-    MultipleWindowsDescription => "advanced-multiple-windows-description",
-    GpuRendering => "advanced-gpu-rendering",
-    GpuRenderingDescription => "advanced-gpu-rendering-description",
-    GpuEncoding => "advanced-gpu-encoding",
-    GpuEncodingDescription => "advanced-gpu-encoding-description",
-    DeveloperMode => "advanced-developer-mode",
-    DeveloperModeDescription => "advanced-developer-mode-description",
-    IconCredits => "advanced-icon-credits",
-    RestartForGpu => "advanced-restart-for-gpu",
-    RestartForCpu => "advanced-restart-for-cpu",
-    Restart => "advanced-restart",
-}
-
-type Catalog = FluentBundle<FluentResource>;
+type Catalog = HashMap<Box<str>, Box<str>>;
 
 pub struct I18n {
-    english: Catalog,
-    selected: Option<Catalog>,
+    tag: &'static str,
+    translations: Catalog,
 }
 
 impl I18n {
     pub fn new(preferred: Option<&str>) -> Self {
         let mut i18n = Self {
-            english: load(&ENGLISH).expect("valid embedded English interface messages"),
-            selected: None,
+            tag: ENGLISH.tag,
+            translations: Catalog::new(),
         };
         i18n.select(preferred);
         i18n
@@ -130,29 +84,20 @@ impl I18n {
     pub fn select(&mut self, preferred: Option<&str>) {
         let language =
             preferred.map_or_else(|| system_language(sys_locale::get_locales()), explicit);
-        if self.selected.as_ref().unwrap_or(&self.english).locales[0] == language.tag {
+        if language.tag == self.tag {
             return;
         }
-        self.selected = if language.tag == ENGLISH.tag {
-            None
-        } else {
-            match load(language) {
-                Ok(catalog) => Some(catalog),
-                Err(error) => {
-                    tracing::warn!(locale = language.tag, %error, "could not load interface language");
-                    None
-                }
-            }
-        };
+        self.tag = language.tag;
+        self.translations = language.source.map_or_else(Catalog::new, |source| {
+            catalog(source).unwrap_or_else(|error| {
+                tracing::warn!(locale = language.tag, %error, "could not load interface language");
+                Catalog::new()
+            })
+        });
     }
 
-    pub fn text(&self, key: Key) -> Cow<'_, str> {
-        let id = key.id();
-        self.selected
-            .as_ref()
-            .and_then(|catalog| message(catalog, id))
-            .or_else(|| message(&self.english, id))
-            .unwrap_or(Cow::Borrowed(id))
+    pub fn text<'a>(&'a self, source: &'a str) -> &'a str {
+        self.translations.get(source).map_or(source, AsRef::as_ref)
     }
 }
 
@@ -182,27 +127,16 @@ fn supported(tag: &str) -> Option<&'static Language> {
         })
 }
 
-fn load(language: &Language) -> Result<Catalog> {
-    let mut catalog = Catalog::new(vec![language.tag.parse()?]);
-    let resource = FluentResource::try_new(language.source.into())
-        .map_err(|(_, errors)| anyhow!("{errors:?}"))
-        .with_context(|| format!("parsing the {} interface catalog", language.tag))?;
-    catalog
-        .add_resource(resource)
-        .map_err(|errors| anyhow!("{errors:?}"))
-        .with_context(|| format!("loading the {} interface catalog", language.tag))?;
-    Ok(catalog)
-}
-
-fn message<'a>(catalog: &'a Catalog, id: &str) -> Option<Cow<'a, str>> {
-    let pattern = catalog.get_message(id)?.value()?;
-    let mut errors = Vec::new();
-    let value = catalog.format_pattern(pattern, None, &mut errors);
-    if !errors.is_empty() {
-        tracing::warn!(id, ?errors, "could not format interface message");
-        return None;
-    }
-    Some(value)
+fn catalog(source: &str) -> Result<Catalog, po_file::POParseError> {
+    let po = po_file::parse_from_reader(source.as_bytes())?;
+    Ok(po
+        .messages()
+        .filter(|message| message.msgctxt().is_none() && !message.is_fuzzy())
+        .filter_map(|message| {
+            let translation = message.msgstr().ok().filter(|value| !value.is_empty())?;
+            Some((message.msgid().into(), translation.into()))
+        })
+        .collect())
 }
 
 #[cfg(test)]
@@ -220,22 +154,43 @@ mod tests {
     }
 
     #[test]
-    fn interface_catalogs_parse_and_messages_format() {
+    fn interface_catalogs_parse_and_return_translations() {
         for language in LANGUAGES {
-            let catalog = load(language).unwrap();
-            for key in Key::ALL {
-                let id = key.id();
-                if language.tag == ENGLISH.tag || catalog.has_message(id) {
-                    assert!(message(&catalog, id).is_some(), "{}: {id}", language.tag);
-                }
+            if let Some(source) = language.source {
+                let translations = catalog(source).unwrap();
+                assert!(
+                    translations.contains_key("Language & Time"),
+                    "{}",
+                    language.tag
+                );
             }
         }
     }
 
     #[test]
-    fn missing_interface_messages_fall_back_to_english() {
-        let mut i18n = I18n::new(Some("en"));
-        i18n.selected = Some(Catalog::new(vec!["de".parse().unwrap()]));
-        assert_eq!(i18n.text(Key::Advanced), "Advanced");
+    fn interface_messages_fall_back_for_missing_empty_and_fuzzy_translations() {
+        let source = r#"msgid ""
+msgstr "Content-Type: text/plain; charset=UTF-8\n"
+
+msgid "Known"
+msgstr ""
+"Über"
+"setzt"
+
+msgid "Empty"
+msgstr ""
+
+#, fuzzy
+msgid "Draft"
+msgstr "Entwurf"
+"#;
+        let i18n = I18n {
+            tag: "de",
+            translations: catalog(source).unwrap(),
+        };
+        assert_eq!(i18n.text("Known"), "Übersetzt");
+        assert_eq!(i18n.text("Missing"), "Missing");
+        assert_eq!(i18n.text("Empty"), "Empty");
+        assert_eq!(i18n.text("Draft"), "Draft");
     }
 }

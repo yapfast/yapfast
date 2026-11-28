@@ -504,16 +504,13 @@ Settings → Appearance has a FONT section for drawing all of Yapfast in the
 person's own font. Choose font files opens the system's file dialog, which
 takes several files at once; the list shows each file by name with the faces
 it gave ("Regular, Bold Italic") and a Remove button. Choosing again adds to
-the files already loaded, and Reset to default removes them all. The bundled
-defaults are DM Sans for Latin and Manrope for Cyrillic. Code keeps its
-monospace font, and emoji use Twemoji.
+the files already loaded, and Reset to default removes them all and goes back
+to DM Sans. The monospace code font and the emoji font are not changed.
 
 The window draws every text in the family named DM Sans, so the files' faces
 are put in the font database under that name, not the names the files carry
-(the weights of one typeface often have a family name each). The bundled
-faces remain available for missing glyphs. When the interface switches
-languages, it uses the chosen font where it has the required glyphs and
-the bundled fallbacks where it needs them. cosmic-text picks the face for a bold or
+(the weights of one typeface often have a family name each), and DM Sans's own
+faces leave it while they're in. cosmic-text then picks the face for a bold or
 italic request through fontdb's query, from the weight and style each file
 declares in its own tables, so a family given as one file per weight and a
 variable font both work; a variable font is one face, drawn at each weight
@@ -538,7 +535,7 @@ is released; that is the only copy a font makes. At most 64 files load.
 `layout.json` keeps the files in `ui_font_files`, as absolute paths in the
 order they were added. They are loaded at startup, before the window opens. A
 path that is missing or isn't a usable font is skipped with a note under the
-list, the rest are used, and when none loads the default fonts stay. A missing file
+list, the rest are used, and when none loads DM Sans stays. A missing file
 stays saved, in case its drive comes back; a file refused when chosen is not
 saved.
 

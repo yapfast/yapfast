@@ -26,7 +26,7 @@ yapfast-iced-kit = { path = "../yapfast-iced-kit" }
 yapfast-core = { path = "../yapfast-core", default-features = false, features = ["discord"] }
 tokio.workspace = true
 tracing.workspace = true
-fluent-bundle = "0.16"
+polib = "0.3"
 sys-locale = "0.3"
 unic-langid = "0.9"
 # Installed themes and the marketplace are fetched from their checked GitHub

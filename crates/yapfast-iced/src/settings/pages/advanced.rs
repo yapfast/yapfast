@@ -10,7 +10,6 @@ use crate::{
     controls::{Kind, action},
     desktop::Autostart,
     form::{self, switch},
-    i18n::Key,
     pictures::Icon,
 };
 
@@ -18,8 +17,7 @@ impl<'a> Page<'a> {
     pub(in crate::settings) fn advanced_page(self) -> Element<'a, Message> {
         let theme = self.cx.look.theme;
         let prefs = &self.cx.layout.prefs;
-        let tr = |key| self.cx.i18n.text(key);
-        let mut parts = vec![form::title(theme, tr(Key::Advanced))];
+        let mut parts = vec![form::title(theme, "Advanced")];
         let platform = self.s.platform;
         if let Some(start) = platform.autostart {
             // Discord's OS_OPEN_ON_STARTUP and OS_START_MINIMIZED: the second
@@ -28,7 +26,7 @@ impl<'a> Page<'a> {
             let minimized = start == Autostart::Tray;
             parts.push(
                 switch(
-                    tr(Key::OpenOnStartup),
+                    "Automatically open Yapfast when your computer starts up",
                     open,
                     Some(pref(Pref::OpenOnStartup(!open))),
                 )
@@ -36,18 +34,18 @@ impl<'a> Page<'a> {
             );
             parts.push(
                 switch(
-                    tr(Key::StartMinimized),
+                    "Start Yapfast minimized",
                     minimized,
                     open.then(|| pref(Pref::StartMinimized(!minimized))),
                 )
-                .description(tr(Key::StartMinimizedDescription))
+                .description("Start Yapfast in the background, out of your way.")
                 .view(self.cx.look),
             );
         }
         if let Some(links) = platform.discord_links {
             parts.push(self.flip(
-                tr(Key::DiscordLinks),
-                tr(Key::DiscordLinksDescription),
+                "Open Discord links in Yapfast",
+                "discord:// links from other apps and shortcuts open here instead of Discord. Turning it off gives them back to the app that had them.",
                 links,
                 Pref::DiscordLinks,
             ));
@@ -55,24 +53,24 @@ impl<'a> Page<'a> {
         let tray = self.cx.tray;
         parts.extend([
             self.flip(
-                tr(Key::CloseToTray),
-                tr(if tray {
-                    Key::CloseToTrayDescription
+                "Close to tray",
+                if tray {
+                    "Closing the window keeps Yapfast running in the system tray, with any call. Quit from the tray icon's menu."
                 } else {
-                    Key::NoTrayDescription
-                }),
+                    "No system tray is running, so closing the window quits Yapfast."
+                },
                 prefs.close_to_tray.unwrap_or(true),
                 Pref::CloseToTray,
             ),
             self.flip(
-                tr(Key::MultipleWindows),
-                tr(Key::MultipleWindowsDescription),
+                "Allow multiple windows",
+                "Starting Yapfast while it runs opens another Yapfast, with its own window and tray icon. Off, it brings the open window forward.",
                 prefs.multiple_windows,
                 Pref::MultipleWindows,
             ),
             self.flip(
-                tr(Key::GpuRendering),
-                tr(Key::GpuRenderingDescription),
+                "Render with the GPU",
+                "Hardware acceleration. Off, Yapfast draws on the processor, which uses about half the memory.",
                 prefs.gpu_rendering,
                 Pref::GpuRendering,
             ),
@@ -80,18 +78,18 @@ impl<'a> Page<'a> {
         parts.extend(self.restart_row());
         parts.extend([
             self.flip(
-                tr(Key::GpuEncoding),
-                tr(Key::GpuEncodingDescription),
+                "Encode streams with the GPU",
+                "Screen sharing uses the graphics card's video encoder, which takes almost no processor time and looks better at low bitrates. Off, or without one, Yapfast encodes on the processor.",
                 self.cx.layout.voice.gpu_encoding.unwrap_or(true),
                 Pref::GpuEncoding,
             ),
             self.flip(
-                tr(Key::DeveloperMode),
-                tr(Key::DeveloperModeDescription),
+                "Developer Mode",
+                "Menus offer Copy ID for servers, channels and people, which helps when you write apps that use the Discord API.",
                 self.cx.layout.developer_mode,
                 Pref::DeveloperMode,
             ),
-            text(tr(Key::IconCredits))
+            text("Icons from Solar by 480 Design (CC BY 4.0), many of them adapted, and from Lucide (ISC).")
                 .size(12)
                 .color(theme.faint)
                 .into(),
@@ -108,15 +106,15 @@ impl<'a> Page<'a> {
             return None;
         }
         let theme = self.cx.look.theme;
-        let words = self.cx.i18n.text(if gpu {
-            Key::RestartForGpu
+        let words = if gpu {
+            "Yapfast switches to the GPU when it restarts. Restarting leaves any call."
         } else {
-            Key::RestartForCpu
-        });
+            "Yapfast switches to the processor when it restarts. Restarting leaves any call."
+        };
         let ink = crate::theme::rgb(theme.text);
         let restart = action(
             theme,
-            self.cx.i18n.text(Key::Restart),
+            "Restart Yapfast",
             Kind::Plain,
             Some(crate::app::settings(Event::Restart)),
         )

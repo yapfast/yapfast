@@ -450,8 +450,8 @@ impl<'a> Page<'a> {
     /// A switch that flips a preference.
     fn flip(
         self,
-        label: impl Into<std::borrow::Cow<'a, str>>,
-        description: impl Into<std::borrow::Cow<'a, str>>,
+        label: &'a str,
+        description: &'a str,
         on: bool,
         make: fn(bool) -> Pref,
     ) -> Element<'a, Message> {

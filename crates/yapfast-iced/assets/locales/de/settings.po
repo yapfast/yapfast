@@ -1,0 +1,26 @@
+msgid ""
+msgstr ""
+"Language: de\n"
+"Content-Type: text/plain; charset=UTF-8\n"
+"Content-Transfer-Encoding: 8bit\n"
+
+msgid "Language & Time"
+msgstr "Sprache & Uhrzeit"
+
+msgid "Interface language"
+msgstr "Sprache der Benutzeroberfläche"
+
+msgid "System language"
+msgstr "Systemsprache"
+
+msgid "Time format"
+msgstr "Uhrzeitformat"
+
+msgid "Auto"
+msgstr "Automatisch"
+
+msgid "12-hour"
+msgstr "12-Stunden-Format"
+
+msgid "24-hour"
+msgstr "24-Stunden-Format"

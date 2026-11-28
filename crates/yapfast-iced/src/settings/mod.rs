@@ -32,8 +32,6 @@ pub mod updates;
 pub use pages::{block_game, message_size, open_detected_games_menu, system_motion};
 pub mod voice;
 
-use std::borrow::Cow;
-
 use crate::widgets::scroll_view;
 use iced::{
     Alignment, Color, Element, Length, Task,
@@ -49,7 +47,7 @@ use crate::{
     desktop::Autostart,
     fonts::BOLD,
     form,
-    i18n::Key,
+    i18n::{I18n, tr_mark},
     pictures::Icon,
     slot::{Closes, Why},
     style::scrollbar,
@@ -122,23 +120,32 @@ impl Section {
         }
     }
 
-    /// The stable key for the section's title and themed row.
-    fn title_key(self) -> Key {
+    /// The English source string for the section's title.
+    fn title(self) -> &'static str {
         match self {
-            Section::Account => Key::Account,
-            Section::Voice => Key::Voice,
-            Section::Messages => Key::Messages,
-            Section::Accessibility => Key::Accessibility,
-            Section::Notifications => Key::Notifications,
-            Section::Discord => Key::Discord,
-            Section::Sounds => Key::Sounds,
-            Section::Advanced => Key::Advanced,
-            Section::LanguageTime => Key::LanguageTime,
-            Section::Appearance => Key::Appearance,
-            Section::Themes => Key::Themes,
-            Section::Games => Key::Games,
-            Section::Keybinds => Key::Keybinds,
-            Section::About => Key::About,
+            Section::Account => "My Account",
+            Section::Voice => "Voice & Video",
+            Section::Messages => "Messages",
+            Section::Accessibility => "Accessibility",
+            Section::Notifications => "Notifications",
+            Section::Discord => "Discord",
+            Section::Sounds => "Sounds",
+            Section::Advanced => "Advanced",
+            Section::LanguageTime => tr_mark!("Language & Time"),
+            Section::Appearance => "Appearance",
+            Section::Themes => "Themes",
+            Section::Games => "Game Activity",
+            Section::Keybinds => "Keybinds",
+            Section::About => "About",
+        }
+    }
+
+    fn localized_title(self, i18n: &I18n) -> &str {
+        let title = self.title();
+        if self == Section::LanguageTime {
+            i18n.text(title)
+        } else {
+            title
         }
     }
 
@@ -164,10 +171,10 @@ impl Section {
 
 /// The column's groups and their sections, as Discord's settings group
 /// them.
-const GROUPS: [(Key, &[Section]); 3] = [
-    (Key::GroupAccount, &[Section::Account]),
+const GROUPS: [(&str, &[Section]); 3] = [
+    ("Account", &[Section::Account]),
     (
-        Key::GroupExperience,
+        "Experience",
         &[
             Section::Voice,
             Section::Messages,
@@ -178,7 +185,7 @@ const GROUPS: [(Key, &[Section]); 3] = [
         ],
     ),
     (
-        Key::GroupApp,
+        "App Settings",
         &[
             Section::Discord,
             Section::Games,
@@ -580,7 +587,7 @@ impl<'a> Page<'a> {
         let line = bar(theme.line, Length::Fill, 1);
         let header = column![
             row![
-                text(self.cx.i18n.text(section.title_key()))
+                text(section.localized_title(self.cx.i18n))
                     .size(15)
                     .font(BOLD)
                     .color(theme.text)
@@ -589,7 +596,7 @@ impl<'a> Page<'a> {
                     .look
                     .icon_button(
                         Icon::X,
-                        self.cx.i18n.text(Key::SettingsClose),
+                        "Close Settings",
                         crate::app::settings(Event::Close)
                     )
                     .size(32.0, 18)
@@ -728,7 +735,7 @@ impl<'a> Page<'a> {
             names = names.push(
                 button(
                     row![
-                        text(self.cx.i18n.text(Key::SettingsEditProfile)).size(13),
+                        text("Edit Profile").size(13),
                         self.cx.look.glyph(Icon::Pencil, 12, theme.muted)
                     ]
                     .spacing(4)
@@ -757,7 +764,7 @@ impl<'a> Page<'a> {
             controls::field(
                 theme,
                 SEARCH,
-                &self.cx.i18n.text(Key::SettingsSearch),
+                "Search settings",
                 &settings.query,
                 false,
                 true,
@@ -772,7 +779,7 @@ impl<'a> Page<'a> {
         for (index, (group, sections)) in GROUPS.iter().enumerate() {
             if query.is_empty() {
                 entries = entries.push(
-                    container(text(self.cx.i18n.text(*group)).size(12).color(theme.muted))
+                    container(text(*group).size(12).color(theme.muted))
                         .padding(iced::Padding {
                             top: if index == 0 { 0.0 } else { 16.0 },
                             left: 8.0,
@@ -788,7 +795,7 @@ impl<'a> Page<'a> {
                 if discord_only && self.cx.state.preview {
                     continue;
                 }
-                let title = self.cx.i18n.text(section.title_key());
+                let title = section.localized_title(self.cx.i18n);
                 if !query.is_empty() && !title.to_lowercase().contains(&query) {
                     continue;
                 }
@@ -824,14 +831,14 @@ impl<'a> Page<'a> {
     fn themed_nav_row(
         self,
         section: Section,
-        title: Cow<'a, str>,
+        title: &'a str,
         selected: bool,
     ) -> Element<'a, Message> {
         let theme = self.cx.look.theme;
         let listed = self.cx.themes.channel_rows(&theme.id);
         let fallback = yapfast_core::themes::lists::ChannelRows::default();
         let rows = listed.unwrap_or(&fallback);
-        let id = format!("settings:{}", section.title_key().id());
+        let id = format!("settings:{}", section.title());
         let pointed = self.cx.pointed.side.as_deref() == Some(id.as_str());
         let stock = if selected {
             theme.token_colour("row-selected-text", theme.text)
@@ -890,10 +897,7 @@ impl<'a> Page<'a> {
         } else {
             crate::piece::TextLight::default()
         };
-        let words = match crate::themes::list_case(rows.case, &title) {
-            Cow::Owned(words) => Cow::Owned(words),
-            Cow::Borrowed(_) => title,
-        };
+        let words = crate::themes::list_case(rows.case, title);
         let underlined = selected && rows.selected.underline.is_some();
         let hug = rows.fit_text || underlined;
         let name = crate::elide::elide(words)
@@ -946,12 +950,7 @@ impl<'a> Page<'a> {
     }
 
     /// A section's row.
-    fn nav_row(
-        self,
-        section: Section,
-        title: Cow<'a, str>,
-        selected: bool,
-    ) -> Element<'a, Message> {
+    fn nav_row(self, section: Section, title: &'a str, selected: bool) -> Element<'a, Message> {
         if self.cx.look.theme.packaged() {
             return self.themed_nav_row(section, title, selected);
         }

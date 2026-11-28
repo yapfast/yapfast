@@ -6,23 +6,22 @@ use super::{Pref, pref};
 use crate::{
     app::{Message, settings},
     form,
-    i18n::{self, Key},
-    settings::{Drop, Event, Page},
+    i18n::{self, tr, tr_mark},
+    settings::{Drop, Event, Page, Section},
     time_format::TimeFormat,
 };
 
-const TIME_FORMATS: [(TimeFormat, Key); 3] = [
-    (TimeFormat::Auto, Key::TimeAuto),
-    (TimeFormat::Hour12, Key::TimeHour12),
-    (TimeFormat::Hour24, Key::TimeHour24),
+const TIME_FORMATS: [(TimeFormat, &str); 3] = [
+    (TimeFormat::Auto, tr_mark!("Auto")),
+    (TimeFormat::Hour12, tr_mark!("12-hour")),
+    (TimeFormat::Hour24, tr_mark!("24-hour")),
 ];
 
 impl<'a> Page<'a> {
     pub(in crate::settings) fn language_time_page(self) -> Element<'a, Message> {
         let theme = self.cx.look.theme;
         let prefs = &self.cx.layout.prefs;
-        let tr = |key| self.cx.i18n.text(key);
-        let languages = std::iter::once(tr(Key::SystemLanguage).into_owned())
+        let languages = std::iter::once(tr!(self.cx.i18n, "System language").to_owned())
             .chain(
                 i18n::LANGUAGES
                     .iter()
@@ -31,15 +30,15 @@ impl<'a> Page<'a> {
             .collect();
         let formats = TIME_FORMATS
             .iter()
-            .map(|&(_, key)| tr(key).into_owned())
+            .map(|&(_, source)| self.cx.i18n.text(source).to_owned())
             .collect();
         let current_format = TIME_FORMATS
             .iter()
             .position(|&(format, _)| format == prefs.time_format());
         form::page([
-            form::title(theme, tr(Key::LanguageTime)),
+            form::title(theme, self.cx.i18n.text(Section::LanguageTime.title())),
             form::group([
-                form::heading(theme, tr(Key::Language)),
+                form::heading(theme, tr!(self.cx.i18n, "Interface language")),
                 form::dropdown(
                     languages,
                     Some(i18n::choice(prefs.language.as_deref())),
@@ -51,7 +50,7 @@ impl<'a> Page<'a> {
                 .view(self.cx.look),
             ]),
             form::group([
-                form::heading(theme, tr(Key::TimeFormat)),
+                form::heading(theme, tr!(self.cx.i18n, "Time format")),
                 form::dropdown(
                     formats,
                     current_format,

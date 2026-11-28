@@ -65,8 +65,6 @@ rustPlatform.buildRustPackage {
     install -Dm644 packaging/icon.svg "$out/share/icons/hicolor/scalable/apps/${id}.svg"
     install -Dm644 packaging/linux/${id}.desktop -t "$out/share/applications"
     install -Dm644 packaging/linux/${id}.metainfo.xml -t "$out/share/metainfo"
-    install -Dm644 crates/yapfast-iced-kit/fonts/LICENSE-*.txt crates/yapfast-iced-kit/fonts/README.md \
-      -t "$out/share/licenses/yapfast/fonts"
     # The GPU, audio and screen capture libraries are loaded at runtime, and
     # NixOS keeps the GPU driver's in /run/opengl-driver. fc-match finds the
     # system's font for a script or character the UI font lacks; the

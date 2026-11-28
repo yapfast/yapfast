@@ -1,6 +1,6 @@
 # UI fonts
 
-Latin interface text uses DM Sans, an open-source alternative to Discord's
+The window's typeface is DM Sans, an open-source alternative to Discord's
 custom gg sans, not an exact reproduction of it. The unmodified variable TTF
 files `DMSans[opsz,wght].ttf` and `DMSans-Italic[opsz,wght].ttf` come from
 [Google Fonts](https://github.com/google/fonts/tree/5b35b7208dd4100571326fdf37f030b32a524232/ofl/dmsans)
@@ -10,15 +10,6 @@ and italic faces with variable weights and optical sizes, and
 are preserved in [LICENSE-OFL-DMSans.txt](LICENSE-OFL-DMSans.txt), the SIL Open
 Font License 1.1. Binary packages include the license and this provenance note
 in `licenses/fonts/`.
-
-Manrope is the bundled fallback for Cyrillic. `Manrope-Cyrillic[wght].ttf`
-is the variable `Manrope[wght].ttf` from
-[Google Fonts](https://github.com/google/fonts/tree/5026800714d07231937d92eb4cceabf06e05d74e/ofl/manrope)
-at commit `5026800714d07231937d92eb4cceabf06e05d74e`, subset with
-fontTools to Cyrillic and combining marks (30,276 bytes). It keeps the
-weight axis and layout features. The original
-copyright and SIL Open Font License 1.1 are in
-[LICENSE-OFL-Manrope.txt](LICENSE-OFL-Manrope.txt).
 
 No proprietary font files are bundled: Discord's gg sans and Windows' fonts aren't
 here, and the display name fonts below are Discord's copies of fonts under the SIL
