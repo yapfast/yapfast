@@ -1655,6 +1655,14 @@ impl Worker {
         };
         let frames = Frames::create(preview_width, preview_height)?;
         frames.set_preview_paused(true);
+        let hardware = HARDWARE.load(Ordering::Relaxed);
+        // The menu shows the checkbox of the encoding Settings chose, so
+        // x264 standing in for a GPU without an encoder follows the GPU's.
+        let high_quality = if hardware {
+            quality.gpu_high_quality
+        } else {
+            quality.high_quality
+        };
         let job = Job::Share {
             source,
             audio,
@@ -1662,12 +1670,12 @@ impl Worker {
             width,
             height,
             fps: quality.fps,
-            effort: if quality.high_quality {
+            effort: if high_quality {
                 Effort::High
             } else {
                 Effort::Light
             },
-            hardware: HARDWARE.load(Ordering::Relaxed),
+            hardware,
             gpu_effort: if quality.gpu_high_quality {
                 Effort::High
             } else {
