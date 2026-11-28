@@ -4,7 +4,8 @@
 //! widget's own bounds on screen (above it or below it, as wide as it or at
 //! its own width, its left or right edge level with the widget's or centred
 //! on it), and kept
-//! inside the window. While it's open it takes the pointer over it; a press
+//! inside the window. While it's open it takes the pointer over all of it,
+//! from what's under it too; a press
 //! outside both says so, for a popup that closes then, and goes no further.
 
 use iced::{
@@ -357,9 +358,18 @@ impl<M: Clone> overlay::Overlay<M, Theme, Renderer> for Open<'_, '_, M> {
         renderer: &Renderer,
     ) -> mouse::Interaction {
         let bounds = layout.bounds();
-        self.popup
+        let interaction = self
+            .popup
             .as_widget()
-            .mouse_interaction(self.tree, layout, cursor, &bounds, renderer)
+            .mouse_interaction(self.tree, layout, cursor, &bounds, renderer);
+        // iced hides the pointer from what's under an overlay only where the
+        // overlay has an interaction: its padding too, or a button under it
+        // would light up and show its tooltip.
+        if interaction == mouse::Interaction::None && cursor.is_over(bounds) {
+            mouse::Interaction::Idle
+        } else {
+            interaction
+        }
     }
 
     fn overlay<'c>(
@@ -374,5 +384,52 @@ impl<M: Clone> overlay::Overlay<M, Theme, Renderer> for Open<'_, '_, M> {
             &layout.bounds(),
             Vector::ZERO,
         )
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use iced::{
+        Event, Point, Settings, Size,
+        widget::{Space, column, container, mouse_area},
+    };
+    use iced_test::Simulator;
+
+    use super::{Popover, Side, Width};
+    use crate::testing::{Message, install_fonts};
+
+    /// A widget 100 px tall that says when the pointer comes onto it, then
+    /// a button-sized base whose popup rises over its foot: a slider over
+    /// a card's Save, its padding with nothing to point at.
+    fn view() -> iced::Element<'static, Message> {
+        let under = mouse_area(Space::new().width(100).height(100))
+            .on_enter(Message::Copied("under".into()));
+        let popup =
+            container(Space::new().width(40).height(10)).padding(iced::Padding::ZERO.bottom(30));
+        let base = Popover::new(
+            Space::new().width(20).height(20),
+            Some(popup.into()),
+            Side::Above,
+        )
+        .width(Width::Own(40.0))
+        .gap(0.0);
+        column![under, base].into()
+    }
+
+    #[test]
+    fn its_padding_hides_the_pointer_from_what_is_under_it() {
+        install_fonts();
+        let entered = |at: Point| {
+            let mut ui = Simulator::with_size(Settings::default(), Size::new(200.0, 200.0), view());
+            ui.point_at(at);
+            ui.simulate([Event::Mouse(iced::mouse::Event::CursorMoved {
+                position: at,
+            })]);
+            ui.into_messages()
+                .any(|message| matches!(message, Message::Copied(_)))
+        };
+        assert!(entered(Point::new(80.0, 80.0)), "beside the popup");
+        // In its padding, under its 10 px of content.
+        assert!(!entered(Point::new(20.0, 80.0)), "under the popup");
     }
 }

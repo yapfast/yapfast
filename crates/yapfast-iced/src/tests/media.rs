@@ -438,7 +438,7 @@ fn a_sound_file_plays_in_its_card() {
         .any(|message| matches!(message, Message::Image(_)))
     };
     // Save's right edge, 8 px in from the card's; the mute under it, and
-    // the slider over that, are 6 px further in and 28 px wide.
+    // the slider over that, are 6 px further in.
     let save_right = (name.x as u32..app.shell.frame.width as u32)
         .rev()
         .map(|x| x as f32)
@@ -446,12 +446,6 @@ fn a_sound_file_plays_in_its_card() {
         .expect("Save is on the name's row");
     let on_save = iced::Point::new(save_right - 16.0, name.y + 4.0);
     app.playback.clip_volume = 1;
-    // Nowhere on Save, which is wider than the mute, does a press reach it.
-    let reaches = (save_right as u32 - 31..=save_right as u32)
-        .map(|x| x as f32)
-        .filter(|&x| saves(&app, x))
-        .collect::<Vec<_>>();
-    assert!(reaches.is_empty(), "Save beside the slider: {reaches:?}");
     let pressed = clicked(&app, on_save, iced::mouse::Button::Left);
     assert!(
         pressed

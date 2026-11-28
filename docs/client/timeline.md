@@ -170,8 +170,8 @@ slash command, where one may write, is written in the composer
   "0:00"; Play plays it as a video (`Clip::Play`). A video's and a sound
   file's volume slider, like a voice message's, rises from the mute in a
   `Popover`, in iced's overlay layer, so it takes presses before what it
-  covers, such as the card's Save. In the card it's 40 px wide, centred on
-  the mute, so it covers all of Save, which is wider and further right. Its time is the core's
+  covers, such as the card's Save, and hides the pointer from it, its
+  padding too. Its time is the core's
   (`Video::played_ms`), not a frame's, and why it stopped shows in place of
   its time, with Play to try again.
 - A voice message (`playback.rs`) plays and pauses from its button; its
