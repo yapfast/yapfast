@@ -107,7 +107,7 @@ pub fn day_turned(app: &mut App) -> Task<Message> {
     app.timeline.clocks.day_armed = false;
     let prefs = &app.layout.prefs;
     let clock = Clock {
-        twelve_hour: prefs.twelve_hour_clock,
+        twelve_hour: prefs.twelve_hour_clock(),
         seconds: prefs.clock_seconds,
     };
     let now = yapfast_core::clock::now_ms() / 1000;

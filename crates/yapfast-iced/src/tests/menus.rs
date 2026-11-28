@@ -117,6 +117,15 @@ fn a_right_click_on_a_servers_tile_opens_its_menu() {
 }
 
 #[test]
+fn server_menu_displays_translated_actions() {
+    let (mut app, _folder) = discord_server(0, |_, _| {});
+    app.i18n.select(Some("ru"));
+    let _ = crate::place_menus::open_place_menu(&mut app, SERVER, Point::new(100.0, 100.0), false);
+    assert!(shows(&app, "Покинуть сервер"));
+    assert!(!shows(&app, "Leave server"));
+}
+
+#[test]
 fn a_servers_menu_shows_and_changes_its_notifications() {
     let (mut app, _folder) = discord_server(0, |_, _| {});
     let _ = crate::place_menus::open_place_menu(&mut app, SERVER, Point::new(100.0, 100.0), false);

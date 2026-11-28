@@ -69,7 +69,7 @@ fn place_menu(
         unread = false;
     }
     let developer = app.layout.developer_mode;
-    let twelve = app.layout.prefs.twelve_hour_clock;
+    let twelve = app.layout.prefs.twelve_hour_clock();
     let server_notifications = if server {
         core.server_notifications(id)
     } else {
@@ -104,13 +104,13 @@ fn place_menu(
         .filter(|choice| developer || *choice != MenuChoice::CopyId)
         .map(|choice| {
             let label = match choice {
-                MenuChoice::MarkRead if folder => "Mark folder as read",
-                MenuChoice::Invite if server => "Invite to server",
-                MenuChoice::CreateChannel if server => "Create channel",
-                MenuChoice::CreateChannel if voice => "Create voice channel",
-                MenuChoice::EditChannel if category => "Edit category",
-                MenuChoice::DeleteChannel if category => "Delete category",
-                MenuChoice::Call if in_call => "Join call",
+                MenuChoice::MarkRead if folder => crate::i18n::tr_mark!("Mark folder as read"),
+                MenuChoice::Invite if server => crate::i18n::tr_mark!("Invite to server"),
+                MenuChoice::CreateChannel if server => crate::i18n::tr_mark!("Create channel"),
+                MenuChoice::CreateChannel if voice => crate::i18n::tr_mark!("Create voice channel"),
+                MenuChoice::EditChannel if category => crate::i18n::tr_mark!("Edit category"),
+                MenuChoice::DeleteChannel if category => crate::i18n::tr_mark!("Delete category"),
+                MenuChoice::Call if in_call => crate::i18n::tr_mark!("Join call"),
                 choice => label(choice),
             };
             let starts = group_of(choice);
@@ -221,7 +221,7 @@ pub fn open_bell(app: &mut App, at: Point) -> Task<Message> {
         in_category: core.category_of(&room).is_some(),
         settings,
     };
-    let mut rows = vec![notify.mute_row(app.layout.prefs.twelve_hour_clock)];
+    let mut rows = vec![notify.mute_row(app.layout.prefs.twelve_hour_clock())];
     let mut levels = notify.levels();
     if let Some(first) = levels.first_mut() {
         first.separated = true;
@@ -239,7 +239,7 @@ pub fn open_bell(app: &mut App, at: Point) -> Task<Message> {
 /// upcoming events", greyed, for a server with none, as Discord's opens
 /// all the same.
 pub fn open_events_menu(app: &mut App, server: &str, at: Point) -> Task<Message> {
-    let twelve = app.layout.prefs.twelve_hour_clock;
+    let twelve = app.layout.prefs.twelve_hour_clock();
     let mut rows: Vec<MenuRow> = app
         .client
         .state()
@@ -268,7 +268,7 @@ pub fn open_events_menu(app: &mut App, server: &str, at: Point) -> Task<Message>
     if rows.is_empty() {
         rows.push(MenuRow {
             disabled: true,
-            ..MenuRow::plain(MenuAct::Event, "No upcoming events")
+            ..MenuRow::plain(MenuAct::Event, crate::i18n::tr_mark!("No upcoming events"))
         });
     }
     app.win.menu = Some(Menu {
@@ -483,16 +483,17 @@ struct Notify {
 }
 
 impl Notify {
-    fn kind(&self) -> &'static str {
-        if self.category { "category" } else { "channel" }
-    }
-
     /// Mute for a time, in a submenu (a click on the row itself mutes
     /// until it's turned back on), or while muted, unmute, saying till
     /// when.
     fn mute_row(&self, twelve: bool) -> MenuRow {
         let muted = self.settings.muted;
-        let label = format!("{} {}", if muted { "Unmute" } else { "Mute" }, self.kind());
+        let label = match (muted, self.category) {
+            (true, true) => crate::i18n::tr_mark!("Unmute category"),
+            (true, false) => crate::i18n::tr_mark!("Unmute channel"),
+            (false, true) => crate::i18n::tr_mark!("Mute category"),
+            (false, false) => crate::i18n::tr_mark!("Mute channel"),
+        };
         let mut row = MenuRow {
             icon: Some(if muted { Icon::Bell } else { Icon::BellOff }),
             subtitle: self
@@ -523,8 +524,8 @@ impl Notify {
         .into_iter()
         .map(|level| {
             let label = match level {
-                None if self.in_category => "Use category default",
-                None => "Use server default",
+                None if self.in_category => crate::i18n::tr_mark!("Use category default"),
+                None => crate::i18n::tr_mark!("Use server default"),
                 Some(level) => level_name(level),
             };
             MenuRow {
@@ -572,14 +573,14 @@ fn server_levels(known: &yapfast_core::chat::ServerNotifications) -> Vec<MenuRow
             MenuAct::Notify(NotificationChange::SuppressEveryone(
                 !known.suppress_everyone,
             )),
-            "Suppress @everyone and @here",
+            crate::i18n::tr_mark!("Suppress @everyone and @here"),
         )
     });
     rows.push(MenuRow {
         check: Check::Box(known.suppress_roles),
         ..MenuRow::plain(
             MenuAct::Notify(NotificationChange::SuppressRoles(!known.suppress_roles)),
-            "Suppress all role @mentions",
+            crate::i18n::tr_mark!("Suppress all role @mentions"),
         )
     });
     rows
@@ -623,14 +624,14 @@ fn folder_levels(
         check: Check::Box(everyone),
         ..MenuRow::plain(
             MenuAct::Notify(NotificationChange::SuppressEveryone(!everyone)),
-            "Suppress @everyone and @here",
+            crate::i18n::tr_mark!("Suppress @everyone and @here"),
         )
     });
     rows.push(MenuRow {
         check: Check::Box(roles),
         ..MenuRow::plain(
             MenuAct::Notify(NotificationChange::SuppressRoles(!roles)),
-            "Suppress all role @mentions",
+            crate::i18n::tr_mark!("Suppress all role @mentions"),
         )
     });
     rows
@@ -705,14 +706,17 @@ fn folder_rows(
                 .into(),
             ),
             submenu: servers,
-            ..MenuRow::plain(MenuAct::Event, "Servers")
+            ..MenuRow::plain(MenuAct::Event, crate::i18n::tr_mark!("Servers"))
         });
     }
     if !crate::sidebar::tree::folders_shown(app).is_empty() {
         rows.push(MenuRow {
             icon: Some(Icon::ChevronUp),
             separated: rows.is_empty(),
-            ..MenuRow::plain(MenuAct::CloseFolders, "Close all folders")
+            ..MenuRow::plain(
+                MenuAct::CloseFolders,
+                crate::i18n::tr_mark!("Close all folders"),
+            )
         });
     }
     rows
@@ -737,7 +741,7 @@ fn server_choices(
                 .map(|until| muted_until(until / 1000, twelve).into()),
             ..MenuRow::plain(
                 MenuAct::NotifyServer(NotificationChange::Mute(Muting::Off)),
-                "Unmute server",
+                crate::i18n::tr_mark!("Unmute server"),
             )
         }]
     } else {
@@ -772,14 +776,14 @@ fn server_choices(
             MenuAct::NotifyServer(NotificationChange::SuppressEveryone(
                 !known.suppress_everyone,
             )),
-            "Suppress @everyone and @here",
+            crate::i18n::tr_mark!("Suppress @everyone and @here"),
         )
     });
     rows.push(MenuRow {
         check: Check::Box(known.suppress_roles),
         ..MenuRow::plain(
             MenuAct::NotifyServer(NotificationChange::SuppressRoles(!known.suppress_roles)),
-            "Suppress all role @mentions",
+            crate::i18n::tr_mark!("Suppress all role @mentions"),
         )
     });
     rows.into_iter()
@@ -790,9 +794,9 @@ fn server_choices(
 /// What a level is called, as Discord's client words it.
 fn level_name(level: NotifyLevel) -> &'static str {
     match level {
-        NotifyLevel::All => "All messages",
-        NotifyLevel::Mentions => "Only @mentions",
-        NotifyLevel::Nothing => "Nothing",
+        NotifyLevel::All => crate::i18n::tr_mark!("All messages"),
+        NotifyLevel::Mentions => crate::i18n::tr_mark!("Only @mentions"),
+        NotifyLevel::Nothing => crate::i18n::tr_mark!("Nothing"),
     }
 }
 
@@ -802,14 +806,19 @@ pub fn mute_times(act: fn(Muting) -> MenuAct) -> Vec<MenuRow> {
     MUTE_TIMES
         .into_iter()
         .map(|muting| {
-            let label: String = match muting {
-                Muting::Minutes(15) => "For 15 minutes".into(),
-                Muting::Minutes(60) => "For 1 hour".into(),
+            let label: std::borrow::Cow<'static, str> = match muting {
+                Muting::Minutes(15) => crate::i18n::tr_mark!("For 15 minutes").into(),
+                Muting::Minutes(60) => crate::i18n::tr_mark!("For 1 hour").into(),
+                Muting::Minutes(180) => crate::i18n::tr_mark!("For 3 hours").into(),
+                Muting::Minutes(480) => crate::i18n::tr_mark!("For 8 hours").into(),
+                Muting::Minutes(1440) => crate::i18n::tr_mark!("For 24 hours").into(),
                 Muting::Minutes(minutes) if minutes % 60 == 0 => {
-                    format!("For {} hours", minutes / 60)
+                    format!("For {} hours", minutes / 60).into()
                 }
-                Muting::Minutes(minutes) => format!("For {minutes} minutes"),
-                Muting::Always | Muting::Off => "Until I turn it back on".into(),
+                Muting::Minutes(minutes) => format!("For {minutes} minutes").into(),
+                Muting::Always | Muting::Off => {
+                    crate::i18n::tr_mark!("Until I turn it back on").into()
+                }
             };
             MenuRow::plain(act(muting), label)
         })
@@ -955,76 +964,76 @@ pub fn icon(choice: MenuChoice) -> Icon {
 /// What a menu row says for a choice.
 pub fn label(choice: MenuChoice) -> &'static str {
     match choice {
-        MenuChoice::MarkRead => "Mark as read",
-        MenuChoice::JoinVoice => "Join voice",
-        MenuChoice::OpenChat => "Open chat",
-        MenuChoice::Profile => "Profile",
-        MenuChoice::Message => "Message",
-        MenuChoice::AddFriend => "Add friend",
-        MenuChoice::AcceptFriend => "Accept friend request",
-        MenuChoice::CancelFriendRequest => "Cancel friend request",
-        MenuChoice::Pin => "Pin",
-        MenuChoice::Unpin => "Unpin",
-        MenuChoice::Call => "Start call",
-        MenuChoice::AddNote => "Add note",
-        MenuChoice::AddNickname => "Add friend nickname",
-        MenuChoice::EditNickname => "Change friend nickname",
-        MenuChoice::CloseDm => "Close DM",
-        MenuChoice::LeaveGroup => "Leave group",
-        MenuChoice::InviteToServer => "Invite to server",
-        MenuChoice::Apps => "Apps",
-        MenuChoice::Unfriend => "Remove friend",
-        MenuChoice::Ignore => "Ignore",
-        MenuChoice::Unignore => "Stop ignoring",
-        MenuChoice::Block => "Block",
-        MenuChoice::Unblock => "Unblock",
-        MenuChoice::Mute => "Mute",
-        MenuChoice::Unmute => "Unmute",
-        MenuChoice::CopyLink => "Copy link",
-        MenuChoice::CopyId => "Copy ID",
-        MenuChoice::Mention => "Mention",
-        MenuChoice::ServerNickname => "Change nickname",
-        MenuChoice::Roles => "Roles",
-        MenuChoice::RemoveTimeout => "Remove timeout",
-        MenuChoice::Timeout => "Time out",
-        MenuChoice::Kick => "Kick",
-        MenuChoice::Ban => "Ban",
-        MenuChoice::TransferOwnership => "Transfer Ownership",
-        MenuChoice::LocalMute | MenuChoice::SelfMute => "Mute",
-        MenuChoice::SoundboardMute => "Mute Soundboard",
-        MenuChoice::SelfDeafen => "Deafen",
-        MenuChoice::MoveTo => "Move to",
-        MenuChoice::ServerMute => "Server mute",
-        MenuChoice::ServerDeafen => "Server deafen",
-        MenuChoice::Disconnect => "Disconnect",
-        MenuChoice::ChannelMute => "Mute",
-        MenuChoice::ChannelNotifications => "Notification settings",
-        MenuChoice::MuteServer => "Mute server",
-        MenuChoice::UnmuteServer => "Unmute server",
+        MenuChoice::MarkRead => crate::i18n::tr_mark!("Mark as read"),
+        MenuChoice::JoinVoice => crate::i18n::tr_mark!("Join voice"),
+        MenuChoice::OpenChat => crate::i18n::tr_mark!("Open chat"),
+        MenuChoice::Profile => crate::i18n::tr_mark!("Profile"),
+        MenuChoice::Message => crate::i18n::tr_mark!("Message"),
+        MenuChoice::AddFriend => crate::i18n::tr_mark!("Add friend"),
+        MenuChoice::AcceptFriend => crate::i18n::tr_mark!("Accept friend request"),
+        MenuChoice::CancelFriendRequest => crate::i18n::tr_mark!("Cancel friend request"),
+        MenuChoice::Pin => crate::i18n::tr_mark!("Pin"),
+        MenuChoice::Unpin => crate::i18n::tr_mark!("Unpin"),
+        MenuChoice::Call => crate::i18n::tr_mark!("Start call"),
+        MenuChoice::AddNote => crate::i18n::tr_mark!("Add note"),
+        MenuChoice::AddNickname => crate::i18n::tr_mark!("Add friend nickname"),
+        MenuChoice::EditNickname => crate::i18n::tr_mark!("Change friend nickname"),
+        MenuChoice::CloseDm => crate::i18n::tr_mark!("Close DM"),
+        MenuChoice::LeaveGroup => crate::i18n::tr_mark!("Leave group"),
+        MenuChoice::InviteToServer => crate::i18n::tr_mark!("Invite to server"),
+        MenuChoice::Apps => crate::i18n::tr_mark!("Apps"),
+        MenuChoice::Unfriend => crate::i18n::tr_mark!("Remove friend"),
+        MenuChoice::Ignore => crate::i18n::tr_mark!("Ignore"),
+        MenuChoice::Unignore => crate::i18n::tr_mark!("Stop ignoring"),
+        MenuChoice::Block => crate::i18n::tr_mark!("Block"),
+        MenuChoice::Unblock => crate::i18n::tr_mark!("Unblock"),
+        MenuChoice::Mute => crate::i18n::tr_mark!("Mute"),
+        MenuChoice::Unmute => crate::i18n::tr_mark!("Unmute"),
+        MenuChoice::CopyLink => crate::i18n::tr_mark!("Copy link"),
+        MenuChoice::CopyId => crate::i18n::tr_mark!("Copy ID"),
+        MenuChoice::Mention => crate::i18n::tr_mark!("Mention"),
+        MenuChoice::ServerNickname => crate::i18n::tr_mark!("Change nickname"),
+        MenuChoice::Roles => crate::i18n::tr_mark!("Roles"),
+        MenuChoice::RemoveTimeout => crate::i18n::tr_mark!("Remove timeout"),
+        MenuChoice::Timeout => crate::i18n::tr_mark!("Time out"),
+        MenuChoice::Kick => crate::i18n::tr_mark!("Kick"),
+        MenuChoice::Ban => crate::i18n::tr_mark!("Ban"),
+        MenuChoice::TransferOwnership => crate::i18n::tr_mark!("Transfer Ownership"),
+        MenuChoice::LocalMute | MenuChoice::SelfMute => crate::i18n::tr_mark!("Mute"),
+        MenuChoice::SoundboardMute => crate::i18n::tr_mark!("Mute Soundboard"),
+        MenuChoice::SelfDeafen => crate::i18n::tr_mark!("Deafen"),
+        MenuChoice::MoveTo => crate::i18n::tr_mark!("Move to"),
+        MenuChoice::ServerMute => crate::i18n::tr_mark!("Server mute"),
+        MenuChoice::ServerDeafen => crate::i18n::tr_mark!("Server deafen"),
+        MenuChoice::Disconnect => crate::i18n::tr_mark!("Disconnect"),
+        MenuChoice::ChannelMute => crate::i18n::tr_mark!("Mute"),
+        MenuChoice::ChannelNotifications => crate::i18n::tr_mark!("Notification settings"),
+        MenuChoice::MuteServer => crate::i18n::tr_mark!("Mute server"),
+        MenuChoice::UnmuteServer => crate::i18n::tr_mark!("Unmute server"),
         MenuChoice::ServerNotifications | MenuChoice::FolderNotifications => {
-            "Notification settings"
+            crate::i18n::tr_mark!("Notification settings")
         }
-        MenuChoice::MuteFolder => "Mute folder",
-        MenuChoice::UnmuteFolder => "Unmute folder",
-        MenuChoice::ShowAllChannels => "Show all channels",
-        MenuChoice::HideMuted => "Hide muted channels",
-        MenuChoice::Invite => "Invite to channel",
-        MenuChoice::AddFavorite => "Add to Favorites",
-        MenuChoice::RemoveFavorite => "Remove from Favorites",
-        MenuChoice::PinChannel => "Pin channel to top",
-        MenuChoice::UnpinChannel => "Unpin channel",
-        MenuChoice::AddToChannelList => "Add to channel list",
-        MenuChoice::RemoveFromChannelList => "Remove from channel list",
-        MenuChoice::UnfollowCategory => "Unfollow channel category",
-        MenuChoice::CreateChannel => "Create text channel",
-        MenuChoice::CreateCategory => "Create category",
-        MenuChoice::EditChannel => "Edit channel",
-        MenuChoice::DuplicateChannel => "Duplicate channel",
-        MenuChoice::DeleteChannel => "Delete channel",
-        MenuChoice::LeaveServer => "Leave server",
-        MenuChoice::JoinThread => "Join thread",
-        MenuChoice::LeaveThread => "Leave thread",
-        MenuChoice::EditServerProfile => "Edit server profile",
-        MenuChoice::ServerSettings => "Server settings",
+        MenuChoice::MuteFolder => crate::i18n::tr_mark!("Mute folder"),
+        MenuChoice::UnmuteFolder => crate::i18n::tr_mark!("Unmute folder"),
+        MenuChoice::ShowAllChannels => crate::i18n::tr_mark!("Show all channels"),
+        MenuChoice::HideMuted => crate::i18n::tr_mark!("Hide muted channels"),
+        MenuChoice::Invite => crate::i18n::tr_mark!("Invite to channel"),
+        MenuChoice::AddFavorite => crate::i18n::tr_mark!("Add to Favorites"),
+        MenuChoice::RemoveFavorite => crate::i18n::tr_mark!("Remove from Favorites"),
+        MenuChoice::PinChannel => crate::i18n::tr_mark!("Pin channel to top"),
+        MenuChoice::UnpinChannel => crate::i18n::tr_mark!("Unpin channel"),
+        MenuChoice::AddToChannelList => crate::i18n::tr_mark!("Add to channel list"),
+        MenuChoice::RemoveFromChannelList => crate::i18n::tr_mark!("Remove from channel list"),
+        MenuChoice::UnfollowCategory => crate::i18n::tr_mark!("Unfollow channel category"),
+        MenuChoice::CreateChannel => crate::i18n::tr_mark!("Create text channel"),
+        MenuChoice::CreateCategory => crate::i18n::tr_mark!("Create category"),
+        MenuChoice::EditChannel => crate::i18n::tr_mark!("Edit channel"),
+        MenuChoice::DuplicateChannel => crate::i18n::tr_mark!("Duplicate channel"),
+        MenuChoice::DeleteChannel => crate::i18n::tr_mark!("Delete channel"),
+        MenuChoice::LeaveServer => crate::i18n::tr_mark!("Leave server"),
+        MenuChoice::JoinThread => crate::i18n::tr_mark!("Join thread"),
+        MenuChoice::LeaveThread => crate::i18n::tr_mark!("Leave thread"),
+        MenuChoice::EditServerProfile => crate::i18n::tr_mark!("Edit server profile"),
+        MenuChoice::ServerSettings => crate::i18n::tr_mark!("Server settings"),
     }
 }

@@ -225,7 +225,7 @@ impl Screen {
                 self.open = (self.open != Some(drop)).then_some(drop);
                 return Task::none();
             }
-            Event::Pick(kind) => return pick(kind),
+            Event::Pick(kind) => return pick(kind, cx.i18n),
             Event::Picked(kind, path) => Action::PickServerPicture { kind, path },
             Event::Remove(kind) => Action::RemoveServerPicture(kind),
             Event::Undo => Action::UndoServerSettings,
@@ -359,7 +359,10 @@ impl<'a> View<'a> {
         let mut page = column![].spacing(form::GAP).width(Length::Fill);
         let mut fill = false;
         if core.loading() {
-            page = page.push(form::note(theme, "Loading..."));
+            page = page.push(form::note(
+                theme,
+                crate::i18n::tr!(self.cx.i18n, "Loading..."),
+            ));
         }
         if let Some(shown) = &core.page {
             let (view, fills) = match shown {
@@ -381,10 +384,10 @@ impl<'a> View<'a> {
             page = page.push(view);
         }
         if let Some(problem) = core.problem() {
-            page = page.push(form::error(theme, problem));
+            page = page.push(form::error(theme, self.cx.i18n.text(&problem).to_owned()));
         }
         if let Some(error) = &core.error {
-            page = page.push(form::error(theme, error.as_str()));
+            page = page.push(form::error(theme, self.cx.i18n.text(error)));
         }
         let bar = ((core.changed() || core.saving) && !core.immediate()).then(|| {
             form::Unsaved {
@@ -403,7 +406,7 @@ impl<'a> View<'a> {
             self.server_nav(core),
             page,
             message(Event::Close),
-            "Server settings",
+            crate::i18n::tr!(self.cx.i18n, "Server settings"),
         )
         .bar(bar)
         .fill(fill)
@@ -454,12 +457,14 @@ impl<'a> View<'a> {
         let mut group = "";
         for section in app.settings_sections(&core.server) {
             let heading = match section {
-                SettingsSection::Emoji | SettingsSection::Stickers => "EXPRESSION",
+                SettingsSection::Emoji | SettingsSection::Stickers => {
+                    crate::i18n::tr!(self.cx.i18n, "EXPRESSION")
+                }
                 SettingsSection::Members | SettingsSection::Roles | SettingsSection::Invites => {
-                    "PEOPLE"
+                    crate::i18n::tr!(self.cx.i18n, "PEOPLE")
                 }
                 SettingsSection::Safety | SettingsSection::AuditLog | SettingsSection::Bans => {
-                    "MODERATION"
+                    crate::i18n::tr!(self.cx.i18n, "MODERATION")
                 }
                 _ => "",
             };
@@ -469,7 +474,7 @@ impl<'a> View<'a> {
             }
             let (label, icon) = section_look(section);
             rows.push(Nav::Page {
-                label: label.into(),
+                label: self.cx.i18n.text(label).into(),
                 icon,
                 selected: core.section == section,
                 danger: false,
@@ -479,7 +484,7 @@ impl<'a> View<'a> {
         if app.may_give_up(&core.server) {
             rows.push(Nav::Line);
             rows.push(Nav::Page {
-                label: "Delete Server".into(),
+                label: crate::i18n::tr!(self.cx.i18n, "Delete Server").into(),
                 icon: Icon::Trash,
                 selected: false,
                 danger: true,
@@ -511,35 +516,38 @@ impl<'a> View<'a> {
 /// A page's name and icon in the column.
 fn section_look(section: SettingsSection) -> (&'static str, Icon) {
     match section {
-        SettingsSection::Profile => ("Server Profile", Icon::Pencil),
-        SettingsSection::Engagement => ("Engagement", Icon::Bell),
-        SettingsSection::BoostPerks => ("Boost Perks", Icon::Pin),
-        SettingsSection::Members => ("Members", Icon::Users),
-        SettingsSection::Roles => ("Roles", Icon::Shield),
-        SettingsSection::Invites => ("Invites", Icon::Chain),
-        SettingsSection::Safety => ("Safety Setup", Icon::Lock),
-        SettingsSection::AuditLog => ("Audit Log", Icon::History),
-        SettingsSection::Bans => ("Bans", Icon::Gavel),
-        SettingsSection::Emoji => ("Emoji", Icon::Smile),
-        SettingsSection::Stickers => ("Stickers", Icon::StickyNote),
+        SettingsSection::Profile => (crate::i18n::tr_mark!("Server Profile"), Icon::Pencil),
+        SettingsSection::Engagement => (crate::i18n::tr_mark!("Engagement"), Icon::Bell),
+        SettingsSection::BoostPerks => (crate::i18n::tr_mark!("Boost Perks"), Icon::Pin),
+        SettingsSection::Members => (crate::i18n::tr_mark!("Members"), Icon::Users),
+        SettingsSection::Roles => (crate::i18n::tr_mark!("Roles"), Icon::Shield),
+        SettingsSection::Invites => (crate::i18n::tr_mark!("Invites"), Icon::Chain),
+        SettingsSection::Safety => (crate::i18n::tr_mark!("Safety Setup"), Icon::Lock),
+        SettingsSection::AuditLog => (crate::i18n::tr_mark!("Audit Log"), Icon::History),
+        SettingsSection::Bans => (crate::i18n::tr_mark!("Bans"), Icon::Gavel),
+        SettingsSection::Emoji => (crate::i18n::tr_mark!("Emoji"), Icon::Smile),
+        SettingsSection::Stickers => (crate::i18n::tr_mark!("Stickers"), Icon::StickyNote),
     }
 }
 
 /// The system's file dialog for one of the server's pictures.
-fn pick(kind: ServerPicture) -> Task<Message> {
+fn pick(kind: ServerPicture, i18n: &crate::i18n::I18n) -> Task<Message> {
+    let title = match kind {
+        ServerPicture::Icon => crate::i18n::tr!(i18n, "Change Server Icon"),
+        ServerPicture::Banner => crate::i18n::tr!(i18n, "Upload Server Banner"),
+        ServerPicture::Splash => crate::i18n::tr!(i18n, "Upload Invite Background"),
+        ServerPicture::RoleIcon => crate::i18n::tr!(i18n, "Choose Role Icon"),
+        ServerPicture::Emoji => crate::i18n::tr!(i18n, "Upload Emoji"),
+        ServerPicture::Sticker => crate::i18n::tr!(i18n, "Upload Sticker"),
+    }
+    .to_owned();
+    let pictures = crate::i18n::tr!(i18n, "Pictures").to_owned();
     Task::perform(
         async move {
             rfd::AsyncFileDialog::new()
-                .set_title(match kind {
-                    ServerPicture::Icon => "Change Server Icon",
-                    ServerPicture::Banner => "Upload Server Banner",
-                    ServerPicture::Splash => "Upload Invite Background",
-                    ServerPicture::RoleIcon => "Choose Role Icon",
-                    ServerPicture::Emoji => "Upload Emoji",
-                    ServerPicture::Sticker => "Upload Sticker",
-                })
+                .set_title(title)
                 .add_filter(
-                    "Pictures",
+                    pictures,
                     // Discord's stickers are PNG, APNG, JPEG or GIF.
                     if kind == ServerPicture::Sticker {
                         &["png", "apng", "jpg", "jpeg", "gif"][..]

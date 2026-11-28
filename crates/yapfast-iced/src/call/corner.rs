@@ -194,7 +194,7 @@ pub fn corner_view(app: &App) -> Option<Element<'_, Message>> {
             let sharing = voice.sharing.as_ref()?;
             (
                 "Your screen".to_owned(),
-                share_status(voice).to_owned(),
+                share_status(voice, &app.i18n).to_owned(),
                 OWN_SCREEN.to_owned(),
                 sharing.phase == SharePhase::Live,
                 Some((Icon::ScreenShareOff, "Stop sharing", Event::StopSharing)),
@@ -225,7 +225,7 @@ pub fn corner_view(app: &App) -> Option<Element<'_, Message>> {
             .into()
     });
     let content = if pip == Pip::Shared && live && !app.shell.focused {
-        crate::call::stage::paused_share_preview(content)
+        crate::call::stage::paused_share_preview(content, &app.i18n)
     } else {
         content
     };
@@ -388,11 +388,15 @@ pub fn clip_viewer(app: &App) -> Option<Element<'_, Message>> {
     } else if video.loading {
         screen = screen.push(
             container(
-                container(text("Loading...").size(13).color(Color::WHITE))
-                    .padding([0, 10])
-                    .height(28)
-                    .align_y(Alignment::Center)
-                    .style(|_| crate::style::rounded(GLASS, 14)),
+                container(
+                    text(crate::i18n::tr!(app.i18n, "Loading..."))
+                        .size(13)
+                        .color(Color::WHITE),
+                )
+                .padding([0, 10])
+                .height(28)
+                .align_y(Alignment::Center)
+                .style(|_| crate::style::rounded(GLASS, 14)),
             )
             .center(Length::Fill),
         );

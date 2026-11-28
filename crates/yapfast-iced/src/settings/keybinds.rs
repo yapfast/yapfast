@@ -179,7 +179,7 @@ impl<'a> Page<'a> {
         });
         let mut custom = column![
             form::beside(
-                form::title(theme, "Custom Keybinds"),
+                form::title(theme, crate::i18n::tr!(self.cx.i18n, "Custom Keybinds")),
                 action(
                     theme,
                     "Add a Keybind",
@@ -200,7 +200,7 @@ impl<'a> Page<'a> {
             custom = custom.push(self.keybind_row(row, binding));
         }
         let defaults = column![
-            form::title(theme, "Default Keybinds"),
+            form::title(theme, crate::i18n::tr!(self.cx.i18n, "Default Keybinds")),
             shortcut_card(theme, &[crate::shortcuts::HELP]),
         ]
         .spacing(24);

@@ -151,10 +151,14 @@ pub(crate) fn role_colour(colour: u32) -> Color {
 pub(crate) fn lock_text(lock: Option<RoleLock>) -> &'static str {
     match lock {
         Some(RoleLock::Highest) => {
-            "Role is locked because it is your highest ranked role. Please ask a higher rank or Server Owner for help."
+            crate::i18n::tr_mark!(
+                "Role is locked because it is your highest ranked role. Please ask a higher rank or Server Owner for help."
+            )
         }
         Some(RoleLock::Higher) => {
-            "Role is locked because it is a higher rank than your highest role."
+            crate::i18n::tr_mark!(
+                "Role is locked because it is a higher rank than your highest role."
+            )
         }
         None => "",
     }

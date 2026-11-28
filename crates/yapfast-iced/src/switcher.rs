@@ -339,7 +339,7 @@ impl<'a> View<'a> {
         let mut body = column![field].spacing(12).padding(16);
         if query.is_empty() && !places.is_empty() && self.s.mentions_at != Some(0) {
             body = body.push(
-                text("PREVIOUS CHANNELS")
+                text(crate::i18n::tr!(self.cx.i18n, "PREVIOUS CHANNELS"))
                     .size(12)
                     .font(BOLD)
                     .color(theme.muted),
@@ -349,10 +349,15 @@ impl<'a> View<'a> {
         for (index, place) in places.iter().enumerate() {
             if self.s.mentions_at == Some(index) {
                 list = list.push(
-                    container(text("MENTIONS").size(12).font(BOLD).color(theme.muted))
-                        .height(PITCH)
-                        .align_y(Alignment::End)
-                        .padding(Padding::ZERO.bottom(8)),
+                    container(
+                        text(crate::i18n::tr!(self.cx.i18n, "MENTIONS"))
+                            .size(12)
+                            .font(BOLD)
+                            .color(theme.muted),
+                    )
+                    .height(PITCH)
+                    .align_y(Alignment::End)
+                    .padding(Padding::ZERO.bottom(8)),
                 );
             }
             list = list.push(self.switcher_row(place, index == current));
@@ -360,7 +365,7 @@ impl<'a> View<'a> {
         if places.is_empty() && !query.is_empty() {
             list = list.push(
                 container(
-                    text("Nothing goes by that name.")
+                    text(crate::i18n::tr!(self.cx.i18n, "Nothing goes by that name."))
                         .size(14)
                         .color(theme.secondary),
                 )
@@ -375,7 +380,7 @@ impl<'a> View<'a> {
                 .style(scrollbar(theme)),
         );
         body = body.push(
-            text("Start a search with @ for people, # for text channels, ! for voice channels or * for servers.")
+            text(crate::i18n::tr!(self.cx.i18n, "Start a search with @ for people, # for text channels, ! for voice channels or * for servers."))
                 .size(12)
                 .color(theme.muted),
         );
@@ -654,7 +659,9 @@ impl<'a> View<'a> {
             button(
                 row![
                     tick,
-                    text("Allow Multiple Answers").size(15).color(theme.text)
+                    text(crate::i18n::tr!(self.cx.i18n, "Allow Multiple Answers"))
+                        .size(15)
+                        .color(theme.text)
                 ]
                 .spacing(10)
                 .align_y(Alignment::Center),

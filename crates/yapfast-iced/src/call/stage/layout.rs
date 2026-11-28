@@ -377,11 +377,11 @@ pub fn speaking(person: &Participant) -> bool {
 }
 
 /// What this account's sharing is doing, in words.
-pub fn share_status(voice: &voice::State) -> &'static str {
+pub fn share_status<'a>(voice: &voice::State, i18n: &'a crate::i18n::I18n) -> &'a str {
     match voice.sharing.as_ref().map(|sharing| sharing.phase) {
-        Some(SharePhase::Choosing) => "Choose what to share",
-        Some(SharePhase::Starting) => "Starting your stream...",
-        Some(SharePhase::Live) => "Live",
+        Some(SharePhase::Choosing) => crate::i18n::tr!(i18n, "Choose what to share"),
+        Some(SharePhase::Starting) => crate::i18n::tr!(i18n, "Starting your stream..."),
+        Some(SharePhase::Live) => crate::i18n::tr!(i18n, "Live"),
         None => "",
     }
 }

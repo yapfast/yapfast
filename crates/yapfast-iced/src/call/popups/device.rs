@@ -285,7 +285,10 @@ pub(super) fn input_level<'a>(ctx: crate::ctx::Ctx<'a>) -> Element<'a, Message> 
         None
     };
     let mut level = column![
-        text("INPUT LEVEL").size(12).font(BOLD).color(theme.muted),
+        text(crate::i18n::tr!(ctx.i18n, "INPUT LEVEL"))
+            .size(12)
+            .font(BOLD)
+            .color(theme.muted),
         segments
     ]
     .spacing(8)

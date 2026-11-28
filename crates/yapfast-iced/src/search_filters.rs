@@ -7,7 +7,7 @@
 //! mentions, in, has, dates, author type, pinned, then the words) and
 //! searches, or with nothing left closes the results; Clear Filters empties
 //! the fields. A filter that would take the search past 512 characters
-//! isn't added: "Unable to add filter".
+//! isn't added: crate::i18n::tr!(ctx.i18n, "Unable to add filter").
 
 use chrono::{Datelike, NaiveDate, TimeZone};
 use iced::{
@@ -112,7 +112,7 @@ pub enum FiltersEvent {
     RemoveDate(usize),
     Clear,
     Apply,
-    /// "Back to editing", after a filter too long for the search.
+    /// crate::i18n::tr!(ctx.i18n, "Back to editing"), after a filter too long for the search.
     Back,
 }
 
@@ -614,10 +614,14 @@ pub fn view<'a>(ctx: Ctx<'a>) -> Option<Element<'a, Message>> {
         // Unset: Discord's placeholder in the box.
         stack![
             pinned,
-            container(text("ex. True").size(15).color(theme.muted))
-                .padding(Padding::ZERO.left(12))
-                .height(crate::form::DROPDOWN)
-                .align_y(Alignment::Center)
+            container(
+                text(crate::i18n::tr!(ctx.i18n, "ex. True"))
+                    .size(15)
+                    .color(theme.muted)
+            )
+            .padding(Padding::ZERO.left(12))
+            .height(crate::form::DROPDOWN)
+            .align_y(Alignment::Center)
         ]
         .into()
     } else {
@@ -646,13 +650,13 @@ pub fn view<'a>(ctx: Ctx<'a>) -> Option<Element<'a, Message>> {
         Space::new().width(Length::Fill),
         action(
             theme,
-            "Cancel",
+            crate::i18n::tr!(ctx.i18n, "Cancel"),
             Kind::Plain,
             Some(message(FiltersEvent::Close))
         ),
         action(
             theme,
-            "Apply Filters",
+            crate::i18n::tr!(ctx.i18n, "Apply Filters"),
             Kind::Primary,
             changed.then(|| message(FiltersEvent::Apply))
         ),
@@ -660,7 +664,7 @@ pub fn view<'a>(ctx: Ctx<'a>) -> Option<Element<'a, Message>> {
     .spacing(8)
     .align_y(Alignment::Center);
     let head = row![
-        text("Filters")
+        text(crate::i18n::tr!(ctx.i18n, "Filters"))
             .size(20)
             .font(SEMIBOLD)
             .color(theme.text)
@@ -691,16 +695,19 @@ pub fn view<'a>(ctx: Ctx<'a>) -> Option<Element<'a, Message>> {
         return Some(card);
     }
     let note = column![
-        text("Unable to add filter")
+        text(crate::i18n::tr!(ctx.i18n, "Unable to add filter"))
             .size(20)
             .font(SEMIBOLD)
             .color(theme.text),
-        text("You have reached the maximum length for a search query.")
-            .size(15)
-            .color(theme.secondary),
+        text(crate::i18n::tr!(
+            ctx.i18n,
+            "You have reached the maximum length for a search query."
+        ))
+        .size(15)
+        .color(theme.secondary),
         crate::dialog::buttons([action(
             theme,
-            "Back to editing",
+            crate::i18n::tr!(ctx.i18n, "Back to editing"),
             Kind::Primary,
             Some(message(FiltersEvent::Back))
         )
@@ -806,8 +813,12 @@ fn chooser<'a>(
     let options = filters.options(ctx.state, server);
     if options.is_empty() {
         list = list.push(
-            container(text("No results").size(14).color(theme.muted))
-                .padding(Padding::from([8, 12])),
+            container(
+                text(crate::i18n::tr!(ctx.i18n, "No results"))
+                    .size(14)
+                    .color(theme.muted),
+            )
+            .padding(Padding::from([8, 12])),
         );
     }
     let (hover, raised, edge) = (theme.hover, theme.raised, theme.edge);
@@ -970,7 +981,7 @@ fn dates<'a>(ctx: Ctx<'a>, filters: &'a Filters) -> Element<'a, Message> {
     if filters.dates.len() < DATES {
         rows = rows.push(action(
             theme,
-            "Add date",
+            crate::i18n::tr!(ctx.i18n, "Add date"),
             Kind::Plain,
             Some(message(FiltersEvent::AddDate)),
         ));

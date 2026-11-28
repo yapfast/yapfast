@@ -43,34 +43,39 @@ pub(super) fn banner_colour<'a>(
         .height(28)
         .style(move |_| crate::style::outlined(swatch_fill, line, 6.0));
     let (raised, danger) = (theme.raised, theme.danger);
-    let field = form::field(theme, COLOUR, "Default", &core.colour)
-        .size(14)
-        .padding(8)
-        .width(116)
-        .on_input(|text| message(Event::Write(ProfileText::Colour, text)))
-        .on_submit(message(Event::Picture(ProfilePicture::Banner)))
-        .style({
-            let (ink, hint, accent, selection) =
-                (theme.text, theme.muted, theme.accent, theme.selection);
-            move |_, status| text_input::Style {
-                background: if wrong { faded(danger, 0.16) } else { raised }.into(),
-                border: Border {
-                    color: faded(accent, 0.8),
-                    width: if matches!(status, text_input::Status::Focused { .. }) {
-                        1.0
-                    } else {
-                        0.0
-                    },
-                    radius: 6.0.into(),
+    let field = form::field(
+        theme,
+        COLOUR,
+        crate::i18n::tr!(ctx.i18n, "Default"),
+        &core.colour,
+    )
+    .size(14)
+    .padding(8)
+    .width(116)
+    .on_input(|text| message(Event::Write(ProfileText::Colour, text)))
+    .on_submit(message(Event::Picture(ProfilePicture::Banner)))
+    .style({
+        let (ink, hint, accent, selection) =
+            (theme.text, theme.muted, theme.accent, theme.selection);
+        move |_, status| text_input::Style {
+            background: if wrong { faded(danger, 0.16) } else { raised }.into(),
+            border: Border {
+                color: faded(accent, 0.8),
+                width: if matches!(status, text_input::Status::Focused { .. }) {
+                    1.0
+                } else {
+                    0.0
                 },
-                icon: ink,
-                placeholder: hint,
-                value: ink,
-                selection,
-            }
-        });
+                radius: 6.0.into(),
+            },
+            icon: ink,
+            placeholder: hint,
+            value: ink,
+            selection,
+        }
+    });
     let mut head = row![
-        text("Banner color")
+        text(crate::i18n::tr!(ctx.i18n, "Banner color"))
             .size(14)
             .font(SEMIBOLD)
             .color(theme.text),
@@ -80,14 +85,18 @@ pub(super) fn banner_colour<'a>(
     .spacing(10)
     .align_y(Alignment::Center);
     if wrong {
-        head = head.push(text("Not a colour").size(13).color(theme.danger));
+        head = head.push(
+            text(crate::i18n::tr!(ctx.i18n, "Not a colour"))
+                .size(13)
+                .color(theme.danger),
+        );
     }
     head = head.push(Space::new().width(Length::Fill));
     if !core.colour.is_empty() {
         head = head.push(
             action(
                 theme,
-                "Default",
+                crate::i18n::tr!(ctx.i18n, "Default"),
                 Kind::Ghost,
                 Some(message(Event::Write(ProfileText::Colour, String::new()))),
             )

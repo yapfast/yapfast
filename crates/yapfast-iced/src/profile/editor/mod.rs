@@ -386,14 +386,16 @@ impl Editor {
             Event::Pick(kind) => {
                 editor.pop = None;
                 let title = match kind {
-                    ProfilePicture::Avatar => "Change Avatar",
-                    ProfilePicture::Banner => "Change Banner",
-                };
+                    ProfilePicture::Avatar => crate::i18n::tr!(cx.i18n, "Change Avatar"),
+                    ProfilePicture::Banner => crate::i18n::tr!(cx.i18n, "Change Banner"),
+                }
+                .to_owned();
+                let filter = crate::i18n::tr!(cx.i18n, "Pictures").to_owned();
                 return Task::perform(
                     async move {
                         rfd::AsyncFileDialog::new()
                             .set_title(title)
-                            .add_filter("Pictures", &["png", "jpg", "jpeg", "gif", "webp"])
+                            .add_filter(filter, &["png", "jpg", "jpeg", "gif", "webp"])
                             .pick_file()
                             .await
                             .map(|file| file.path().to_owned())

@@ -68,12 +68,12 @@ pub fn view<'a>(ctx: crate::ctx::Ctx<'a>) -> Option<Element<'a, Message>> {
         _ => theme.accent,
     };
     let status = match voice.phase {
-        Phase::Disconnected => "Voice disconnected",
-        Phase::Joining => "Joining voice...",
-        Phase::Connected if state.preview => "Preview voice",
-        Phase::Connected => "Voice connected",
-        Phase::Reconnecting => "Reconnecting voice...",
-        Phase::Leaving => "Leaving voice...",
+        Phase::Disconnected => crate::i18n::tr!(ctx.i18n, "Voice disconnected"),
+        Phase::Joining => crate::i18n::tr!(ctx.i18n, "Joining voice..."),
+        Phase::Connected if state.preview => crate::i18n::tr!(ctx.i18n, "Preview voice"),
+        Phase::Connected => crate::i18n::tr!(ctx.i18n, "Voice connected"),
+        Phase::Reconnecting => crate::i18n::tr!(ctx.i18n, "Reconnecting voice..."),
+        Phase::Leaving => crate::i18n::tr!(ctx.i18n, "Leaving voice..."),
     };
     let measured = active && voice.link.is_some() && ready;
     let lead: Pic = if measured {
@@ -140,9 +140,9 @@ pub fn view<'a>(ctx: crate::ctx::Ctx<'a>) -> Option<Element<'a, Message>> {
                 Icon::NoiseBarsOff
             },
             if on {
-                "Turn off noise suppression"
+                crate::i18n::tr!(ctx.i18n, "Turn off noise suppression")
             } else {
-                "Turn on noise suppression"
+                crate::i18n::tr!(ctx.i18n, "Turn on noise suppression")
             },
             if on { theme.secondary } else { theme.danger },
             false,
@@ -156,7 +156,7 @@ pub fn view<'a>(ctx: crate::ctx::Ctx<'a>) -> Option<Element<'a, Message>> {
                 ctx,
                 Icon::PhoneOff,
                 18,
-                "Leave voice",
+                crate::i18n::tr!(ctx.i18n, "Leave voice"),
                 crate::theme_art::GelTone::Danger,
                 (32.0, 32.0),
                 (voice.phase != Phase::Leaving).then_some(Message::Call(Event::Leave)),
@@ -169,7 +169,7 @@ pub fn view<'a>(ctx: crate::ctx::Ctx<'a>) -> Option<Element<'a, Message>> {
         top = top.push(dock_icon(
             ctx,
             Icon::PhoneOff,
-            "Leave voice",
+            crate::i18n::tr!(ctx.i18n, "Leave voice"),
             theme.secondary,
             true,
             (voice.phase != Phase::Leaving).then_some(Message::Call(Event::Leave)),
@@ -194,7 +194,7 @@ pub fn view<'a>(ctx: crate::ctx::Ctx<'a>) -> Option<Element<'a, Message>> {
         let when = |message: Message| ready.then_some(message);
         let face = |icon| ctx.look.glyph(icon, 20, theme.secondary);
         // A gel theme's are gel pills, lit while on.
-        let gel = |icon, label: &'static str, on: bool, message: Option<Message>| {
+        let gel = |icon, label: &'a str, on: bool, message: Option<Message>| {
             crate::theme_art::gel_call_button(
                 ctx,
                 icon,
@@ -211,28 +211,34 @@ pub fn view<'a>(ctx: crate::ctx::Ctx<'a>) -> Option<Element<'a, Message>> {
         };
         if voice.soundboard.is_some() {
             let message = when(Message::Call(Event::Open(Popup::Soundboard)));
-            buttons = buttons.push(ctx.spot(
-                gel(Icon::Soundboard, "Open Soundboard", false, message.clone()).unwrap_or_else(
-                    || {
+            buttons = buttons.push(
+                ctx.spot(
+                    gel(
+                        Icon::Soundboard,
+                        crate::i18n::tr!(ctx.i18n, "Open Soundboard"),
+                        false,
+                        message.clone(),
+                    )
+                    .unwrap_or_else(|| {
                         controls::dock_button(
                             face(Icon::Soundboard),
-                            "Open Soundboard",
+                            crate::i18n::tr!(ctx.i18n, "Open Soundboard"),
                             false,
                             theme,
                             message,
                         )
-                    },
+                    }),
                 ),
-            ));
+            );
         }
         if voice.can_film {
             let on = voice.camera_phase != voice::CameraPhase::Off;
             let label = if voice.camera_phase == voice::CameraPhase::Starting {
-                "Starting camera..."
+                crate::i18n::tr!(ctx.i18n, "Starting camera...")
             } else if on {
-                "Turn off camera"
+                crate::i18n::tr!(ctx.i18n, "Turn off camera")
             } else {
-                "Turn on camera"
+                crate::i18n::tr!(ctx.i18n, "Turn on camera")
             };
             let icon = if on { Icon::Video } else { Icon::VideoOff };
             let message = when(Message::Call(Event::Camera));
@@ -249,9 +255,9 @@ pub fn view<'a>(ctx: crate::ctx::Ctx<'a>) -> Option<Element<'a, Message>> {
                 .as_ref()
                 .is_none_or(|sharing| sharing.phase == voice::SharePhase::Live);
             let label = if sharing {
-                "Switch screen or window"
+                crate::i18n::tr!(ctx.i18n, "Switch screen or window")
             } else {
-                "Share your screen"
+                crate::i18n::tr!(ctx.i18n, "Share your screen")
             };
             let message = (ready && live).then_some(Message::Call(Event::Open(Popup::Share)));
             buttons = buttons.push(ctx.spot(
@@ -282,7 +288,7 @@ pub fn view<'a>(ctx: crate::ctx::Ctx<'a>) -> Option<Element<'a, Message>> {
     if !active {
         let dismiss: Element<'a, Message> = controls::action(
             theme,
-            "Dismiss",
+            crate::i18n::tr!(ctx.i18n, "Dismiss"),
             Kind::Ghost,
             Some(Message::Call(Event::DismissError)),
         )
@@ -374,16 +380,18 @@ fn sharing_line<'a>(
     };
     let watchers = sharing.viewers.len();
     let words = if !live {
-        super::stage::share_status(voice).to_owned()
+        super::stage::share_status(voice, ctx.i18n).to_owned()
     } else if watchers > 0 {
-        format!("Streaming to {} · {watchers} watching", voice.name)
+        crate::i18n::tr!(ctx.i18n, "Streaming to {channel} · {count} watching")
+            .replace("{count}", &watchers.to_string())
+            .replace("{channel}", &voice.name)
     } else {
-        format!("Streaming to {}", voice.name)
+        crate::i18n::tr!(ctx.i18n, "Streaming to {channel}").replace("{channel}", &voice.name)
     };
     row![
         container(lead).width(LEAD).align_y(Alignment::Center),
         column![
-            text("Your screen")
+            text(crate::i18n::tr!(ctx.i18n, "Your screen"))
                 .size(14)
                 .font(BOLD)
                 .color(theme.text)
@@ -397,7 +405,7 @@ fn sharing_line<'a>(
         dock_icon(
             ctx,
             Icon::ScreenShareOff,
-            "Stop sharing",
+            crate::i18n::tr!(ctx.i18n, "Stop sharing"),
             theme.secondary,
             true,
             Some(Message::Call(Event::StopSharing)),
@@ -412,7 +420,7 @@ fn sharing_line<'a>(
 fn dock_icon<'a>(
     ctx: crate::ctx::Ctx<'a>,
     icon: Icon,
-    label: &'static str,
+    label: &'a str,
     ink: Color,
     danger: bool,
     message: Option<Message>,

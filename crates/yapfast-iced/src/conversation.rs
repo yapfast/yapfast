@@ -161,7 +161,7 @@ fn status_line(app: &App) -> Option<(Element<'_, Message>, bool)> {
     let ctx = app.ctx();
     let time = yapfast_core::clock::time_on(
         yapfast_core::clock::now_ms() / 1000,
-        app.layout.prefs.twelve_hour_clock,
+        app.layout.prefs.twelve_hour_clock(),
     );
     let unread = app
         .sidebar

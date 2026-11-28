@@ -1,0 +1,3113 @@
+msgid ""
+msgstr ""
+"Language: ru\n"
+"Content-Type: text/plain; charset=UTF-8\n"
+"Content-Transfer-Encoding: 8bit\n"
+
+msgid "Language & Time"
+msgstr "Язык и время"
+
+msgid "Interface language"
+msgstr "Язык интерфейса"
+
+msgid "System language"
+msgstr "Язык системы"
+
+msgid "Time format"
+msgstr "Формат времени"
+
+msgid "Auto"
+msgstr "Авто"
+
+msgid "12-hour"
+msgstr "12-часовой"
+
+msgid "24-hour"
+msgstr "24-часовой"
+
+msgid "Search settings"
+msgstr "Поиск по настройкам"
+
+msgid "Close Settings"
+msgstr "Закрыть настройки"
+
+msgid "Edit Profile"
+msgstr "Редактировать профиль"
+
+msgid "Account"
+msgstr "Аккаунт"
+
+msgid "Experience"
+msgstr "Настройки пользователя"
+
+msgid "App Settings"
+msgstr "Настройки приложения"
+
+msgid "My Account"
+msgstr "Мой аккаунт"
+
+msgid "Voice & Video"
+msgstr "Голос и видео"
+
+msgid "Messages"
+msgstr "Сообщения"
+
+msgid "Accessibility"
+msgstr "Специальные возможности"
+
+msgid "Notifications"
+msgstr "Уведомления"
+
+msgid "Discord"
+msgstr "Discord"
+
+msgid "Sounds"
+msgstr "Звуки"
+
+msgid "Advanced"
+msgstr "Расширенные"
+
+msgid "Appearance"
+msgstr "Внешний вид"
+
+msgid "Themes"
+msgstr "Темы"
+
+msgid "Game Activity"
+msgstr "Игровая активность"
+
+msgid "Keybinds"
+msgstr "Горячие клавиши"
+
+msgid "About"
+msgstr "О приложении"
+
+msgid "Automatically open Yapfast when your computer starts up"
+msgstr "Запускать Yapfast при входе в систему"
+
+msgid "Start Yapfast minimized"
+msgstr "Запускать Yapfast свёрнутым"
+
+msgid "Start Yapfast in the background, out of your way."
+msgstr "Yapfast запускается в фоновом режиме."
+
+msgid "Open Discord links in Yapfast"
+msgstr "Открывать ссылки Discord в Yapfast"
+
+msgid "discord:// links from other apps and shortcuts open here instead of Discord. Turning it off gives them back to the app that had them."
+msgstr "Ссылки discord:// из других приложений и ярлыков открываются в Yapfast. Если отключить эту настройку, их снова будет открывать прежнее приложение."
+
+msgid "Close to tray"
+msgstr "Сворачивать в область уведомлений"
+
+msgid "Closing the window keeps Yapfast running in the system tray, with any call. Quit from the tray icon's menu."
+msgstr "После закрытия окна Yapfast продолжит работать, и звонок сохранится. Для выхода используйте меню значка в области уведомлений."
+
+msgid "No system tray is running, so closing the window quits Yapfast."
+msgstr "Область уведомлений недоступна, поэтому закрытие окна завершит работу Yapfast."
+
+msgid "Allow multiple windows"
+msgstr "Разрешить несколько окон"
+
+msgid "Starting Yapfast while it runs opens another Yapfast, with its own window and tray icon. Off, it brings the open window forward."
+msgstr "Повторный запуск Yapfast открывает отдельное окно со своим значком в области уведомлений. Если отключить эту настройку, уже открытое окно выйдет на передний план."
+
+msgid "Render with the GPU"
+msgstr "Использовать видеокарту для отрисовки"
+
+msgid "Hardware acceleration. Off, Yapfast draws on the processor, which uses about half the memory."
+msgstr "Аппаратное ускорение интерфейса. Когда оно выключено, Yapfast отрисовывает интерфейс на процессоре и расходует примерно вдвое меньше памяти."
+
+msgid "Encode streams with the GPU"
+msgstr "Кодировать трансляции на видеокарте"
+
+msgid "Screen sharing uses the graphics card's video encoder, which takes almost no processor time and looks better at low bitrates. Off, or without one, Yapfast encodes on the processor."
+msgstr "При демонстрации экрана используется видеокодировщик видеокарты. Он почти не нагружает процессор и даёт лучшее качество при низком битрейте. Если настройка выключена или кодировщик недоступен, Yapfast кодирует видео на процессоре."
+
+msgid "Developer Mode"
+msgstr "Режим разработчика"
+
+msgid "Menus offer Copy ID for servers, channels and people, which helps when you write apps that use the Discord API."
+msgstr "В меню серверов, каналов и пользователей появляется команда «Копировать ID». Это удобно при разработке приложений для Discord API."
+
+msgid "Icons from Solar by 480 Design (CC BY 4.0), many of them adapted, and from Lucide (ISC)."
+msgstr "Используются значки Solar от 480 Design (CC BY 4.0), многие из них адаптированы, и значки Lucide (ISC)."
+
+msgid "Yapfast switches to the GPU when it restarts. Restarting leaves any call."
+msgstr "После перезапуска Yapfast будет использовать видеокарту. При перезапуске вы выйдете из текущего звонка."
+
+msgid "Yapfast switches to the processor when it restarts. Restarting leaves any call."
+msgstr "После перезапуска Yapfast будет использовать процессор. При перезапуске вы выйдете из текущего звонка."
+
+msgid "Restart Yapfast"
+msgstr "Перезапустить Yapfast"
+
+msgid "Show desktop notifications"
+msgstr "Показывать уведомления рабочего стола"
+
+msgid "Show what messages say"
+msgstr "Показывать текст сообщений"
+
+msgid "Off shows only who wrote and where, for a screen others can see."
+msgstr "Если выключено, видно только, кто и куда написал."
+
+msgid "Flash the taskbar"
+msgstr "Мигать значком на панели задач"
+
+msgid "For a message that notifies while Yapfast isn't in front. The window's title counts mentions and DMs waiting either way."
+msgstr "При уведомлении о сообщении, когда Yapfast не на переднем плане. Заголовок окна в любом случае показывает число упоминаний и личных сообщений."
+
+msgid "For new messages while Yapfast isn't in front. Each Discord server's notification settings and your Matrix notification rules decide which: usually DMs and mentions. Clicking one opens the conversation."
+msgstr "Для новых сообщений, когда Yapfast не на переднем плане. Настройки каждого сервера Discord и правила уведомлений Matrix определяют, о каких сообщениях уведомлять. Обычно это личные сообщения и упоминания. Нажатие на уведомление открывает беседу."
+
+msgid "For new messages while Yapfast isn't in front. Your Matrix notification rules decide which: usually DMs and mentions. Clicking one opens the conversation."
+msgstr "Для новых сообщений, когда Yapfast не на переднем плане. Правила уведомлений Matrix определяют, о каких сообщениях уведомлять. Обычно это личные сообщения и упоминания. Нажатие на уведомление открывает беседу."
+
+msgid "For new messages while Yapfast isn't in front. Each Discord server's notification settings decide which: usually DMs and mentions. Clicking one opens the conversation."
+msgstr "Для новых сообщений, когда Yapfast не на переднем плане. Настройки каждого сервера Discord определяют, о каких сообщениях уведомлять. Обычно это личные сообщения и упоминания. Нажатие на уведомление открывает беседу."
+
+msgid "Thinking co-op after nine, if people are up for it."
+msgstr "Может, сыграем вместе после девяти?"
+
+msgid "CLOCK"
+msgstr "ЧАСЫ"
+
+msgid "Show seconds"
+msgstr "Показывать секунды"
+
+msgid "Message times show them, as 21:41:05."
+msgstr "Секунды видны во времени отправки, например 21:41:05."
+
+msgid "DATE FORMAT"
+msgstr "ФОРМАТ ДАТЫ"
+
+msgid "Day/Month/Year"
+msgstr "День/Месяц/Год"
+
+msgid "Month/Day/Year"
+msgstr "Месяц/День/Год"
+
+msgid "Year-Month-Day"
+msgstr "Год-Месяц-День"
+
+msgid "Show link previews"
+msgstr "Показывать предпросмотр ссылок"
+
+msgid "Cards for links, videos and bots under messages. Linked pictures still show."
+msgstr "Карточки ссылок, видео и ботов под сообщениями. Изображения по ссылкам всё равно видны."
+
+msgid "Collapse long messages"
+msgstr "Сворачивать длинные сообщения"
+
+msgid "Long messages and code show their first lines, with Show more to see the rest."
+msgstr "В длинных сообщениях и блоках кода видны первые строки. Нажми «Показать ещё», чтобы увидеть остальное."
+
+msgid "Show boost gems"
+msgstr "Показывать значки бустов"
+
+msgid "A gem by the name of each member boosting their Discord server, in the member list."
+msgstr "В списке участников значок появляется рядом с именем каждого, кто бустит сервер Discord."
+
+msgid "Let others see when you're typing"
+msgstr "Показывать другим, что ты печатаешь"
+
+msgid "Mention people you reply to"
+msgstr "Упоминать тех, кому отвечаешь"
+
+msgid "They get notified of your reply. Switch it for one reply with @ On on the reply bar."
+msgstr "Они получат уведомление об ответе. Для отдельного ответа это можно изменить кнопкой @ в панели ответа."
+
+msgid "Remove tracking from links you send"
+msgstr "Удалять параметры отслеживания из отправляемых ссылок"
+
+msgid "Takes out tags like utm_source and fbclid, and share ids from YouTube, Spotify and X. The links still go to the same page."
+msgstr "Удаляет параметры вроде utm_source и fbclid и идентификаторы публикаций из ссылок YouTube, Spotify и X. Ссылки по-прежнему ведут на ту же страницу."
+
+msgid "Peek at channels"
+msgstr "Просматривать каналы без открытия"
+
+msgid "Hold Alt over a channel or DM in the list to see its newest messages without opening it or marking it read."
+msgstr "Удерживай Alt над каналом или личной перепиской, чтобы увидеть последние сообщения, не открывая их и не отмечая прочитанными."
+
+msgid "Search DMs with the quick switcher"
+msgstr "Искать личные переписки через быстрое переключение"
+
+msgid "The box at the top of the DM list opens the quick switcher, as Discord's \"Find or start a conversation\" does, instead of filtering the list."
+msgstr "Поле над списком личных переписок открывает быстрое переключение, как «Найти или начать беседу» в Discord."
+
+msgid "Discord and Matrix show \"typing...\" while you write. Others still show here when they type."
+msgstr "Discord и Matrix показывают другим, что ты печатаешь. Ты по-прежнему видишь, когда печатают другие."
+
+msgid "Matrix shows \"typing...\" while you write. Others still show here when they type."
+msgstr "Matrix показывает другим, что ты печатаешь. Ты по-прежнему видишь, когда печатают другие."
+
+msgid "Discord shows \"typing...\" while you write. Others still show here when they type."
+msgstr "Discord показывает другим, что ты печатаешь. Ты по-прежнему видишь, когда печатают другие."
+
+msgid "Preview"
+msgstr "Предпросмотр"
+
+msgid "what happened to all the beans"
+msgstr "куда делась вся фасоль"
+
+msgid "here's a link "
+msgstr "вот ссылка "
+
+msgid "Text size in chat"
+msgstr "Размер текста в чате"
+
+msgid "PLAY GIFS, EMOJI AND STICKERS"
+msgstr "ВОСПРОИЗВЕДЕНИЕ GIF, ЭМОДЗИ И СТИКЕРОВ"
+
+msgid "While Yapfast is focused"
+msgstr "Когда Yapfast в фокусе"
+
+msgid "Always"
+msgstr "Всегда"
+
+msgid "Never"
+msgstr "Никогда"
+
+msgid "This setting has been automatically disabled because of your Reduced Motion setting."
+msgstr "Этот параметр автоматически отключён из-за ограничения анимации."
+
+msgid "TEXT READABILITY"
+msgstr "ЧИТАЕМОСТЬ ТЕКСТА"
+
+msgid "Adjust the size of the chat font."
+msgstr "Изменяет размер шрифта в чате."
+
+msgid "SCROLL SPEED"
+msgstr "СКОРОСТЬ ПРОКРУТКИ"
+
+msgid "REDUCED MOTION"
+msgstr "ОГРАНИЧЕНИЕ АНИМАЦИИ"
+
+msgid "Enable Reduced Motion"
+msgstr "Ограничить анимацию"
+
+msgid "Reduce the amount and intensity of animations, hover effects, and other moving effects: themes' animations stay still, and GIFs, emoji and stickers stop playing."
+msgstr "Уменьшает количество и интенсивность анимации и эффектов при наведении. Анимации тем, GIF, эмодзи и стикеры останавливаются."
+
+msgid "Sync with computer setting"
+msgstr "Использовать системную настройку"
+
+msgid "Reduced motion follows whether your desktop turns its animations off."
+msgstr "Ограничение анимации следует настройкам рабочего стола."
+
+msgid "Just looking?"
+msgstr "Хочешь осмотреться?"
+
+msgid "Try the layout with sample conversations. Nothing leaves this computer."
+msgstr "Попробуй интерфейс на примере бесед. Данные остаются на этом компьютере."
+
+msgid "Explore local preview"
+msgstr "Открыть локальный предпросмотр"
+
+msgid "Sign in to Yapfast"
+msgstr "Войти в Yapfast"
+
+msgid "Link your Discord account with your phone."
+msgstr "Привяжи аккаунт Discord с помощью телефона."
+
+msgid "Try again"
+msgstr "Попробовать снова"
+
+msgid "Show the code"
+msgstr "Показать код"
+
+msgid "Use a token"
+msgstr "Использовать токен"
+
+msgid "TOKEN"
+msgstr "ТОКЕН"
+
+msgid "Discord token"
+msgstr "Токен Discord"
+
+msgid "Link"
+msgstr "Привязать"
+
+msgid "Checking the token..."
+msgstr "Проверяем токен…"
+
+msgid "Solve the captcha in your browser"
+msgstr "Пройди проверку CAPTCHA в браузере"
+
+msgid "Open it again"
+msgstr "Открыть снова"
+
+msgid "Scanned"
+msgstr "Код отсканирован"
+
+msgid "Getting a code..."
+msgstr "Получаем код…"
+
+msgid "Confirm on your phone"
+msgstr "Подтверди на телефоне"
+
+msgid "Scan it with the Discord app"
+msgstr "Отсканируй в приложении Discord"
+
+msgid "Use your existing Matrix account."
+msgstr "Войди в свой аккаунт Matrix."
+
+msgid "HOMESERVER"
+msgstr "ДОМАШНИЙ СЕРВЕР"
+
+msgid "MATRIX ID"
+msgstr "ИДЕНТИФИКАТОР MATRIX"
+
+msgid "PASSWORD"
+msgstr "ПАРОЛЬ"
+
+msgid "Connecting..."
+msgstr "Подключаемся…"
+
+msgid "Sign in"
+msgstr "Войти"
+
+msgid "Retry saved session"
+msgstr "Повторить вход в сохранённую сессию"
+
+msgid "Sign in with your Matrix password. Single sign-on isn't available yet."
+msgstr "Войди с паролем Matrix. Единый вход пока недоступен."
+
+msgid "Recovery key"
+msgstr "Ключ восстановления"
+
+msgid "Verify this device to send messages"
+msgstr "Подтверди это устройство, чтобы отправлять сообщения"
+
+msgid "Recover"
+msgstr "Восстановить"
+
+msgid "Check again"
+msgstr "Проверить снова"
+
+msgid "Friends"
+msgstr "Друзья"
+
+msgid "Requests"
+msgstr "Запросы"
+
+msgid "Online"
+msgstr "В сети"
+
+msgid "All"
+msgstr "Все"
+
+msgid "Pending"
+msgstr "Ожидают ответа"
+
+msgid "Add Friend"
+msgstr "Добавить друга"
+
+msgid "New Group DM"
+msgstr "Новая групповая переписка"
+
+msgid "No friends yet"
+msgstr "Пока нет друзей"
+
+msgid "Add someone with their Discord username."
+msgstr "Добавь друга по имени пользователя Discord."
+
+msgid "Add a friend"
+msgstr "Добавить друга"
+
+msgid "Search"
+msgstr "Поиск"
+
+msgid "All Friends"
+msgstr "Все друзья"
+
+msgid "None of your friends are around right now."
+msgstr "Сейчас никого из друзей нет в сети."
+
+msgid "No friend's name matches that."
+msgstr "Друзья с таким именем не найдены."
+
+msgid "Go to Settings"
+msgstr "Открыть настройки"
+
+msgid "Looking for accounts you've blocked or ignored?"
+msgstr "Ищешь заблокированные или игнорируемые аккаунты?"
+
+msgid "Dismiss"
+msgstr "Закрыть"
+
+msgid "Enter a username"
+msgstr "Введи имя пользователя"
+
+msgid "Send Friend Request"
+msgstr "Отправить запрос в друзья"
+
+msgid "You can add friends with their Discord username."
+msgstr "Друзей можно добавлять по имени пользователя Discord."
+
+msgid "Sending..."
+msgstr "Отправляем…"
+
+msgid "Message"
+msgstr "Сообщение"
+
+msgid "More"
+msgstr "Ещё"
+
+msgid "Username"
+msgstr "Имя пользователя"
+
+msgid "Send request"
+msgstr "Отправить запрос"
+
+msgid "Send someone a friend request on Discord with their username."
+msgstr "Отправь запрос в друзья по имени пользователя Discord."
+
+msgid "Do Not Disturb"
+msgstr "Не беспокоить"
+
+msgid "Idle"
+msgstr "Нет на месте"
+
+msgid "Offline"
+msgstr "Не в сети"
+
+msgid "Choose a DM or server channel to write a message."
+msgstr "Выбери личную переписку или канал, чтобы написать сообщение."
+
+msgid "Discord · not end-to-end encrypted."
+msgstr "Discord · без сквозного шифрования."
+
+msgid "Discord is disconnected. Yapfast is reconnecting."
+msgstr "Связь с Discord потеряна. Yapfast переподключается."
+
+msgid "Discord · not end-to-end encrypted. Enter to send, Shift+Enter for a new line."
+msgstr "Discord · без сквозного шифрования. Enter — отправить, Shift+Enter — новая строка."
+
+msgid "Sending is locked until this device is verified."
+msgstr "Чтобы отправлять сообщения, подтверди это устройство."
+
+msgid "End-to-end encrypted. Enter to send, Shift+Enter for a new line."
+msgstr "Сквозное шифрование. Enter — отправить, Shift+Enter — новая строка."
+
+msgid "Unencrypted room. Reading only in this build."
+msgstr "Комната без шифрования. В этой сборке её можно только читать."
+
+msgid "Write a reply"
+msgstr "Написать ответ"
+
+msgid "You do not have permission to send messages in this channel."
+msgstr "У тебя нет прав на отправку сообщений в этом канале."
+
+msgid "Accept to reply. Ignoring removes it without telling them."
+msgstr "Прими запрос, чтобы ответить. Если проигнорировать запрос, отправитель не получит уведомление."
+
+msgid "Ignore"
+msgstr "Игнорировать"
+
+msgid "Accept"
+msgstr "Принять"
+
+msgid "Message @{name}"
+msgstr "Написать @{name}"
+
+msgid "Message #{name}"
+msgstr "Написать #{name}"
+
+msgid "Message {name}"
+msgstr "Написать {name}"
+
+msgid "More options"
+msgstr "Другие действия"
+
+msgid "Attach files"
+msgstr "Прикрепить файлы"
+
+msgid "Open GIF picker"
+msgstr "Открыть выбор GIF"
+
+msgid "Open sticker picker"
+msgstr "Открыть выбор стикеров"
+
+msgid "Add an emoji"
+msgstr "Добавить эмодзи"
+
+msgid "Mention the person you reply to"
+msgstr "Упомянуть автора сообщения"
+
+msgid "Cancel reply"
+msgstr "Отменить ответ"
+
+msgid "Direct Messages"
+msgstr "Личные сообщения"
+
+msgid "Back"
+msgstr "Назад"
+
+msgid "Forward"
+msgstr "Вперёд"
+
+msgid "Inbox"
+msgstr "Входящие"
+
+msgid "Help"
+msgstr "Помощь"
+
+msgid "Unreads"
+msgstr "Непрочитанные"
+
+msgid "Mentions"
+msgstr "Упоминания"
+
+msgid "Filter"
+msgstr "Фильтр"
+
+msgid "Unread messages from your unmuted channels show up here."
+msgstr "Здесь появляются непрочитанные сообщения из каналов с включёнными уведомлениями."
+
+msgid "You made it through everything!"
+msgstr "Всё прочитано!"
+
+msgid "Whenever someone mentions you it will be saved here for 7 days."
+msgstr "Упоминания сохраняются здесь на 7 дней."
+
+msgid "More channels with mentions"
+msgstr "Другие каналы с упоминаниями"
+
+msgid "Hide member list"
+msgstr "Скрыть список участников"
+
+msgid "Show member list"
+msgstr "Показать список участников"
+
+msgid "Show voice channel"
+msgstr "Показать голосовой канал"
+
+msgid "Open chat"
+msgstr "Открыть чат"
+
+msgid "Join Voice Call"
+msgstr "Присоединиться к звонку"
+
+msgid "Start Voice Call"
+msgstr "Начать голосовой звонок"
+
+msgid "Start Video Call"
+msgstr "Начать видеозвонок"
+
+msgid "Threads"
+msgstr "Ветки"
+
+msgid "Notification settings, muted"
+msgstr "Настройки уведомлений (звук выключен)"
+
+msgid "Notification settings"
+msgstr "Настройки уведомлений"
+
+msgid "Pinned messages"
+msgstr "Закреплённые сообщения"
+
+msgid "Add friends to DM"
+msgstr "Добавить друзей в переписку"
+
+msgid "Add friends to the group"
+msgstr "Добавить друзей в группу"
+
+msgid "Hide profile"
+msgstr "Скрыть профиль"
+
+msgid "Show profile"
+msgstr "Показать профиль"
+
+msgid "New message"
+msgstr "Новое сообщение"
+
+msgid "Browse channels"
+msgstr "Обзор каналов"
+
+msgid "Create Channel"
+msgstr "Создать канал"
+
+msgid "Create invite"
+msgstr "Создать приглашение"
+
+msgid "Official Discord Message"
+msgstr "Официальное сообщение Discord"
+
+msgid "Wave"
+msgstr "Помахать"
+
+msgid "Find or start a conversation"
+msgstr "Найти или начать разговор"
+
+msgid "Find a conversation"
+msgstr "Найти разговор"
+
+msgid "Invite people"
+msgstr "Пригласить людей"
+
+msgid "Speaking is restricted in this channel"
+msgstr "В этом канале нельзя говорить"
+
+msgid "Connected on another client"
+msgstr "Подключено в другом клиенте"
+
+msgid "No requests"
+msgstr "Нет запросов"
+
+msgid "Friend requests and messages from people you don't know show up here."
+msgstr "Здесь появятся запросы в друзья и сообщения от незнакомых людей."
+
+msgid "Maybe spam"
+msgstr "Возможно, спам"
+
+msgid "Sent you a friend request and a message"
+msgstr "Отправил(а) вам запрос в друзья и сообщение"
+
+msgid "Sent you a friend request"
+msgstr "Отправил(а) вам запрос в друзья"
+
+msgid "You sent a friend request"
+msgstr "Вы отправили запрос в друзья"
+
+msgid "Wants to message you"
+msgstr "Хочет написать вам"
+
+msgid "Cancel"
+msgstr "Отмена"
+
+msgid "Open to read their message"
+msgstr "Откройте переписку, чтобы прочитать сообщение"
+
+msgid "New"
+msgstr "Новое"
+
+msgid "Active Now"
+msgstr "Активность друзей"
+
+msgid "It's quiet for now..."
+msgstr "Пока здесь тихо…"
+
+msgid "When a friend starts an activity — like playing a game or hanging out on voice — we'll show it here!"
+msgstr "Здесь будет видно, когда кто-то из друзей начнёт играть или присоединится к голосовому каналу."
+
+msgid "Search {target}"
+msgstr "Поиск в {target}"
+
+msgid "No matching conversations."
+msgstr "Подходящих разговоров нет."
+
+msgid "No direct messages yet. Existing DMs appear here after syncing."
+msgstr "Личных сообщений пока нет. Существующие переписки появятся после синхронизации."
+
+msgid "No channels in this server that you can see."
+msgstr "На этом сервере нет доступных вам каналов."
+
+msgid "No Favorites yet. Right-click a Discord channel or DM to add one."
+msgstr "В избранном пока пусто. Чтобы добавить канал или переписку Discord, щёлкните по ним правой кнопкой мыши."
+
+msgid "REQUESTS"
+msgstr "ЗАПРОСЫ"
+
+msgid "SENT"
+msgstr "ОТПРАВЛЕННЫЕ"
+
+msgid "SPAM"
+msgstr "СПАМ"
+
+msgid "Voice disconnected"
+msgstr "Голосовая связь отключена"
+
+msgid "Joining voice..."
+msgstr "Подключение к голосовому каналу…"
+
+msgid "Preview voice"
+msgstr "Предпросмотр голосовой связи"
+
+msgid "Voice connected"
+msgstr "Голосовая связь подключена"
+
+msgid "Reconnecting voice..."
+msgstr "Восстановление голосовой связи…"
+
+msgid "Leaving voice..."
+msgstr "Отключение голосовой связи…"
+
+msgid "Turn off noise suppression"
+msgstr "Выключить шумоподавление"
+
+msgid "Turn on noise suppression"
+msgstr "Включить шумоподавление"
+
+msgid "Leave voice"
+msgstr "Отключиться от голосового канала"
+
+msgid "Open Soundboard"
+msgstr "Открыть звуковую панель"
+
+msgid "Starting camera..."
+msgstr "Включение камеры…"
+
+msgid "Turn off camera"
+msgstr "Выключить камеру"
+
+msgid "Turn on camera"
+msgstr "Включить камеру"
+
+msgid "Switch screen or window"
+msgstr "Сменить экран или окно"
+
+msgid "Share your screen"
+msgstr "Показать свой экран"
+
+msgid "Your screen"
+msgstr "Ваш экран"
+
+msgid "Stop sharing"
+msgstr "Остановить демонстрацию"
+
+msgid "Newer messages"
+msgstr "Более новые сообщения"
+
+msgid "Earlier messages"
+msgstr "Более ранние сообщения"
+
+msgid "Welcome to"
+msgstr "Добро пожаловать на сервер"
+
+msgid "This is the beginning of this server."
+msgstr "Это начало истории сервера."
+
+msgid "Unblock"
+msgstr "Разблокировать"
+
+msgid "Accept Request"
+msgstr "Принять запрос"
+
+msgid "Ignore Request"
+msgstr "Игнорировать запрос"
+
+msgid "Friend Request Sent"
+msgstr "Запрос в друзья отправлен"
+
+msgid "Remove Friend"
+msgstr "Удалить из друзей"
+
+msgid "Block"
+msgstr "Заблокировать"
+
+msgid "Loading conversation..."
+msgstr "Загрузка переписки…"
+
+msgid "Mark as read"
+msgstr "Отметить как прочитанное"
+
+msgid "Jump to present"
+msgstr "К последним сообщениям"
+
+msgid "You're viewing older messages"
+msgstr "Вы просматриваете старые сообщения"
+
+msgid "Delete Message"
+msgstr "Удалить сообщение"
+
+msgid "Are you sure you want to delete this message?"
+msgstr "Удалить это сообщение?"
+
+msgid "Delete"
+msgstr "Удалить"
+
+msgid "Leaving Yapfast"
+msgstr "Переход из Yapfast"
+
+msgid "This link goes to"
+msgstr "Ссылка ведёт на"
+
+msgid "Go back"
+msgstr "Вернуться"
+
+msgid "Visit site"
+msgstr "Открыть сайт"
+
+msgid "Loading..."
+msgstr "Загрузка…"
+
+msgid "Server settings"
+msgstr "Настройки сервера"
+
+msgid "EXPRESSION"
+msgstr "САМОВЫРАЖЕНИЕ"
+
+msgid "PEOPLE"
+msgstr "УЧАСТНИКИ"
+
+msgid "MODERATION"
+msgstr "МОДЕРАЦИЯ"
+
+msgid "Delete Server"
+msgstr "Удалить сервер"
+
+msgid "Server Profile"
+msgstr "Профиль сервера"
+
+msgid "Engagement"
+msgstr "Вовлечённость"
+
+msgid "Boost Perks"
+msgstr "Преимущества бустов"
+
+msgid "Members"
+msgstr "Участники"
+
+msgid "Roles"
+msgstr "Роли"
+
+msgid "Invites"
+msgstr "Приглашения"
+
+msgid "Safety Setup"
+msgstr "Настройки безопасности"
+
+msgid "Audit Log"
+msgstr "Журнал аудита"
+
+msgid "Bans"
+msgstr "Блокировки"
+
+msgid "Emoji"
+msgstr "Эмодзи"
+
+msgid "Stickers"
+msgstr "Стикеры"
+
+msgid "Join voice"
+msgstr "Подключиться к голосовому каналу"
+
+msgid "Profile"
+msgstr "Профиль"
+
+msgid "Add friend"
+msgstr "Добавить друга"
+
+msgid "Accept friend request"
+msgstr "Принять запрос в друзья"
+
+msgid "Cancel friend request"
+msgstr "Отменить запрос в друзья"
+
+msgid "Pin"
+msgstr "Закрепить"
+
+msgid "Unpin"
+msgstr "Открепить"
+
+msgid "Start call"
+msgstr "Начать звонок"
+
+msgid "Add note"
+msgstr "Добавить заметку"
+
+msgid "Add friend nickname"
+msgstr "Добавить прозвище друга"
+
+msgid "Change friend nickname"
+msgstr "Изменить прозвище друга"
+
+msgid "Close DM"
+msgstr "Закрыть переписку"
+
+msgid "Leave group"
+msgstr "Выйти из группы"
+
+msgid "Invite to server"
+msgstr "Пригласить на сервер"
+
+msgid "Apps"
+msgstr "Приложения"
+
+msgid "Remove friend"
+msgstr "Удалить из друзей"
+
+msgid "Stop ignoring"
+msgstr "Перестать игнорировать"
+
+msgid "Mute"
+msgstr "Выключить звук"
+
+msgid "Unmute"
+msgstr "Включить звук"
+
+msgid "Copy link"
+msgstr "Копировать ссылку"
+
+msgid "Copy ID"
+msgstr "Копировать ID"
+
+msgid "Mention"
+msgstr "Упомянуть"
+
+msgid "Change nickname"
+msgstr "Изменить никнейм"
+
+msgid "Remove timeout"
+msgstr "Снять ограничение общения"
+
+msgid "Time out"
+msgstr "Ограничить общение"
+
+msgid "Kick"
+msgstr "Выгнать"
+
+msgid "Ban"
+msgstr "Заблокировать на сервере"
+
+msgid "Transfer Ownership"
+msgstr "Передать права владельца"
+
+msgid "Mute Soundboard"
+msgstr "Выключить звуковую панель"
+
+msgid "Deafen"
+msgstr "Отключить звук и микрофон"
+
+msgid "Move to"
+msgstr "Переместить в"
+
+msgid "Server mute"
+msgstr "Выключить микрофон на сервере"
+
+msgid "Server deafen"
+msgstr "Отключить звук на сервере"
+
+msgid "Disconnect"
+msgstr "Отключить"
+
+msgid "Mute server"
+msgstr "Выключить уведомления сервера"
+
+msgid "Unmute server"
+msgstr "Включить уведомления сервера"
+
+msgid "Mute folder"
+msgstr "Выключить уведомления папки"
+
+msgid "Unmute folder"
+msgstr "Включить уведомления папки"
+
+msgid "Show all channels"
+msgstr "Показать все каналы"
+
+msgid "Hide muted channels"
+msgstr "Скрыть каналы без уведомлений"
+
+msgid "Invite to channel"
+msgstr "Пригласить в канал"
+
+msgid "Add to Favorites"
+msgstr "Добавить в избранное"
+
+msgid "Remove from Favorites"
+msgstr "Удалить из избранного"
+
+msgid "Pin channel to top"
+msgstr "Закрепить канал сверху"
+
+msgid "Unpin channel"
+msgstr "Открепить канал"
+
+msgid "Add to channel list"
+msgstr "Добавить в список каналов"
+
+msgid "Remove from channel list"
+msgstr "Убрать из списка каналов"
+
+msgid "Unfollow channel category"
+msgstr "Отписаться от категории каналов"
+
+msgid "Create text channel"
+msgstr "Создать текстовый канал"
+
+msgid "Create category"
+msgstr "Создать категорию"
+
+msgid "Edit channel"
+msgstr "Редактировать канал"
+
+msgid "Duplicate channel"
+msgstr "Дублировать канал"
+
+msgid "Delete channel"
+msgstr "Удалить канал"
+
+msgid "Leave server"
+msgstr "Покинуть сервер"
+
+msgid "Join thread"
+msgstr "Присоединиться к ветке"
+
+msgid "Leave thread"
+msgstr "Покинуть ветку"
+
+msgid "Edit server profile"
+msgstr "Редактировать профиль на сервере"
+
+msgid "Mark folder as read"
+msgstr "Отметить папку как прочитанную"
+
+msgid "Create channel"
+msgstr "Создать канал"
+
+msgid "Create voice channel"
+msgstr "Создать голосовой канал"
+
+msgid "Edit category"
+msgstr "Редактировать категорию"
+
+msgid "Delete category"
+msgstr "Удалить категорию"
+
+msgid "Join call"
+msgstr "Присоединиться к звонку"
+
+msgid "No upcoming events"
+msgstr "Нет предстоящих событий"
+
+msgid "Close all folders"
+msgstr "Закрыть все папки"
+
+msgid "Servers"
+msgstr "Серверы"
+
+msgid "Making a link..."
+msgstr "Создание ссылки…"
+
+msgid "Copied"
+msgstr "Скопировано"
+
+msgid "Copy"
+msgstr "Копировать"
+
+msgid "Done"
+msgstr "Готово"
+
+msgid "Generate a new link"
+msgstr "Создать новую ссылку"
+
+msgid "You've been invited to join a server"
+msgstr "Вас пригласили на сервер"
+
+msgid "Join a Server"
+msgstr "Присоединиться к серверу"
+
+msgid "Paste an invite link or code to join a server you were invited to."
+msgstr "Вставьте ссылку или код приглашения, чтобы присоединиться к серверу."
+
+msgid "You joined. This server asks new members to fill in a form before they can talk, which Yapfast can't show yet. Finish it in Discord's web app."
+msgstr "Вы присоединились к серверу. Чтобы общаться, заполните анкету в веб-версии Discord. В Yapfast она пока недоступна."
+
+msgid "Discord asks for a captcha first. Solve it in your browser."
+msgstr "Discord просит пройти капчу. Пройдите её в браузере."
+
+msgid "Joining..."
+msgstr "Подключение…"
+
+msgid "Looking up the invite..."
+msgstr "Поиск приглашения…"
+
+msgid "You're already in this server."
+msgstr "Вы уже на этом сервере."
+
+msgid "Open in browser"
+msgstr "Открыть в браузере"
+
+msgid "Open Server"
+msgstr "Открыть сервер"
+
+msgid "Join in Browser"
+msgstr "Присоединиться в браузере"
+
+msgid "Find Invite"
+msgstr "Найти приглашение"
+
+msgid "Close"
+msgstr "Закрыть"
+
+msgid "Open the captcha again"
+msgstr "Открыть капчу снова"
+
+msgid "Text"
+msgstr "Текстовый"
+
+msgid "Voice"
+msgstr "Голосовой"
+
+msgid "CATEGORY NAME"
+msgstr "НАЗВАНИЕ КАТЕГОРИИ"
+
+msgid "New Category"
+msgstr "Новая категория"
+
+msgid "Leave without notifying other members"
+msgstr "Выйти без уведомления других участников"
+
+msgid "Sync permissions?"
+msgstr "Синхронизировать права доступа?"
+
+msgid "Keep Current Permissions"
+msgstr "Сохранить текущие права"
+
+msgid "Sync Permissions"
+msgstr "Синхронизировать права"
+
+msgid "ADD TO SERVER"
+msgstr "ДОБАВИТЬ НА СЕРВЕР"
+
+msgid "Change Server Icon"
+msgstr "Изменить значок сервера"
+
+msgid "Remove Icon"
+msgstr "Удалить значок"
+
+msgid "Customize how your server appears in invite links and, if enabled, in Server Discovery and Announcement Channel messages."
+msgstr "Настройте, как сервер выглядит в приглашениях, каталоге серверов и сообщениях каналов объявлений, если эти функции включены."
+
+msgid "NAME"
+msgstr "НАЗВАНИЕ"
+
+msgid "ICON"
+msgstr "ЗНАЧОК"
+
+msgid "Reading the picture..."
+msgstr "Загрузка изображения…"
+
+msgid "We recommend an image of at least 512x512."
+msgstr "Рекомендуем изображение размером не менее 512 × 512."
+
+msgid "DESCRIPTION"
+msgstr "ОПИСАНИЕ"
+
+msgid "Tell people what your server is about."
+msgstr "Расскажите, о чём ваш сервер."
+
+msgid "No Level"
+msgstr "Нет уровня"
+
+msgid "Show Boost progress bar"
+msgstr "Показывать прогресс бустов"
+
+msgid "This progress bar will display in your channel list, attached to your server name (or server banner if you have one set)."
+msgstr "Прогресс появится в списке каналов рядом с названием или баннером сервера."
+
+msgid "The recommended minimum size is 960x540 and recommended aspect ratio is 16:9."
+msgstr "Рекомендуемый минимальный размер — 960 × 540, соотношение сторон — 16:9."
+
+msgid "No image"
+msgstr "Нет изображения"
+
+msgid "Upload Background"
+msgstr "Загрузить фон"
+
+msgid "Remove Background"
+msgstr "Удалить фон"
+
+msgid "No Emoji"
+msgstr "Нет эмодзи"
+
+msgid "Get the party started by uploading an emoji"
+msgstr "Загрузите первый эмодзи"
+
+msgid "Upload Emoji"
+msgstr "Загрузить эмодзи"
+
+msgid "Upload Sticker"
+msgstr "Загрузить стикер"
+
+msgid "FILE"
+msgstr "ФАЙЛ"
+
+msgid "Descriptions are optional but must be more than 1 character."
+msgstr "Описание необязательно. Если вы его добавите, в нём должно быть больше одного символа."
+
+msgid "VERIFICATION LEVEL"
+msgstr "УРОВЕНЬ ПРОВЕРКИ"
+
+msgid "SENSITIVE CONTENT FILTERS"
+msgstr "ФИЛЬТРЫ ДЕЛИКАТНОГО КОНТЕНТА"
+
+msgid "Server Ban List"
+msgstr "Список блокировок сервера"
+
+msgid "Ban Reason"
+msgstr "Причина блокировки"
+
+msgid "Server Members"
+msgstr "Участники сервера"
+
+msgid "No members match these search results."
+msgstr "Участники по этому запросу не найдены."
+
+msgid "Showing"
+msgstr "Показано"
+
+msgid "Security Actions"
+msgstr "Меры безопасности"
+
+msgid "ENTER SERVER NAME"
+msgstr "ВВЕДИТЕ НАЗВАНИЕ СЕРВЕРА"
+
+msgid "You didn't enter the server name correctly"
+msgstr "Название сервера введено неверно"
+
+msgid "Deleting..."
+msgstr "Удаление…"
+
+msgid "VERIFICATION CODE"
+msgstr "КОД ПОДТВЕРЖДЕНИЯ"
+
+msgid "Verification code sent."
+msgstr "Код подтверждения отправлен."
+
+msgid "Transferring..."
+msgstr "Передача прав…"
+
+msgid "MEMBERS"
+msgstr "УЧАСТНИКИ"
+
+msgid "No roles"
+msgstr "Нет ролей"
+
+msgid "Default Permissions"
+msgstr "Права по умолчанию"
+
+msgid "ROLE NAME"
+msgstr "НАЗВАНИЕ РОЛИ"
+
+msgid "ROLE COLOR"
+msgstr "ЦВЕТ РОЛИ"
+
+msgid "Unlocks at Level 2"
+msgstr "Доступно с уровня 2"
+
+msgid "ROLE ICON"
+msgstr "ЗНАЧОК РОЛИ"
+
+msgid "No permissions found"
+msgstr "Права не найдены"
+
+msgid "No members were found."
+msgstr "Участники не найдены."
+
+msgid "Add members"
+msgstr "Добавить участников"
+
+msgid "Add reaction"
+msgstr "Добавить реакцию"
+
+msgid "View Reactions"
+msgstr "Посмотреть реакции"
+
+msgid "Edit message"
+msgstr "Редактировать сообщение"
+
+msgid "Reply"
+msgstr "Ответить"
+
+msgid "Create Thread"
+msgstr "Создать ветку"
+
+msgid "View Thread"
+msgstr "Открыть ветку"
+
+msgid "Copy text"
+msgstr "Копировать текст"
+
+msgid "Copy selection"
+msgstr "Копировать выделенное"
+
+msgid "End Poll Now"
+msgstr "Завершить опрос сейчас"
+
+msgid "Unpin message"
+msgstr "Открепить сообщение"
+
+msgid "Pin message"
+msgstr "Закрепить сообщение"
+
+msgid "Mark Unread"
+msgstr "Отметить как непрочитанное"
+
+msgid "Copy Message Link"
+msgstr "Копировать ссылку на сообщение"
+
+msgid "Delete message"
+msgstr "Удалить сообщение"
+
+msgid "Copy Message ID"
+msgstr "Копировать ID сообщения"
+
+msgid "Copy Link"
+msgstr "Копировать ссылку"
+
+msgid "Open Link"
+msgstr "Открыть ссылку"
+
+msgid "Upload a File"
+msgstr "Загрузить файл"
+
+msgid "Create Poll"
+msgstr "Создать опрос"
+
+msgid "In {name}"
+msgstr "В {name}"
+
+msgid "A copy of {name}, with its settings and permissions, in the same category."
+msgstr "Копия {name} с его настройками и правами доступа в той же категории."
+
+msgid "Are you sure you want to delete {name}? This cannot be undone."
+msgstr "Удалить {name}? Это действие нельзя отменить."
+
+msgid "CHANNEL TYPE"
+msgstr "ТИП КАНАЛА"
+
+msgid "CHANNEL NAME"
+msgstr "НАЗВАНИЕ КАНАЛА"
+
+msgid "Animated Emoji"
+msgstr "Анимированные эмодзи"
+
+msgid "Use category default"
+msgstr "Как в категории"
+
+msgid "Use server default"
+msgstr "Как на сервере"
+
+msgid "Suppress @everyone and @here"
+msgstr "Отключить уведомления от @everyone и @here"
+
+msgid "Suppress all role @mentions"
+msgstr "Отключить уведомления об упоминаниях ролей"
+
+msgid "All messages"
+msgstr "Все сообщения"
+
+msgid "Only @mentions"
+msgstr "Только @упоминания"
+
+msgid "Nothing"
+msgstr "Ничего"
+
+msgid "For 15 minutes"
+msgstr "На 15 минут"
+
+msgid "For 1 hour"
+msgstr "На 1 час"
+
+msgid "For 3 hours"
+msgstr "На 3 часа"
+
+msgid "For 8 hours"
+msgstr "На 8 часов"
+
+msgid "For 24 hours"
+msgstr "На 24 часа"
+
+msgid "Until I turn it back on"
+msgstr "Пока я не включу снова"
+
+msgid "Mute category"
+msgstr "Выключить уведомления категории"
+
+msgid "Unmute category"
+msgstr "Включить уведомления категории"
+
+msgid "Mute channel"
+msgstr "Выключить уведомления канала"
+
+msgid "Unmute channel"
+msgstr "Включить уведомления канала"
+
+msgid "Invite friends to {server}"
+msgstr "Пригласить друзей на сервер {server}"
+
+msgid "They'll land in {place}."
+msgstr "Они попадут в {place}."
+
+msgid "Leave '{name}'"
+msgstr "Покинуть «{name}»"
+
+msgid "Are you sure you want to leave {name}? You won't be able to rejoin this group unless you are re-invited."
+msgstr "Покинуть группу {name}? Чтобы вернуться, понадобится новое приглашение."
+
+msgid "Are you sure you want to leave {name}? You won't be able to rejoin this server unless you are re-invited."
+msgstr "Покинуть сервер {name}? Чтобы вернуться, понадобится новое приглашение."
+
+msgid "No System Messages"
+msgstr "Без системных сообщений"
+
+msgid "No Inactive Channel"
+msgstr "Без канала для неактивных"
+
+msgid "SYSTEM MESSAGES CHANNEL"
+msgstr "КАНАЛ СИСТЕМНЫХ СООБЩЕНИЙ"
+
+msgid "This is the channel we send system event messages to. These can be turned off at any time."
+msgstr "В этот канал отправляются системные сообщения. Их можно отключить в любой момент."
+
+msgid "DEFAULT NOTIFICATION SETTINGS"
+msgstr "НАСТРОЙКИ УВЕДОМЛЕНИЙ ПО УМОЛЧАНИЮ"
+
+msgid "This will determine whether members who have not explicitly set their notification settings receive a notification for every message sent in this server or not."
+msgstr "Эта настройка определяет, какие уведомления получат участники, оставившие настройки по умолчанию."
+
+msgid "All Messages"
+msgstr "Все сообщения"
+
+msgid "INACTIVE CHANNEL"
+msgstr "КАНАЛ ДЛЯ НЕАКТИВНЫХ"
+
+msgid "Automatically move members to this channel and mute them when they have been idle for longer than the inactive timeout. This does not affect browsers."
+msgstr "Участники будут автоматически перемещены в этот канал и заглушены по истечении времени бездействия. Это не касается клиентов в браузере."
+
+msgid "Servers who reach Boosting Level 1 and above get unique invite embeds with custom Server Invite Backgrounds. The recommended minimum size is 1920x1080 and recommended aspect ratio is 16:9."
+msgstr "С первого уровня бустов можно выбрать фон для приглашений. Рекомендуемый минимальный размер — 1920 × 1080, соотношение сторон — 16:9."
+
+msgid "Level {tier}"
+msgstr "Уровень {tier}"
+
+msgid "Unlocks at Level {level}"
+msgstr "Доступно с уровня {level}"
+
+msgid "1 minute"
+msgstr "1 минута"
+
+msgid "5 minutes"
+msgstr "5 минут"
+
+msgid "15 minutes"
+msgstr "15 минут"
+
+msgid "30 minutes"
+msgstr "30 минут"
+
+msgid "1 hour"
+msgstr "1 час"
+
+msgid "Send a random welcome message when someone joins this server."
+msgstr "Отправлять случайное приветствие, когда кто-то присоединяется к серверу."
+
+msgid "Prompt members to reply to welcome messages with a sticker."
+msgstr "Предлагать участникам отвечать на приветствия стикером."
+
+msgid "Send a message when someone boosts this server."
+msgstr "Отправлять сообщение, когда кто-то бустит сервер."
+
+msgid "Send helpful tips for server setup."
+msgstr "Отправлять подсказки по настройке сервера."
+
+msgid "View Channels"
+msgstr "Просмотр каналов"
+
+msgid "Allows members to view channels by default (excluding private channels)."
+msgstr "Просматривать доступные каналы по умолчанию. Закрытые каналы требуют отдельного доступа."
+
+msgid "Manage Channels"
+msgstr "Управление каналами"
+
+msgid "Allows members to create, edit, or delete channels."
+msgstr "Создавать, изменять и удалять каналы."
+
+msgid "Manage Roles"
+msgstr "Управление ролями"
+
+msgid "Allows members to create new roles and edit or delete roles lower than their highest role. Also allows members to change permissions of individual channels that they have access to."
+msgstr "Создавать роли, изменять и удалять роли ниже своей высшей роли, а также менять права доступных каналов."
+
+msgid "Create Expressions"
+msgstr "Добавление эмодзи, стикеров и звуков"
+
+msgid "Allows members to add custom emoji, stickers, and sounds in this server."
+msgstr "Добавлять эмодзи, стикеры и звуки на сервер."
+
+msgid "Manage Expressions"
+msgstr "Управление эмодзи, стикерами и звуками"
+
+msgid "Allows members to edit or remove custom emoji, stickers, and sounds in this server."
+msgstr "Изменять и удалять эмодзи, стикеры и звуки сервера."
+
+msgid "View Audit Log"
+msgstr "Просмотр журнала аудита"
+
+msgid "Allows members to view a record of who made which changes in this server."
+msgstr "Видеть, кто и какие изменения внёс на сервере."
+
+msgid "View Server Insights"
+msgstr "Просмотр статистики сервера"
+
+msgid "Allows members to view Server Insights, which shows data on community growth, engagement, and more. This will allow them to see certain data about channel activity, even for channels they cannot access."
+msgstr "Видеть статистику роста, активности сообщества и некоторые данные даже по недоступным каналам."
+
+msgid "Manage Webhooks"
+msgstr "Управление вебхуками"
+
+msgid "Allows members to create, edit, or delete webhooks, which can post messages from other apps or sites into this server."
+msgstr "Создавать, изменять и удалять вебхуки, публикующие сообщения из приложений и сайтов."
+
+msgid "Manage Server"
+msgstr "Управление сервером"
+
+msgid "Allow members to change this server's name, switch regions, view all invites, add apps to this server and create and update AutoMod rules."
+msgstr "Менять название и регион сервера, видеть все приглашения, добавлять приложения и настраивать правила AutoMod."
+
+msgid "Create Invite"
+msgstr "Создание приглашений"
+
+msgid "Allows members to invite new people to this server."
+msgstr "Приглашать новых участников на сервер."
+
+msgid "Change Nickname"
+msgstr "Изменение своего никнейма"
+
+msgid "Allows members to change their own nickname, a custom name for just this server."
+msgstr "Менять свой никнейм на этом сервере."
+
+msgid "Manage Nicknames"
+msgstr "Управление никнеймами"
+
+msgid "Allows members to change the nicknames of other members."
+msgstr "Менять никнеймы других участников."
+
+msgid "Kick, Approve, and Reject Members"
+msgstr "Исключение участников и рассмотрение заявок"
+
+msgid "Kick will remove other members from this server. Kicked members will be able to rejoin if they have another invite. If the server enables Member Requirements, this permission enables the ability to approve or reject members who request to join."
+msgstr "Исключать участников, которые могут вернуться по новому приглашению. Если на сервере включены требования к участникам, можно принимать и отклонять заявки."
+
+msgid "Ban Members"
+msgstr "Блокировка участников"
+
+msgid "Allows members to permanently ban and delete the message history of other members from this server."
+msgstr "Бессрочно блокировать участников и удалять историю их сообщений на сервере."
+
+msgid "Timeout Members"
+msgstr "Ограничение общения участников"
+
+msgid "When you put a user in timeout they will not be able to send messages in chat, reply within threads, react to messages, or speak in voice or Stage channels."
+msgstr "Участник с ограничением не может писать, отвечать в ветках, ставить реакции и говорить в голосовых каналах или на сцене."
+
+msgid "Send Messages and Create Posts"
+msgstr "Отправка сообщений и создание публикаций"
+
+msgid "Allow members to send messages in text channels and create posts in forum channels."
+msgstr "Писать в текстовых каналах и создавать публикации на форумах."
+
+msgid "Send Messages in Threads and Posts"
+msgstr "Отправка сообщений в ветках и публикациях"
+
+msgid "Allow members to send messages in threads and in posts on forum channels."
+msgstr "Писать в ветках и публикациях на форумах."
+
+msgid "Create Public Threads"
+msgstr "Создание публичных веток"
+
+msgid "Allow members to create threads that everyone in a channel can view."
+msgstr "Создавать ветки, доступные всем участникам канала."
+
+msgid "Create Private Threads"
+msgstr "Создание закрытых веток"
+
+msgid "Allow members to create invite-only threads."
+msgstr "Создавать ветки с доступом по приглашению."
+
+msgid "Embed Links"
+msgstr "Предпросмотр ссылок"
+
+msgid "Allows links that members share to show embedded content in text channels."
+msgstr "Показывать предпросмотр отправленных ссылок в текстовых каналах."
+
+msgid "Attach Files"
+msgstr "Прикрепление файлов"
+
+msgid "Allows members to upload files or media in text channels."
+msgstr "Загружать файлы и медиа в текстовые каналы."
+
+msgid "Add Reactions"
+msgstr "Добавление реакций"
+
+msgid "Allows members to add new emoji reactions to a message. If this permission is disabled, members can still react using any existing reactions on a message."
+msgstr "Добавлять новые реакции. Существующие реакции доступны и без этого права."
+
+msgid "Use External Emoji"
+msgstr "Использование эмодзи с других серверов"
+
+msgid "Allows members to use emoji from other servers, if they’re a Discord Nitro member."
+msgstr "Использовать эмодзи с других серверов при наличии Discord Nitro."
+
+msgid "Use External Stickers"
+msgstr "Использование стикеров с других серверов"
+
+msgid "Allows members to use stickers from other servers, if they’re a Discord Nitro member."
+msgstr "Использовать стикеры с других серверов при наличии Discord Nitro."
+
+msgid "Mention @everyone, @here, and All Roles"
+msgstr "Упоминание @everyone, @here и всех ролей"
+
+msgid "Allows members to use @everyone (everyone in the server) or @here (only online members in that channel). They can also @mention all roles, even if the role’s “Allow anyone to mention this role” permission is disabled."
+msgstr "Упоминать всех на сервере через @everyone, активных участников канала через @here и любые роли независимо от их настроек."
+
+msgid "Manage Messages"
+msgstr "Управление сообщениями"
+
+msgid "Allows members to delete or remove embeds from messages by other members."
+msgstr "Удалять сообщения других участников или убирать из них предпросмотры."
+
+msgid "Pin Messages"
+msgstr "Закрепление сообщений"
+
+msgid "Allows members to pin or unpin any message."
+msgstr "Закреплять и откреплять любые сообщения."
+
+msgid "Bypass Slowmode"
+msgstr "Обход медленного режима"
+
+msgid "Allows members to send messages without being affected by slowmode."
+msgstr "Писать без задержки медленного режима."
+
+msgid "Manage Threads and Posts"
+msgstr "Управление ветками и публикациями"
+
+msgid "Allows members to rename, delete, close, and turn on slow mode for threads and posts. They can also view private threads."
+msgstr "Переименовывать, удалять и закрывать ветки и публикации, включать в них медленный режим и видеть закрытые ветки."
+
+msgid "Read Message History"
+msgstr "Чтение истории сообщений"
+
+msgid "Allows members to read previous messages sent in channels. If this permission is disabled, members only see messages sent when they are online. This does not fully apply to threads and forum posts."
+msgstr "Читать более ранние сообщения. Без этого права видны только сообщения, отправленные, пока участник был в сети. Ограничение не полностью распространяется на ветки и форумы."
+
+msgid "Send Text-to-Speech Messages"
+msgstr "Отправка сообщений с озвучкой"
+
+msgid "Allows members to send text-to-speech messages by starting a message with /tts. These messages can be heard by anyone focused on the channel."
+msgstr "Отправлять озвучиваемые сообщения через /tts. Их слышат участники, у которых открыт канал."
+
+msgid "Send Voice Messages"
+msgstr "Отправка голосовых сообщений"
+
+msgid "Allows members to send voice messages."
+msgstr "Отправлять голосовые сообщения."
+
+msgid "Create Polls"
+msgstr "Создание опросов"
+
+msgid "Allows members to create polls."
+msgstr "Создавать опросы."
+
+msgid "Connect"
+msgstr "Подключение"
+
+msgid "Allows members to join voice channels and hear others."
+msgstr "Подключаться к голосовым каналам и слышать других."
+
+msgid "Speak"
+msgstr "Право говорить"
+
+msgid "Allows members to talk in voice channels. If this permission is disabled, members are default muted until somebody with the “Mute Members” permission un-mutes them."
+msgstr "Говорить в голосовых каналах. Без этого права микрофон выключен, пока его не включит участник с правом управления микрофонами."
+
+msgid "Video"
+msgstr "Видео"
+
+msgid "Allows members to share their video, screen share, or stream a game in this server."
+msgstr "Включать камеру, показывать экран или транслировать игру."
+
+msgid "Use Soundboard"
+msgstr "Использование звуковой панели"
+
+msgid "Allows members to send sounds from server soundboard."
+msgstr "Воспроизводить звуки со звуковой панели сервера."
+
+msgid "Use External Sounds"
+msgstr "Использование звуков с других серверов"
+
+msgid "Allows members to use sounds from other servers, if they're a Discord Nitro member."
+msgstr "Воспроизводить звуки с других серверов при наличии Discord Nitro."
+
+msgid "Use Voice Activity"
+msgstr "Активация по голосу"
+
+msgid "Allows members to speak in voice channels by simply talking. If this permission is disabled, members are required to use Push-to-talk. Good for controlling background noise or noisy members."
+msgstr "Говорить без нажатия клавиши. Без этого права участники используют режим рации, что помогает снизить фоновый шум."
+
+msgid "Priority Speaker"
+msgstr "Приоритет говорящего"
+
+msgid "Allows members to be more easily heard in voice channels. When activated, the volume of others without this permission will be automatically lowered."
+msgstr "Говорить громче других. При активации громкость участников без этого права снижается автоматически."
+
+msgid "Mute Members"
+msgstr "Отключение микрофонов участников"
+
+msgid "Allows members to mute other members in voice channels for everyone."
+msgstr "Отключать микрофоны других участников голосового канала для всех."
+
+msgid "Deafen Members"
+msgstr "Отключение звука и микрофонов участников"
+
+msgid "Allows members to deafen other members in voice channels, which means they won’t be able to speak or hear others."
+msgstr "Отключать звук и микрофоны других участников, чтобы они не могли говорить и слышать."
+
+msgid "Move Members"
+msgstr "Перемещение участников"
+
+msgid "Allows members to disconnect or move other members between voice channels that the member with this permission has access to."
+msgstr "Отключать участников или перемещать их между доступными голосовыми каналами."
+
+msgid "Set Voice Channel Status"
+msgstr "Изменение статуса голосового канала"
+
+msgid "Allows members to create and edit voice channel status."
+msgstr "Создавать и изменять статус голосового канала."
+
+msgid "Use Application Commands"
+msgstr "Использование команд приложений"
+
+msgid "Allows members to use commands from applications, including slash commands and context menu commands."
+msgstr "Использовать команды приложений, в том числе команды с косой чертой и команды контекстного меню."
+
+msgid "Use Activities"
+msgstr "Использование активностей"
+
+msgid "Allows members to use Activities."
+msgstr "Запускать активности."
+
+msgid "Use External Apps"
+msgstr "Использование внешних приложений"
+
+msgid "Allows apps that members have added to their account to post messages. When disabled, the messages will be private."
+msgstr "Разрешать приложениям из аккаунтов участников публиковать сообщения. Без этого права такие сообщения видны только отправителю."
+
+msgid "Request to Speak"
+msgstr "Запрос права говорить"
+
+msgid "Allow requests to speak in Stage channels. Stage moderators manually approve or deny each request."
+msgstr "Запрашивать право говорить на сцене. Модераторы вручную принимают или отклоняют запросы."
+
+msgid "Create Events"
+msgstr "Создание событий"
+
+msgid "Allows members to create events."
+msgstr "Создавать события."
+
+msgid "Manage Events"
+msgstr "Управление событиями"
+
+msgid "Allows members to edit and cancel events."
+msgstr "Изменять и отменять события."
+
+msgid "Administrator"
+msgstr "Администратор"
+
+msgid "Members with this permission will have every permission and will also bypass all channel specific permissions or restrictions (for example, these members would get access to all private channels)."
+msgstr "Получать все разрешения и обходить ограничения отдельных каналов, включая ограничения доступа к закрытым каналам."
+
+msgid "General Server Permissions"
+msgstr "Общие права сервера"
+
+msgid "Membership Permissions"
+msgstr "Права управления участниками"
+
+msgid "Text Channel Permissions"
+msgstr "Права текстовых каналов"
+
+msgid "Voice Channel Permissions"
+msgstr "Права голосовых каналов"
+
+msgid "Apps Permissions"
+msgstr "Права приложений"
+
+msgid "Stage Channel Permissions"
+msgstr "Права каналов-сцен"
+
+msgid "Events Permissions"
+msgstr "Права на события"
+
+msgid "Advanced Permissions"
+msgstr "Расширенные права"
+
+msgid "This is a dangerous permission to grant."
+msgstr "Выдавать это разрешение опасно."
+
+msgid "Display"
+msgstr "Оформление"
+
+msgid "Permissions"
+msgstr "Права доступа"
+
+msgid "Clear permissions"
+msgstr "Сбросить разрешения"
+
+msgid "Search permissions"
+msgstr "Поиск разрешений"
+
+msgid "You cannot clear permissions because it would remove one or more permissions from you."
+msgstr "Сброс недоступен, поскольку вы потеряете одно или несколько разрешений."
+
+msgid "You cannot modify this permission because none of your roles have it."
+msgstr "Ни у одной из ваших ролей нет этого разрешения."
+
+msgid "You cannot modify this permission because removing it would remove it from you."
+msgstr "Отзыв недоступен, поскольку вы потеряете это разрешение."
+
+msgid "This role is automatically managed by an integration."
+msgstr "Этой ролью автоматически управляет интеграция."
+
+msgid "This role is automatically managed by Discord for Server Boosting. It cannot be manually assigned to members or deleted."
+msgstr "Discord автоматически управляет этой ролью для бустов сервера. Её нельзя назначать вручную или удалять."
+
+msgid "Overview"
+msgstr "Обзор"
+
+msgid "Delete Category"
+msgstr "Удалить категорию"
+
+msgid "Delete Channel"
+msgstr "Удалить канал"
+
+msgid "CHANNEL TOPIC"
+msgstr "ТЕМА КАНАЛА"
+
+msgid "SLOWMODE"
+msgstr "МЕДЛЕННЫЙ РЕЖИМ"
+
+msgid "ADVANCED PERMISSIONS"
+msgstr "РАСШИРЕННЫЕ ПРАВА"
+
+msgid "ROLES/MEMBERS"
+msgstr "РОЛИ И УЧАСТНИКИ"
+
+msgid "ROLES"
+msgstr "РОЛИ"
+
+msgid "Add:"
+msgstr "Добавить"
+
+msgid "Let everyone know how to use this channel!"
+msgstr "Расскажите, для чего нужен этот канал."
+
+msgid "Members will be restricted to sending one message and creating one thread per this interval, unless they have Bypass Slowmode, Manage Channel or Manage Messages permissions."
+msgstr "За указанный интервал участник может отправить одно сообщение и создать одну ветку. Ограничение не действует для участников с правом обхода медленного режима, управления каналом или сообщениями."
+
+msgid "Age-Restricted Channel"
+msgstr "Канал с возрастным ограничением"
+
+msgid "Users will need to confirm they are of over legal age to view the content in this channel. Age-restricted channels are exempt from the explicit content filter."
+msgstr "Для просмотра канала нужно подтвердить совершеннолетие. Фильтр откровенного контента в таких каналах не применяется."
+
+msgid "Category Settings"
+msgstr "Настройки категории"
+
+msgid "Channel Permissions"
+msgstr "Права доступа к каналу"
+
+msgid "Use permissions to customize who can do what in this category."
+msgstr "Настройте действия, доступные участникам в этой категории."
+
+msgid "Use permissions to customize who can do what in this channel."
+msgstr "Настройте действия, доступные участникам в этом канале."
+
+msgid "Sync Now"
+msgstr "Синхронизировать"
+
+msgid "Private Category"
+msgstr "Закрытая категория"
+
+msgid "Private Channel"
+msgstr "Закрытый канал"
+
+msgid "By making a category private, only select members and roles will be able to view this category. Linked channels in this category will automatically match to this setting."
+msgstr "Закрытую категорию увидят только выбранные участники и роли. Синхронизированные каналы унаследуют настройки категории."
+
+msgid "By making a channel private, only select members and roles will have access to view or connect to this channel."
+msgstr "Только выбранные участники и роли смогут видеть закрытый канал или подключаться к нему."
+
+msgid "By making a channel private, only select members and roles will be able to view this channel."
+msgstr "Закрытый канал увидят только выбранные участники и роли."
+
+msgid "Add a role or member"
+msgstr "Добавить роль или участника"
+
+msgid "Delete Permission Settings"
+msgstr "Удалить настройки прав"
+
+msgid "Pretty sure you don't want to do this"
+msgstr "Это действие лишит вас доступа"
+
+msgid "NEW"
+msgstr "НОВОЕ"
+
+msgid "SPOILER"
+msgstr "СПОЙЛЕР"
+
+msgid "New Post"
+msgstr "Новая публикация"
+
+msgid "Post Guidelines"
+msgstr "Правила публикации"
+
+msgid "Select up to 5 tags"
+msgstr "Выберите до 5 тегов"
+
+msgid "Forward To"
+msgstr "Переслать в"
+
+msgid "End the poll now? This will close it immediately and reveal the results."
+msgstr "Завершить опрос сейчас? Голосование сразу закроется, и станут видны результаты."
+
+msgid "View original message to interact"
+msgstr "Откройте исходное сообщение, чтобы проголосовать"
+
+msgid "PINNED CHANNELS"
+msgstr "ЗАКРЕПЛЁННЫЕ КАНАЛЫ"
+
+msgid "OFFICIAL"
+msgstr "ОФИЦИАЛЬНОЕ"
+
+msgid "Boost Goal"
+msgstr "Цель по бустам"
+
+msgid "INVITE LINK"
+msgstr "ССЫЛКА-ПРИГЛАШЕНИЕ"
+
+msgid "EXPIRE AFTER"
+msgstr "СРОК ДЕЙСТВИЯ"
+
+msgid "MAX NUMBER OF USES"
+msgstr "МАКСИМУМ ИСПОЛЬЗОВАНИЙ"
+
+msgid "Check your email: we sent you a verification code. Enter it here to verify you’re really you."
+msgstr "Мы отправили код подтверждения на вашу почту. Введите его здесь."
+
+msgid "Didn’t receive a code or it expired? Resend it."
+msgstr "Код не пришёл или устарел? Отправить повторно."
+
+msgid "Partnered or Verified servers must reach out to the Community team for ownership transfer requests. However, our Partner and Verified Server Programs are currently paused and not able to handle any requests."
+msgstr "Чтобы передать права на партнёрский или подтверждённый сервер, обратитесь в команду Discord по работе с сообществами. Эти программы сейчас приостановлены, и заявки не принимаются."
+
+msgid "Allows members to invite new people to this server via a direct invite link to these channels."
+msgstr "Приглашать на сервер по прямой ссылке на эти каналы."
+
+msgid "Allows members to invite new people to this server via a direct invite link to this channel. The recipient will automatically join the voice channel if they have permission to connect."
+msgstr "Приглашать на сервер по прямой ссылке на этот канал. Получатель подключится к голосовому каналу автоматически, если у него есть разрешение."
+
+msgid "Allows members to invite new people to this server via a direct invite link to this channel."
+msgstr "Приглашать на сервер по прямой ссылке на этот канал."
+
+msgid "Manage Channel"
+msgstr "Управление каналом"
+
+msgid "Allows members to change these channels’ name, description, and text / voice settings. They can also delete these channels."
+msgstr "Менять названия, описания и текстовые или голосовые настройки этих каналов, а также удалять их."
+
+msgid "Allows members to change this channel’s name, description, and voice settings. They can also delete the channel."
+msgstr "Менять название, описание и голосовые настройки этого канала, а также удалять его."
+
+msgid "Allows members to change this channel’s name, description, and text settings. They can also delete the channel."
+msgstr "Менять название, описание и текстовые настройки этого канала, а также удалять его."
+
+msgid "View Channel"
+msgstr "Просмотр канала"
+
+msgid "Allows members to view these channels by default. Disabling this for @everyone will make text channels private. Disabling this and the Connect permission for @everyone will make voice channels private."
+msgstr "Просматривать эти каналы по умолчанию. Если запретить это право для @everyone, текстовые каналы станут закрытыми. Для закрытия голосовых каналов также запретите подключение."
+
+msgid "Allows members to view this channel by default. Disabling this and the Connect permission for @everyone will make this channel private."
+msgstr "Просматривать канал по умолчанию. Чтобы он стал закрытым, запретите для @everyone просмотр и подключение."
+
+msgid "Allows members to view this channel by default. Disabling this for @everyone will make this channel private."
+msgstr "Просматривать канал по умолчанию. Если запретить это право для @everyone, канал станет закрытым."
+
+msgid "Allows members to view this channel by default."
+msgstr "Просматривать этот канал по умолчанию."
+
+msgid "Allows members to view these channels by default."
+msgstr "Просматривать эти каналы по умолчанию."
+
+msgid "Send Messages"
+msgstr "Отправка сообщений"
+
+msgid "Allows members to send messages in this channel."
+msgstr "Отправлять сообщения в этом канале."
+
+msgid "Allow members to send messages and create posts in these channels."
+msgstr "Отправлять сообщения и создавать публикации в этих каналах."
+
+msgid "Manage Permissions"
+msgstr "Управление правами доступа"
+
+msgid "Allows members to change this channel’s permissions."
+msgstr "Изменять права доступа к этому каналу."
+
+msgid "Allows members to change these channels’ permissions."
+msgstr "Изменять права доступа к этим каналам."
+
+msgid "Allows members to create, edit, or delete webhooks in this channel, which can post messages from other apps or sites."
+msgstr "Создавать, изменять и удалять вебхуки, публикующие в этот канал сообщения из приложений и сайтов."
+
+msgid "Allows members to create, edit, or delete webhooks in these channels, which can post messages from other apps or sites."
+msgstr "Создавать, изменять и удалять вебхуки, публикующие в эти каналы сообщения из приложений и сайтов."
+
+msgid "General Channel Permissions"
+msgstr "Общие права канала"
+
+msgid "General Category Permissions"
+msgstr "Общие права категории"
+
+msgid "Voice Channel Chat Permissions"
+msgstr "Права чата голосового канала"
+
+msgid "Allows links that members share to show embedded content in this channel."
+msgstr "Показывать предпросмотр отправленных ссылок."
+
+msgid "Allows links that members share to show embedded content in these channels."
+msgstr "Показывать предпросмотр отправленных ссылок."
+
+msgid "Allows members to upload files or media in this channel."
+msgstr "Загружать файлы и медиа."
+
+msgid "Allows members to upload files or media in these channels."
+msgstr "Загружать файлы и медиа."
+
+msgid "Allows members to use emoji from other servers in this channel, if they’re a Discord Nitro member."
+msgstr "Использовать эмодзи с других серверов при наличии Discord Nitro."
+
+msgid "Allows members to use emoji from other servers in these channels, if they’re a Discord Nitro member."
+msgstr "Использовать эмодзи с других серверов при наличии Discord Nitro."
+
+msgid "Allows members to use stickers from other servers in this channel, if they’re a Discord Nitro member."
+msgstr "Использовать стикеры с других серверов при наличии Discord Nitro."
+
+msgid "Allows members to use stickers from other servers in these channels, if they’re a Discord Nitro member."
+msgstr "Использовать стикеры с других серверов при наличии Discord Nitro."
+
+msgid "Allows members to use @everyone or @here (only online members) in this channel. They can also @mention all roles in this channel, even if the role’s “Allow anyone to mention this role” permission is disabled."
+msgstr "Упоминать всех через @everyone, активных участников через @here и любые роли независимо от их настроек."
+
+msgid "Allows members to use @everyone or @here (only online members) in these channels. They can also @mention all roles in these channels, even if the role’s “Allow anyone to mention this role” permission is disabled."
+msgstr "Упоминать всех через @everyone, активных участников через @here и любые роли независимо от их настроек."
+
+msgid "Allows members to delete or remove embeds from messages by other members in this channel."
+msgstr "Удалять чужие сообщения или убирать из них предпросмотры."
+
+msgid "Allows members to delete or remove embeds from messages by other members in these channels."
+msgstr "Удалять чужие сообщения или убирать из них предпросмотры."
+
+msgid "Allows members to pin or unpin any message in this channel."
+msgstr "Закреплять и откреплять любые сообщения."
+
+msgid "Allows members to pin or unpin any message in these channels."
+msgstr "Закреплять и откреплять любые сообщения."
+
+msgid "Allows members to send messages in this channel without being affected by slowmode."
+msgstr "Отправлять сообщения без задержки медленного режима."
+
+msgid "Allows members to send messages in these channels without being affected by slowmode."
+msgstr "Отправлять сообщения без задержки медленного режима."
+
+msgid "Allows members to read previous messages sent in this channel. If this permission is disabled, members only see messages sent when they are online."
+msgstr "Читать более ранние сообщения. Без этого права видны только сообщения, отправленные, пока участник был в сети."
+
+msgid "Allows members to read previous messages sent in these channels. If this permission is disabled, members only see messages sent when they are online."
+msgstr "Читать более ранние сообщения. Без этого права видны только сообщения, отправленные, пока участник был в сети."
+
+msgid "Allows members to send text-to-speech messages in this channel by starting a message with /tts. These messages can be heard by anyone focused on this channel."
+msgstr "Отправлять озвучиваемые сообщения через /tts. Их слышат участники, у которых открыт канал."
+
+msgid "Allows members to send text-to-speech messages in these channels by starting a message with /tts. These messages can be heard by anyone focused on that channel."
+msgstr "Отправлять озвучиваемые сообщения через /tts. Их слышат участники, у которых открыт канал."
+
+msgid "Allows members to use commands from applications in this channel, including slash commands and context menu commands."
+msgstr "Использовать команды приложений, включая команды с косой чертой и команды контекстного меню."
+
+msgid "Allows members to use commands from applications in these channels, including slash commands and context menu commands."
+msgstr "Использовать команды приложений, включая команды с косой чертой и команды контекстного меню."
+
+msgid "Allows members to create polls in this channel."
+msgstr "Создавать опросы."
+
+msgid "Allows members to create polls in these channels."
+msgstr "Создавать опросы."
+
+msgid "Allows members to talk in this voice channel. If this permission is disabled, members are default muted until somebody with the “Mute Members” permission un-mutes them."
+msgstr "Говорить в голосовом канале. Без этого права микрофон выключен, пока его не включит участник с правом управления микрофонами."
+
+msgid "Allows members to talk in these voice channels. If this permission is disabled, members are default muted until somebody with the “Mute Members” permission un-mutes them."
+msgstr "Говорить в голосовом канале. Без этого права микрофон выключен, пока его не включит участник с правом управления микрофонами."
+
+msgid "Allows members to share their video, screen share, or stream a game in this voice channel."
+msgstr "Включать камеру, показывать экран или транслировать игру."
+
+msgid "Allows members to share their video, screen share, or stream a game in these voice channels."
+msgstr "Включать камеру, показывать экран или транслировать игру."
+
+msgid "Allows members to use Activities in this channel."
+msgstr "Запускать активности."
+
+msgid "Allows members to use Activities in these channels."
+msgstr "Запускать активности."
+
+msgid "Allows apps that members have added to their account to post messages in this channel. When disabled, the messages will be private."
+msgstr "Разрешать приложениям из аккаунтов участников публиковать сообщения. Без этого права такие сообщения видны только отправителю."
+
+msgid "Allows apps that members have added to their account to post messages in these channels. When disabled, the messages will be private."
+msgstr "Разрешать приложениям из аккаунтов участников публиковать сообщения. Без этого права такие сообщения видны только отправителю."
+
+msgid "Allows members to send sounds from server soundboard in this voice channel."
+msgstr "Воспроизводить звуки со звуковой панели сервера."
+
+msgid "Allows members to send sounds from server soundboard in these voice channels."
+msgstr "Воспроизводить звуки со звуковой панели сервера."
+
+msgid "Allows members to speak in this voice channel by simply talking. If this permission is disabled, members are required to use Push-to-talk. Good for controlling background noise or noisy members."
+msgstr "Говорить без нажатия клавиши. Без этого права участники используют режим рации, что помогает снизить фоновый шум."
+
+msgid "Allows members to speak in these voice channels by simply talking. If this permission is disabled, members are required to use Push-to-talk. Good for controlling background noise or noisy members."
+msgstr "Говорить без нажатия клавиши. Без этого права участники используют режим рации, что помогает снизить фоновый шум."
+
+msgid "Allows members to be more easily heard in this voice channel. When activated, the volume of others without this permission will be automatically lowered. Priority Speaker is activated by using the Push to Talk (Priority) keybind."
+msgstr "Говорить громче других при использовании клавиши приоритетной рации. Громкость остальных участников без этого права снижается автоматически."
+
+msgid "Allows members to be more easily heard in these voice channels. When activated, the volume of others without this permission will be automatically lowered. Priority Speaker is activated by using the Push to Talk (Priority) keybind."
+msgstr "Говорить громче других при использовании клавиши приоритетной рации. Громкость остальных участников без этого права снижается автоматически."
+
+msgid "Allows members to mute other members in this voice channel for everyone."
+msgstr "Отключать микрофоны других участников голосового канала для всех."
+
+msgid "Allows members to mute other members in these voice channels for everyone."
+msgstr "Отключать микрофоны других участников голосового канала для всех."
+
+msgid "Allows members to deafen other members in this voice channel, which means they won’t be able to speak or hear others."
+msgstr "Отключать звук и микрофоны других участников, чтобы они не могли говорить и слышать."
+
+msgid "Allows members to deafen other members in these voice channels, which means they won’t be able to speak or hear others."
+msgstr "Отключать звук и микрофоны других участников, чтобы они не могли говорить и слышать."
+
+msgid "Allows members to disconnect other members from this channel. They will also be able to move somebody into other channels that they have this permission in."
+msgstr "Отключать других участников или перемещать их в каналы, где у вас есть это разрешение."
+
+msgid "Allows members to disconnect other members from these channels. They will also be able to move somebody into other channels that they have this permission in."
+msgstr "Отключать других участников или перемещать их в каналы, где у вас есть это разрешение."
+
+msgid "Allow members to create threads that everyone in this channel can view."
+msgstr "Создавать ветки, доступные всем участникам канала."
+
+msgid "Allow members to create threads that everyone in these channels can view."
+msgstr "Создавать ветки, доступные всем участникам канала."
+
+msgid "Allow members to create invite-only threads in this channel."
+msgstr "Создавать ветки с доступом по приглашению."
+
+msgid "Allow members to create invite-only threads in these channels."
+msgstr "Создавать ветки с доступом по приглашению."
+
+msgid "Allows members to edit and cancel events in this channel."
+msgstr "Изменять и отменять события."
+
+msgid "Allows members to edit and cancel events in these channels."
+msgstr "Изменять и отменять события."
+
+msgid "Allows members to create events in this channel."
+msgstr "Создавать события."
+
+msgid "Allows members to create events in these channels."
+msgstr "Создавать события."
+
+msgid "Allows members to add new emoji reactions to a message in these channels. If this permission is disabled, members can still react using any existing reactions on a message."
+msgstr "Добавлять новые реакции. Существующие реакции доступны и без этого права."
+
+msgid "Allows members to add new emoji reactions to a message in this channel and send reactions in voice channels. If this permission is disabled, members can still react using any existing reactions on a message."
+msgstr "Добавлять новые реакции к сообщениям и отправлять реакции в голосовом канале. Существующие реакции к сообщениям доступны и без этого права."
+
+msgid "Allows members to add new emoji reactions to a message in this channel. If this permission is disabled, members can still react using any existing reactions on a message."
+msgstr "Добавлять новые реакции. Существующие реакции доступны и без этого права."
+
+msgid "Allows members to join these voice channels and hear others. Disabling this and the View Channel permissions for @everyone will make these channels private."
+msgstr "Подключаться к этим голосовым каналам и слышать других. Чтобы закрыть каналы, запретите подключение и просмотр для @everyone."
+
+msgid "Allows members to join this voice channel and hear others. Disabling this and the View Channel permissions for @everyone will make this channel private."
+msgstr "Подключаться к голосовому каналу и слышать других. Чтобы закрыть канал, запретите подключение и просмотр для @everyone."
+
+msgid "Allows members to join these voice channels and hear others."
+msgstr "Подключаться к этим голосовым каналам и слышать других."
+
+msgid "Allows members to join this voice channel and hear others."
+msgstr "Подключаться к голосовому каналу и слышать других."
+
+msgid "Manage Threads"
+msgstr "Управление ветками"
+
+msgid "Allows members to rename, delete, close, and turn on slow mode for threads in this channel. They can also view private threads."
+msgstr "Переименовывать, удалять и закрывать ветки, включать в них медленный режим и видеть закрытые ветки."
+
+msgid "Allows members to rename, delete, close, and turn on slow mode for threads and posts in these channels. They can also view private threads."
+msgstr "Переименовывать, удалять и закрывать ветки и публикации, включать в них медленный режим и видеть закрытые ветки."
+
+msgid "Send Messages in Threads"
+msgstr "Отправка сообщений в ветках"
+
+msgid "Allow members to send messages in threads under this channel."
+msgstr "Отправлять сообщения в ветках канала."
+
+msgid "Allow members to send messages in threads and posts under these channels."
+msgstr "Отправлять сообщения в ветках и публикациях этих каналов."
+
+msgid "Allows members to send voice messages in this channel. Requires the \"Attach Files\" permission as well."
+msgstr "Отправлять голосовые сообщения. Также требуется разрешение на прикрепление файлов."
+
+msgid "Allows members to send voice messages in these channels. Requires the \"Attach Files\" permission as well."
+msgstr "Отправлять голосовые сообщения. Также требуется разрешение на прикрепление файлов."
+
+msgid "Custom Keybinds"
+msgstr "Пользовательские сочетания клавиш"
+
+msgid "Default Keybinds"
+msgstr "Стандартные сочетания клавиш"
+
+msgid "FONT"
+msgstr "ШРИФТ"
+
+msgid "LINKS"
+msgstr "ССЫЛКИ"
+
+msgid "My account"
+msgstr "Моя учётная запись"
+
+msgid "Game activity"
+msgstr "Игровая активность"
+
+msgid "CUSTOM GAMES"
+msgstr "ПОЛЬЗОВАТЕЛЬСКИЕ ИГРЫ"
+
+msgid "NEVER SHOW AS A GAME"
+msgstr "НИКОГДА НЕ ПОКАЗЫВАТЬ КАК ИГРУ"
+
+msgid "SOUND SET"
+msgstr "НАБОР ЗВУКОВ"
+
+msgid "Blocked accounts"
+msgstr "Заблокированные аккаунты"
+
+msgid "UPDATES"
+msgstr "ОБНОВЛЕНИЯ"
+
+msgid "THEME"
+msgstr "ТЕМА"
+
+msgid "PROFILES"
+msgstr "ПРОФИЛИ"
+
+msgid "MEMBER LIST"
+msgstr "СПИСОК УЧАСТНИКОВ"
+
+msgid "START FROM"
+msgstr "ИСПОЛЬЗОВАТЬ КАК ОСНОВУ"
+
+msgid "EVERY COLOUR"
+msgstr "ВСЕ ЦВЕТА"
+
+msgid "Voice & video"
+msgstr "Голос и видео"
+
+msgid "MICROPHONE"
+msgstr "МИКРОФОН"
+
+msgid "SPEAKERS"
+msgstr "ДИНАМИКИ"
+
+msgid "CAMERA"
+msgstr "КАМЕРА"
+
+msgid "PREVIEW"
+msgstr "ПРЕДПРОСМОТР"
+
+msgid "INPUT MODE"
+msgstr "РЕЖИМ ВВОДА"
+
+msgid "NOISE SUPPRESSION IN DISCORD CALLS"
+msgstr "ШУМОПОДАВЛЕНИЕ В ЗВОНКАХ DISCORD"
+
+msgid "NOISE SUPPRESSION STRENGTH"
+msgstr "УРОВЕНЬ ШУМОПОДАВЛЕНИЯ"
+
+msgid "SOUNDBOARD VOLUME"
+msgstr "ГРОМКОСТЬ ЗВУКОВОЙ ПАНЕЛИ"
+
+msgid "ENTRANCE SOUNDS"
+msgstr "ЗВУКИ ВХОДА"
+
+msgid "PUSH TO TALK KEYBIND"
+msgstr "КЛАВИША РЕЖИМА РАЦИИ"
+
+msgid "PUSH TO TALK RELEASE DELAY"
+msgstr "ЗАДЕРЖКА ПОСЛЕ ОТПУСКАНИЯ КЛАВИШИ"
+
+msgid "INPUT SENSITIVITY IN DISCORD CALLS"
+msgstr "ЧУВСТВИТЕЛЬНОСТЬ МИКРОФОНА В ЗВОНКАХ DISCORD"
+
+msgid "Input sensitivity"
+msgstr "Чувствительность микрофона"
+
+msgid "MIC TEST"
+msgstr "ПРОВЕРКА МИКРОФОНА"
+
+msgid "INSTALLED"
+msgstr "УСТАНОВЛЕННЫЕ"
+
+msgid "THEMES THAT COULDN'T BE OPENED"
+msgstr "ТЕМЫ, КОТОРЫЕ НЕ УДАЛОСЬ ОТКРЫТЬ"
+
+msgid "YOUR THEMES"
+msgstr "ВАШИ ТЕМЫ"
+
+msgid "Click one to show it, or its pencil to edit it."
+msgstr "Нажмите на тему, чтобы открыть её, или на карандаш, чтобы изменить."
+
+msgid "PEOPLE'S CONTENT"
+msgstr "МАТЕРИАЛЫ ДРУГИХ ПОЛЬЗОВАТЕЛЕЙ"
+
+msgid "SOUNDS"
+msgstr "ЗВУКИ"
+
+msgid "THEME OPTIONS"
+msgstr "ПАРАМЕТРЫ ТЕМЫ"
+
+msgid "PERFORMANCE"
+msgstr "ПРОИЗВОДИТЕЛЬНОСТЬ"
+
+msgid "MOTION"
+msgstr "АНИМАЦИЯ"
+
+msgid "Active account"
+msgstr "Активная учётная запись"
+
+msgid "Local preview: sample data. Nothing leaves this computer."
+msgstr "Локальный предпросмотр с демонстрационными данными. Данные остаются на этом компьютере."
+
+msgid "Browse Channels"
+msgstr "Обзор каналов"
+
+msgid "Protip:"
+msgstr "Совет"
+
+msgid "There are no threads."
+msgstr "Веток пока нет."
+
+msgid "Stay focused on a conversation with a thread - a temporary text channel."
+msgstr "Создайте ветку, чтобы обсудить тему в отдельном временном канале."
+
+msgid "Multi-Factor Authentication"
+msgstr "Многофакторная аутентификация"
+
+msgid "Slow down! Are you sure?"
+msgstr "Вы уверены?"
+
+msgid "Manage Accounts"
+msgstr "Управление аккаунтами"
+
+msgid "Playing"
+msgstr "Играет в"
+
+msgid "CLEAR AFTER"
+msgstr "УБРАТЬ ЧЕРЕЗ"
+
+msgid "PREVIOUS CHANNELS"
+msgstr "НЕДАВНИЕ КАНАЛЫ"
+
+msgid "MENTIONS"
+msgstr "УПОМИНАНИЯ"
+
+msgid "Nothing goes by that name."
+msgstr "По этому названию ничего не найдено."
+
+msgid "Start a search with @ for people, # for text channels, ! for voice channels or * for servers."
+msgstr "Начните поиск с @ для людей, # для текстовых каналов, ! для голосовых каналов или * для серверов."
+
+msgid "Allow Multiple Answers"
+msgstr "Разрешить несколько ответов"
+
+msgid "Are you sure you want to go?"
+msgstr "Выйти из редактора?"
+
+msgid "Any changes you made will be lost if you exit now."
+msgstr "Если выйти сейчас, изменения будут потеряны."
+
+msgid "Upload to "
+msgstr "Отправить в "
+
+msgid "You can add comments before uploading."
+msgstr "Перед отправкой можно добавить комментарий."
+
+msgid "ex. True"
+msgstr "Например, True"
+
+msgid "Filters"
+msgstr "Фильтры"
+
+msgid "Unable to add filter"
+msgstr "Не удалось добавить фильтр"
+
+msgid "You have reached the maximum length for a search query."
+msgstr "Достигнута максимальная длина поискового запроса."
+
+msgid "No results"
+msgstr "Нет результатов"
+
+msgid "dates, author type, and more"
+msgstr "даты, тип автора и другие параметры"
+
+msgid "Role is locked because it is your highest ranked role. Please ask a higher rank or Server Owner for help."
+msgstr "Роль заблокирована, потому что она ваша высшая роль. Обратитесь к владельцу сервера или участнику с более высокой ролью."
+
+msgid "Role is locked because it is a higher rank than your highest role."
+msgstr "Роль заблокирована, потому что она выше вашей высшей роли."
+
+msgid "Edit Role — {name}"
+msgstr "Изменить роль — {name}"
+
+msgid "Manage Members ({count})"
+msgstr "Участники ({count})"
+
+msgid "Give it a name."
+msgstr "Введите название."
+
+msgid "Names can be up to 100 characters."
+msgstr "Название может содержать до 100 символов."
+
+msgid "Topics can be up to 1024 characters."
+msgstr "Тема может содержать до 1024 символов."
+
+msgid "The server name must be between 2 and 100 characters."
+msgstr "Название сервера должно содержать от 2 до 100 символов."
+
+msgid "The description can be up to 300 characters."
+msgstr "Описание может содержать до 300 символов."
+
+msgid "Give the role a name."
+msgstr "Введите название роли."
+
+msgid "Role names can be up to 100 characters."
+msgstr "Название роли может содержать до 100 символов."
+
+msgid "Forwarded"
+msgstr "Пересланное сообщение"
+
+msgid "The application did not respond"
+msgstr "Приложение не ответило"
+
+msgid "used"
+msgstr "использовал(а)"
+
+msgid "Dismiss message"
+msgstr "Скрыть сообщение"
+
+msgid "Only you can see this ·"
+msgstr "Только вы видите это ·"
+
+msgid "Blocked user"
+msgstr "Заблокированный пользователь"
+
+msgid "Blocked message."
+msgstr "Сообщение заблокированного пользователя."
+
+msgid "Show it"
+msgstr "Показать"
+
+msgid "Ignored user"
+msgstr "Игнорируемый пользователь"
+
+msgid "Ignored message."
+msgstr "Сообщение игнорируемого пользователя."
+
+msgid "Show more"
+msgstr "Показать больше"
+
+msgid "Show less"
+msgstr "Показать меньше"
+
+msgid "Not sent yet. Yapfast sends it when the connection returns."
+msgstr "Сообщение пока не отправлено. Yapfast отправит его, когда соединение восстановится."
+
+msgid "Not sent."
+msgstr "Сообщение не отправлено."
+
+msgid "Not sent. The server refused this message."
+msgstr "Сервер отклонил сообщение."
+
+msgid "Users with the \"Pin Messages\" permission can pin a message from its context menu."
+msgstr "Участники с правом закреплять сообщения могут сделать это через контекстное меню сообщения."
+
+msgid "Yapfast can't fill this part yet."
+msgstr "Yapfast пока не поддерживает это поле."
+
+msgid "Choose files"
+msgstr "Выбрать файлы"
+
+msgid "No matching options."
+msgstr "Подходящих вариантов нет."
+
+msgid "Voice Privacy Code"
+msgstr "Код конфиденциальности голосового канала"
+
+msgid "Changes apply immediately"
+msgstr "Изменения применяются сразу"
+
+msgid "INPUT LEVEL"
+msgstr "УРОВЕНЬ ВХОДНОГО СИГНАЛА"
+
+msgid "Loading sounds..."
+msgstr "Загрузка звуков…"
+
+msgid "Yapfast can't show this part of the message yet."
+msgstr "Yapfast пока не может показать эту часть сообщения."
+
+msgid "THEIR NICKNAME"
+msgstr "НИКНЕЙМ"
+
+msgid "Private Profile"
+msgstr "Закрытый профиль"
+
+msgid "View full bio"
+msgstr "Показать полное описание"
+
+msgid "Recent activity"
+msgstr "Недавняя активность"
+
+msgid "This one only shows in Discord for now."
+msgstr "Пока это доступно только в Discord."
+
+msgid "Adding more from Yapfast is coming soon."
+msgstr "Добавление из Yapfast появится позже."
+
+msgid "Click to add a note"
+msgstr "Нажмите, чтобы добавить заметку"
+
+msgid "Reading..."
+msgstr "Чтение…"
+
+msgid "Set a custom status"
+msgstr "Задать свой статус"
+
+msgid "Make unique profiles for each server"
+msgstr "Настройте отдельный профиль для каждого сервера"
+
+msgid "You can use markdown and links if you'd like."
+msgstr "Можно использовать Markdown и ссылки."
+
+msgid "Change Display Name Style"
+msgstr "Изменить стиль отображаемого имени"
+
+msgid "Colours and effects don't show in servers, and may look different across Discord."
+msgstr "Цвета и эффекты не отображаются на серверах и могут выглядеть по-разному в Discord."
+
+msgid "Banner color"
+msgstr "Цвет баннера"
+
+msgid "Not a colour"
+msgstr "Неверный цвет"
+
+msgid "Server Tag"
+msgstr "Тег сервера"
+
+msgid "No banner"
+msgstr "Без баннера"
+
+msgid "Effect on"
+msgstr "Эффект включён"
+
+msgid "Main Profile"
+msgstr "Основной профиль"
+
+msgid "Your stream is still running!"
+msgstr "Трансляция продолжается!"
+
+msgid "We’ve paused this preview to save your resources."
+msgstr "Предпросмотр приостановлен, чтобы снизить нагрузку на устройство."
+
+msgid "This channel is unencrypted. Yapfast only joins encrypted voice channels."
+msgstr "Этот канал не зашифрован. Yapfast подключается только к зашифрованным голосовым каналам."
+
+msgid "Trending GIFs"
+msgstr "Популярные GIF"
+
+msgid "Your perfect GIF is in another castle. Try the suggested keywords below!"
+msgstr "Подходящих GIF нет. Попробуйте один из запросов ниже."
+
+msgid "Want to filter out search results from bots?"
+msgstr "Исключить сообщения ботов из результатов поиска?"
+
+msgid "Search the marketplace"
+msgstr "Поиск в каталоге тем"
+
+msgid "The marketplace can't be shown right now"
+msgstr "Каталог тем сейчас недоступен"
+
+msgid "Add from URL"
+msgstr "Добавить по ссылке"
+
+msgid "You have them all"
+msgstr "У вас уже есть все темы"
+
+msgid "Every theme the marketplace lists is installed."
+msgstr "Все темы из каталога установлены."
+
+msgid "See your themes"
+msgstr "Посмотреть свои темы"
+
+msgid "Try another word, or a theme's author."
+msgstr "Попробуйте другое слово или имя автора."
+
+msgid "Clear the search"
+msgstr "Очистить поиск"
+
+msgid "Fetching…"
+msgstr "Загрузка…"
+
+msgid "Install"
+msgstr "Установить"
+
+msgid "GITHUB REPOSITORY"
+msgstr "РЕПОЗИТОРИЙ GITHUB"
+
+msgid "Finding…"
+msgstr "Поиск…"
+
+msgid "Find theme"
+msgstr "Найти тему"
+
+msgid "The address of a theme's public GitHub repository. A branch, tag or folder in the address works too."
+msgstr "Ссылка на публичный репозиторий темы на GitHub. Можно указать ветку, тег или папку."
+
+msgid "WHAT HAPPENS NEXT"
+msgstr "ЧТО БУДЕТ ДАЛЬШЕ"
+
+msgid "Yapfast fetches the theme"
+msgstr "Yapfast загружает тему"
+
+msgid "Straight from its repository, at the commit it's at now."
+msgstr "Напрямую из репозитория, из его текущего коммита."
+
+msgid "Every file is checked"
+msgstr "Каждый файл проверяется"
+
+msgid "A theme is data, never code: colours, fonts, pictures and sounds, each within limits."
+msgstr "В теме хранятся только данные: цвета, шрифты, изображения и звуки. Для каждого типа установлены ограничения."
+
+msgid "You review it first"
+msgstr "Сначала проверьте тему"
+
+msgid "You see what it changes and what it costs to run, and can try it for 30 seconds, before anything is installed."
+msgstr "Перед установкой можно узнать, что изменит тема и как она повлияет на производительность, и опробовать её в течение 30 секунд."
+
+msgid "In the marketplace"
+msgstr "В каталоге"
+
+msgid "Unreviewed source"
+msgstr "Источник не проверен"
+
+msgid "No code · no permissions"
+msgstr "Без кода · без разрешений"
+
+msgid "Works in"
+msgstr "Работает в"
+
+msgid "Remixes"
+msgstr "На основе"
+
+msgid "To run"
+msgstr "Нагрузка"
+
+msgid "Notification sounds"
+msgstr "Звуки уведомлений"
+
+msgid "Its sounds for messages, mentions, calls and the rest, in place of Yapfast's."
+msgstr "Использовать звуки темы для сообщений, упоминаний, звонков и других событий."
+
+msgid "Interface sounds — clicks, hovers, menus, send"
+msgstr "Звуки интерфейса — нажатия, наведение, меню и отправка"
+
+msgid "Only while Yapfast is in front. You can change both later in Settings → Themes."
+msgstr "Звучат только в активном окне Yapfast. Обе настройки можно изменить в разделе «Настройки → Темы»."
+
+msgid "Let the theme style people's profiles and media"
+msgstr "Применять тему к профилям и медиа других пользователей"
+
+msgid "Try 30 s"
+msgstr "Попробовать 30 с"
+
+msgid "Details"
+msgstr "Подробнее"
+
+msgid "Not everything in it is used"
+msgstr "Используется только часть элементов темы"
+
+msgid "Add an account"
+msgstr "Добавить аккаунт"
+
+msgid "Switch"
+msgstr "Переключиться"
+
+msgid "Follow category"
+msgstr "Подписаться на категорию"
+
+msgid "Okay"
+msgstr "Хорошо"
+
+msgid "Add tags"
+msgstr "Добавить теги"
+
+msgid "Create"
+msgstr "Создать"
+
+msgid "Go to server"
+msgstr "Перейти на сервер"
+
+msgid "I’m sure, use a backup code"
+msgstr "Использовать резервный код"
+
+msgid "Verify with something else"
+msgstr "Выбрать другой способ подтверждения"
+
+msgid "Resend Code"
+msgstr "Отправить код повторно"
+
+msgid "Retry"
+msgstr "Повторить"
+
+msgid "Show results"
+msgstr "Показать результаты"
+
+msgid "Apply Filters"
+msgstr "Применить фильтры"
+
+msgid "Back to editing"
+msgstr "Вернуться к редактированию"
+
+msgid "Add date"
+msgstr "Добавить дату"
+
+msgid "Surprise Me"
+msgstr "Случайный стиль"
+
+msgid "Apply"
+msgstr "Применить"
+
+msgid "Default"
+msgstr "По умолчанию"
+
+msgid "Browse themes"
+msgstr "Обзор тем"
+
+msgid "Choose an icon"
+msgstr "Выбрать значок"
+
+msgid "Choose a custom sound"
+msgstr "Выбрать пользовательский звук"
+
+msgid "Export the theme as a package"
+msgstr "Экспортировать тему как пакет"
+
+msgid "Choose a file"
+msgstr "Выбрать файл"
+
+msgid "Save attachment"
+msgstr "Сохранить вложение"
+
+msgid "Choose font files"
+msgstr "Выбрать файлы шрифтов"
+
+msgid "Export theme"
+msgstr "Экспортировать тему"
+
+msgid "Import theme"
+msgstr "Импортировать тему"
+
+msgid "Choose a picture for your theme"
+msgstr "Выбрать изображение для темы"
+
+msgid "Import a font for your theme"
+msgstr "Импортировать шрифт для темы"
+
+msgid "Change Avatar"
+msgstr "Изменить аватар"
+
+msgid "Change Banner"
+msgstr "Изменить баннер"
+
+msgid "Upload Server Banner"
+msgstr "Загрузить баннер сервера"
+
+msgid "Upload Invite Background"
+msgstr "Загрузить фон приглашения"
+
+msgid "Choose Role Icon"
+msgstr "Выбрать значок роли"
+
+msgid "Pictures"
+msgstr "Изображения"
+
+msgid "Images"
+msgstr "Изображения"
+
+msgid "Fonts"
+msgstr "Шрифты"
+
+msgid "Audio"
+msgstr "Аудио"
+
+msgid "Yapfast theme"
+msgstr "Тема Yapfast"
+
+msgid "Streaming to {channel} · {count} watching"
+msgstr "Трансляция в {channel} · Зрителей: {count}"
+
+msgid "Streaming to {channel}"
+msgstr "Трансляция в {channel}"
+
+msgid "Sent {name} a friend request."
+msgstr "Запрос в друзья отправлен пользователю {name}."
+
+msgid "No themes match “{query}”"
+msgstr "По запросу «{query}» тем не найдено"
+
+msgid "1 new message"
+msgstr "1 новое сообщение"
+
+msgid "{count} new messages"
+msgstr "Новых сообщений: {count}"
+
+msgid "1 new message since {time}"
+msgstr "1 новое сообщение с {time}"
+
+msgid "{count} new messages since {time}"
+msgstr "Новых сообщений с {time}: {count}"
+
+msgid "1 new message since {time} on {day}"
+msgstr "1 новое сообщение с {time}, {day}"
+
+msgid "{count} new messages since {time} on {day}"
+msgstr "Новых сообщений с {time}, {day}: {count}"
+
+msgid "This is the beginning of your messages with {name}."
+msgstr "Это начало вашей переписки с {name}."
+
+msgid "This is the start of the {name} thread."
+msgstr "Это начало ветки «{name}»."
+
+msgid "This is the start of #{name}."
+msgstr "Это начало канала #{name}."
+
+msgid "Welcome to #{name}!"
+msgstr "Добро пожаловать в #{name}!"
+
+msgid "Welcome to #{name}"
+msgstr "Добро пожаловать в #{name}"
+
+msgid "This is the start of the #{name} channel."
+msgstr "Это начало канала #{name}."
+
+msgid "This is the start of #{name}. No messages here yet."
+msgstr "Это начало канала #{name}. Сообщений пока нет."
+
+msgid "This is the start of the {name} thread. No messages here yet."
+msgstr "Это начало ветки «{name}». Сообщений пока нет."
+
+msgid "Loading newer messages..."
+msgstr "Загрузка более новых сообщений…"
+
+msgid "Loading earlier messages..."
+msgstr "Загрузка более ранних сообщений…"
+
+msgid "Couldn't load newer messages. Retry"
+msgstr "Не удалось загрузить более новые сообщения. Повторить"
+
+msgid "Couldn't load earlier messages. Retry"
+msgstr "Не удалось загрузить более ранние сообщения. Повторить"
+
+msgid "Would you like to sync {channel} permissions with {category}?"
+msgstr "Синхронизировать права канала {channel} с категорией {category}?"
+
+msgid "Searching…"
+msgstr "Поиск…"
+
+msgid "No Results"
+msgstr "Нет результатов"
+
+msgid "1 Result"
+msgstr "1 результат"
+
+msgid "{count} Results"
+msgstr "Найдено: {count}"
+
+msgid "Indexing"
+msgstr "Индексация"
+
+msgid "{count} results indexed so far. We’re still indexing older messages."
+msgstr "Проиндексировано результатов: {count}. Индексация более ранних сообщений продолжается."
+
+msgid "Sort"
+msgstr "Сортировка"
+
+msgid "Filters ({count})"
+msgstr "Фильтры ({count})"
+
+msgid "You installed Yapfast with {manager}, so update it there."
+msgstr "Yapfast установлен через {manager}. Обновите его там же."
+
+msgid "Yapfast {version} is available."
+msgstr "Доступна версия Yapfast {version}."
+
+msgid "You skipped {version}. We'll tell you about the next one."
+msgstr "Вы пропустили версию {version}. Мы сообщим о следующей."
+
+msgid "Couldn't check for updates: {error}"
+msgstr "Не удалось проверить обновления: {error}"
+
+msgid "Couldn't update: {error}"
+msgstr "Не удалось обновить Yapfast: {error}"
+
+msgid "WHAT'S NEW IN {version}"
+msgstr "ЧТО НОВОГО В {version}"
+
+msgid "Checking for updates…"
+msgstr "Проверка обновлений…"
+
+msgid "You're up to date."
+msgstr "Установлена актуальная версия."
+
+msgid "You're running a build from source, so there's nothing to update."
+msgstr "Вы используете сборку из исходного кода. Автоматическое обновление недоступно."
+
+msgid "Update checks are turned off."
+msgstr "Проверка обновлений отключена."
+
+msgid "Update and restart"
+msgstr "Обновить и перезапустить"
+
+msgid "View release"
+msgstr "Открыть страницу выпуска"
+
+msgid "Skip this version"
+msgstr "Пропустить эту версию"
+
+msgid "Check now"
+msgstr "Проверить сейчас"
+
+msgid "Choose what to share"
+msgstr "Выберите, чем поделиться"
+
+msgid "Starting your stream..."
+msgstr "Запуск трансляции…"
+
+msgid "Live"
+msgstr "В эфире"
+
+msgid "This server does not have any open emoji slots!"
+msgstr "На сервере нет свободных мест для эмодзи."
+
+msgid "An animated icon unlocks at boost level 1."
+msgstr "Анимированный значок доступен с первого уровня бустов."
+
+msgid "A role icon can't be animated."
+msgstr "Значок роли не может быть анимированным."
+
+msgid "Role icons must be under 256 KB."
+msgstr "Размер значка роли должен быть меньше 256 КБ."
+
+msgid "To change this setting, first enable 2FA on your account."
+msgstr "Чтобы изменить эту настройку, включите двухфакторную аутентификацию."
+
+msgid "Hide 1 message from blocked users"
+msgstr "Скрыть 1 сообщение от заблокированных пользователей"
+
+msgid "Hide 1 message from ignored users"
+msgstr "Скрыть 1 сообщение от игнорируемых пользователей"
+
+msgid "Hide {count} messages from blocked users"
+msgstr "Скрыть сообщения от заблокированных пользователей ({count})"
+
+msgid "Hide {count} messages from ignored users"
+msgstr "Скрыть сообщения от игнорируемых пользователей ({count})"
+
+msgid "Hide {count} messages from blocked and ignored users"
+msgstr "Скрыть сообщения от заблокированных и игнорируемых пользователей ({count})"
+
+msgid "We've hidden 1 result from users you've blocked."
+msgstr "Скрыт 1 результат от заблокированных пользователей."
+
+msgid "We’ve hidden 1 result from users you’ve ignored."
+msgstr "Скрыт 1 результат от игнорируемых пользователей."
+
+msgid "We've hidden {count} results from users you've blocked."
+msgstr "Скрыто результатов от заблокированных пользователей: {count}."
+
+msgid "We’ve hidden {count} results from users you’ve ignored."
+msgstr "Скрыто результатов от игнорируемых пользователей: {count}."
+
+msgid "We’ve hidden {count} messages from users you’ve blocked and ignored."
+msgstr "Скрыто сообщений от заблокированных и игнорируемых пользователей: {count}."
+
+msgid "No game detected right now"
+msgstr "Сейчас игры не обнаружены"
+
+msgid "30 min"
+msgstr "30 мин"
+
+msgid "1 hr"
+msgstr "1 ч"
+
+msgid "6 hr"
+msgstr "6 ч"
+
+msgid "12 hr"
+msgstr "12 ч"
+
+msgid "1 day"
+msgstr "1 день"
+
+msgid "7 days"
+msgstr "7 дней"
+
+msgid "No limit"
+msgstr "Без лимита"
+
+msgid "This link {expiry}{usage}."
+msgstr "Ссылка {expiry}{usage}"
+
+msgid "never expires"
+msgstr "действует бессрочно"
+
+msgid "expires in 30 minutes"
+msgstr "действует ещё 30 минут"
+
+msgid "expires in an hour"
+msgstr "действует ещё час"
+
+msgid "expires in a day"
+msgstr "действует ещё сутки"
+
+msgid "expires in {count} days"
+msgstr "действует ещё {count} дн."
+
+msgid "expires in {count} hours"
+msgstr "действует ещё {count} ч"
+
+msgid " and works once"
+msgstr " и доступна для одного использования"
+
+msgid " and works {count} times"
+msgstr " · число использований: {count}"
+
+msgid "{online} online, {members} members"
+msgstr "В сети: {online} · Участников: {members}"
+
+msgid "This invite is invalid or has expired."
+msgstr "Приглашение недействительно или срок его действия истёк."

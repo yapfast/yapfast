@@ -159,7 +159,10 @@ pub(super) fn customize<'a>(
         Some(still) => Pic::new(still, Size::new(100.0, 100.0)).radius(6.0).into(),
         // One that's set but switched off isn't "no banner".
         None if accent.is_none() && profile.banner.is_none() => {
-            text("No banner").size(13).color(theme.muted).into()
+            text(crate::i18n::tr!(ctx.i18n, "No banner"))
+                .size(13)
+                .color(theme.muted)
+                .into()
         }
         None => Space::new().into(),
     };
@@ -174,7 +177,10 @@ pub(super) fn customize<'a>(
         ctx,
         match crate::profile::cosmetic::effect_tile(ctx, shown, Size::new(TILE, 100.0)) {
             Some(tile) => tile,
-            None if profile.effect.is_some() => text("Effect on").size(13).color(theme.text).into(),
+            None if profile.effect.is_some() => text(crate::i18n::tr!(ctx.i18n, "Effect on"))
+                .size(13)
+                .color(theme.text)
+                .into(),
             None => plus(),
         },
         100.0,
@@ -184,7 +190,7 @@ pub(super) fn customize<'a>(
     let frame = cell(ctx, plus(), 100.0, None, shop());
     let line = theme.line;
     let head = row![
-        text("Main Profile")
+        text(crate::i18n::tr!(ctx.i18n, "Main Profile"))
             .size(16)
             .font(SEMIBOLD)
             .color(theme.text)

@@ -244,12 +244,12 @@ pub fn update(app: &mut App, event: Event) -> Task<Message> {
             )
         }
         Event::Send => send_aside(app),
-        Event::Attach => attach_aside(),
+        Event::Attach => attach_aside(app),
         Event::AttachFirst => {
             // Cancelled, the field takes the keys again all the same.
             let chosen =
                 |files| Message::Write(Write::Uploads(crate::uploads::Event::ChosenFirst(files)));
-            crate::uploads::pick_files(chosen, chosen(Vec::new()))
+            crate::uploads::pick_files(&app.i18n, chosen, chosen(Vec::new()))
         }
         Event::CancelReply => {
             app.client.dispatch(Action::CancelAsideCompose);
@@ -631,10 +631,10 @@ fn send_aside(app: &mut App) -> Task<Message> {
     Task::batch([app.sync(), to_end])
 }
 
-fn attach_aside() -> Task<Message> {
+fn attach_aside(app: &App) -> Task<Message> {
     // Cancelled, the field takes the keys again all the same.
     let chosen = |files| Message::Write(Write::Uploads(crate::uploads::Event::ChosenAside(files)));
-    crate::uploads::pick_files(chosen, chosen(Vec::new()))
+    crate::uploads::pick_files(&app.i18n, chosen, chosen(Vec::new()))
 }
 
 /// Whether the panel beside the conversation is the thread's or the
@@ -1143,13 +1143,16 @@ pub fn leave_question<'a>(
     let (ground, edge) = (theme.sidebar, theme.edge);
     let card = container(
         column![
-            text("Are you sure you want to go?")
+            text(crate::i18n::tr!(ctx.i18n, "Are you sure you want to go?"))
                 .size(17)
                 .font(BOLD)
                 .color(theme.text),
-            text("Any changes you made will be lost if you exit now.")
-                .size(14)
-                .color(theme.secondary),
+            text(crate::i18n::tr!(
+                ctx.i18n,
+                "Any changes you made will be lost if you exit now."
+            ))
+            .size(14)
+            .color(theme.secondary),
             container(
                 row![
                     controls::action(theme, "Back to editing", Kind::Ghost, Some(stay)),

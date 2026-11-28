@@ -179,7 +179,7 @@ pub fn message_content<'a>(
         content = content.push(
             row![
                 ctx.look.glyph(Icon::Forward, 16, theme.muted),
-                text("Forwarded")
+                text(crate::i18n::tr!(ctx.i18n, "Forwarded"))
                     .size(theme.type_size("body", 14.0))
                     .font(theme.font("body", ITALIC))
                     .color(theme.muted)
@@ -859,9 +859,17 @@ pub fn message_content<'a>(
 /// A collapsed message from a blocked or ignored account.
 fn hidden_row<'a>(ctx: crate::ctx::Ctx<'a>, look: &RowLook, blocked: bool) -> Element<'a, Message> {
     let (author, message, show) = if blocked {
-        ("Blocked user", "Blocked message.", "Show it")
+        (
+            crate::i18n::tr!(ctx.i18n, "Blocked user"),
+            crate::i18n::tr!(ctx.i18n, "Blocked message."),
+            crate::i18n::tr!(ctx.i18n, "Show it"),
+        )
     } else {
-        ("Ignored user", "Ignored message.", "Show")
+        (
+            crate::i18n::tr!(ctx.i18n, "Ignored user"),
+            crate::i18n::tr!(ctx.i18n, "Ignored message."),
+            "Show",
+        )
     };
     let theme = ctx.look.theme;
     let avatar = crate::timeline::avatar(theme);
@@ -925,10 +933,13 @@ fn thinking<'a>(ctx: crate::ctx::Ctx<'a>, message: &ChatMessage) -> Element<'a, 
     let timed_out = message.timestamp != 0
         && yapfast_core::clock::now_ms() / 1000 >= message.timestamp + THINKING_SECS;
     if timed_out {
-        text("The application did not respond")
-            .size(text_size(ctx))
-            .color(theme.danger)
-            .into()
+        text(crate::i18n::tr!(
+            ctx.i18n,
+            "The application did not respond"
+        ))
+        .size(text_size(ctx))
+        .color(theme.danger)
+        .into()
     } else {
         text(format!("{} is thinking…", message.author))
             .size(text_size(ctx))
@@ -1172,7 +1183,7 @@ fn used_line<'a>(
     let mut line = row![
         ctx.face(Face::new(used.avatar.as_deref(), &used.user, HEADER_AVATAR)),
         user,
-        text("used")
+        text(crate::i18n::tr!(ctx.i18n, "used"))
             .size(theme.type_size("small", 14.0))
             .font(theme.font("small", REGULAR))
             .color(theme.muted),
@@ -1475,9 +1486,13 @@ fn folding<'a>(
     let whole = ctx.lanes.timeline.revealed.contains(&fold_key(&item));
     let theme = ctx.look.theme;
     let more = button(
-        text(if whole { "Show less" } else { "Show more" })
-            .size(text_size(ctx) * 0.875)
-            .font(SEMIBOLD),
+        text(if whole {
+            crate::i18n::tr!(ctx.i18n, "Show less")
+        } else {
+            crate::i18n::tr!(ctx.i18n, "Show more")
+        })
+        .size(text_size(ctx) * 0.875)
+        .font(SEMIBOLD),
     )
     .padding(0)
     .on_press(Message::Timeline(crate::timeline::Event::Unfold(item)))
@@ -1678,7 +1693,7 @@ fn thread_ago(at_ms: u64, now_ms: u64) -> String {
     }
 }
 
-/// How a message of one's own is going, under it: "Sending..." with Cancel
+/// How a message of one's own is going, under it: crate::i18n::tr!(ctx.i18n, "Sending...") with Cancel
 /// while its files go, "Not sent yet" while the connection is down, or "Not
 /// sent" with Retry.
 fn delivery_line<'a>(
@@ -1690,15 +1705,24 @@ fn delivery_line<'a>(
     let (words, retry, cancel) = match message.delivery {
         chat::Delivery::Sent => return None,
         chat::Delivery::Sending if message.attachments.is_empty() => return None,
-        chat::Delivery::Sending => ("Sending...", false, true),
+        chat::Delivery::Sending => (crate::i18n::tr!(ctx.i18n, "Sending..."), false, true),
         chat::Delivery::Waiting => (
-            "Not sent yet. Yapfast sends it when the connection returns.",
+            crate::i18n::tr!(
+                ctx.i18n,
+                "Not sent yet. Yapfast sends it when the connection returns."
+            ),
             false,
             true,
         ),
         // An app's command, whose row says why.
-        chat::Delivery::Failed if message.item.starts_with("c:") => ("Not sent.", true, true),
-        chat::Delivery::Failed => ("Not sent. The server refused this message.", true, true),
+        chat::Delivery::Failed if message.item.starts_with("c:") => {
+            (crate::i18n::tr!(ctx.i18n, "Not sent."), true, true)
+        }
+        chat::Delivery::Failed => (
+            crate::i18n::tr!(ctx.i18n, "Not sent. The server refused this message."),
+            true,
+            true,
+        ),
     };
     let failed = message.delivery == chat::Delivery::Failed;
     let mut line = row![
@@ -1714,7 +1738,7 @@ fn delivery_line<'a>(
         line = line.push(
             controls::action(
                 theme,
-                "Retry",
+                crate::i18n::tr!(ctx.i18n, "Retry"),
                 controls::Kind::Ghost,
                 Some(Message::Write(Event::Retry(item.clone()))),
             )
@@ -1725,7 +1749,7 @@ fn delivery_line<'a>(
         line = line.push(
             controls::action(
                 theme,
-                "Cancel",
+                crate::i18n::tr!(ctx.i18n, "Cancel"),
                 controls::Kind::Ghost,
                 Some(Message::Write(Event::CancelSend(item.clone()))),
             )
@@ -1826,7 +1850,7 @@ fn ephemeral_line<'a>(ctx: crate::ctx::Ctx<'a>, message: &ChatMessage) -> Elemen
     let theme = ctx.look.theme;
     let preview = ctx.state.preview;
     let dismiss = button(
-        text("Dismiss message")
+        text(crate::i18n::tr!(ctx.i18n, "Dismiss message"))
             .size(theme.type_size("small", 12.0))
             .font(theme.font("small", REGULAR)),
     )
@@ -1840,7 +1864,7 @@ fn ephemeral_line<'a>(ctx: crate::ctx::Ctx<'a>, message: &ChatMessage) -> Elemen
     ));
     row![
         ctx.look.glyph(Icon::Eye, 16, theme.muted),
-        text("Only you can see this ·")
+        text(crate::i18n::tr!(ctx.i18n, "Only you can see this ·"))
             .size(theme.type_size("small", 12.0))
             .font(theme.font("small", REGULAR))
             .color(theme.muted),

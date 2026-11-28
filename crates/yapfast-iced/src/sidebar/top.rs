@@ -38,10 +38,13 @@ impl<'a> super::View<'a> {
             None if self.cx.layout.dm_search_switcher => {
                 let (ground, hint) = (theme.field, theme.muted);
                 button(
-                    text("Find or start a conversation")
-                        .size(13)
-                        .color(hint)
-                        .wrapping(text::Wrapping::None),
+                    text(crate::i18n::tr!(
+                        self.cx.i18n,
+                        "Find or start a conversation"
+                    ))
+                    .size(13)
+                    .color(hint)
+                    .wrapping(text::Wrapping::None),
                 )
                 .padding([8, 10])
                 .width(Length::Fill)
@@ -57,20 +60,23 @@ impl<'a> super::View<'a> {
             None => {
                 let (ground, ink, hint, selection) =
                     (theme.field, theme.text, theme.muted, theme.selection);
-                text_input("Find a conversation", &self.s.filter)
-                    .id(FILTER)
-                    .on_input(|filter| Message::Side(Event::Filter(filter)))
-                    .size(13)
-                    .padding([8, 10])
-                    .style(move |_, _| text_input::Style {
-                        background: ground.into(),
-                        border: crate::style::round(6),
-                        icon: ink,
-                        placeholder: hint,
-                        value: ink,
-                        selection,
-                    })
-                    .into()
+                text_input(
+                    crate::i18n::tr!(self.cx.i18n, "Find a conversation"),
+                    &self.s.filter,
+                )
+                .id(FILTER)
+                .on_input(|filter| Message::Side(Event::Filter(filter)))
+                .size(13)
+                .padding([8, 10])
+                .style(move |_, _| text_input::Style {
+                    background: ground.into(),
+                    border: crate::style::round(6),
+                    icon: ink,
+                    placeholder: hint,
+                    value: ink,
+                    selection,
+                })
+                .into()
             }
             // As Slint: a server whose name opens no menu has it as a plain
             // title, 16 px bold in the window's face.
@@ -98,7 +104,7 @@ impl<'a> super::View<'a> {
                             .look
                             .icon_button(
                                 Icon::UserPlus,
-                                "Invite people",
+                                crate::i18n::tr!(self.cx.i18n, "Invite people"),
                                 Message::Side(Event::Invite),
                             )
                             .size(INVITE, 20)
@@ -149,7 +155,7 @@ impl<'a> super::View<'a> {
     }
 
     /// Discord's boost goal under the server's name: a pill whose pink
-    /// fill is the share of the goal the boosts reach, "Boost Goal" and
+    /// fill is the share of the goal the boosts reach, crate::i18n::tr!(self.cx.i18n, "Boost Goal") and
     /// how many of the goal's boosts, with a line under the row.
     pub(super) fn boost_goal(self, boosts: u32) -> Element<'a, Message> {
         let theme = self.cx.look.theme;
@@ -197,7 +203,7 @@ impl<'a> super::View<'a> {
             .width(Length::Fill)
             .height(Length::Fill);
         let words = row![
-            text("Boost Goal")
+            text(crate::i18n::tr!(self.cx.i18n, "Boost Goal"))
                 .size(14.0)
                 .font(SEMIBOLD)
                 .color(theme.text)

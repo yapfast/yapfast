@@ -1018,7 +1018,7 @@ fn a_voice_row_of_an_active_now_card_goes_to_its_channel() {
 #[test]
 fn a_message_requests_time_today_follows_the_12_hour_clock() {
     let (mut app, _folder) = preview();
-    app.layout.prefs.twelve_hour_clock = true;
+    app.layout.prefs.time_format = Some(crate::time_format::TimeFormat::Hour12);
     let now = yapfast_core::clock::now_ms();
     change(&mut app, |state| {
         state.friend_requests = vec![FriendRequest {

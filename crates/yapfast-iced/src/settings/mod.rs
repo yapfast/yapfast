@@ -47,6 +47,7 @@ use crate::{
     desktop::Autostart,
     fonts::BOLD,
     form,
+    i18n::{I18n, tr, tr_mark},
     pictures::Icon,
     slot::{Closes, Why},
     style::scrollbar,
@@ -102,6 +103,7 @@ pub enum Section {
     Discord,
     Sounds,
     Advanced,
+    LanguageTime,
     Appearance,
     Themes,
     Games,
@@ -118,23 +120,28 @@ impl Section {
         }
     }
 
-    /// The page's title in the header.
+    /// The English source string for the section's title.
     fn title(self) -> &'static str {
         match self {
-            Section::Account => "My Account",
-            Section::Voice => "Voice & Video",
-            Section::Messages => "Messages",
-            Section::Accessibility => "Accessibility",
-            Section::Notifications => "Notifications",
-            Section::Discord => "Discord",
-            Section::Sounds => "Sounds",
-            Section::Advanced => "Advanced",
-            Section::Appearance => "Appearance",
-            Section::Themes => "Themes",
-            Section::Games => "Game Activity",
-            Section::Keybinds => "Keybinds",
-            Section::About => "About",
+            Section::Account => tr_mark!("My Account"),
+            Section::Voice => tr_mark!("Voice & Video"),
+            Section::Messages => tr_mark!("Messages"),
+            Section::Accessibility => tr_mark!("Accessibility"),
+            Section::Notifications => tr_mark!("Notifications"),
+            Section::Discord => tr_mark!("Discord"),
+            Section::Sounds => tr_mark!("Sounds"),
+            Section::Advanced => tr_mark!("Advanced"),
+            Section::LanguageTime => tr_mark!("Language & Time"),
+            Section::Appearance => tr_mark!("Appearance"),
+            Section::Themes => tr_mark!("Themes"),
+            Section::Games => tr_mark!("Game Activity"),
+            Section::Keybinds => tr_mark!("Keybinds"),
+            Section::About => tr_mark!("About"),
         }
+    }
+
+    fn localized_title(self, i18n: &I18n) -> &str {
+        i18n.text(self.title())
     }
 
     fn icon(self) -> Icon {
@@ -147,6 +154,7 @@ impl Section {
             Section::Discord => Icon::Discord,
             Section::Sounds => Icon::Volume,
             Section::Advanced => Icon::Settings,
+            Section::LanguageTime => Icon::Clock,
             Section::Appearance => Icon::Palette,
             Section::Themes => Icon::Brush,
             Section::Games => Icon::Play,
@@ -159,9 +167,9 @@ impl Section {
 /// The column's groups and their sections, as Discord's settings group
 /// them.
 const GROUPS: [(&str, &[Section]); 3] = [
-    ("Account", &[Section::Account]),
+    (tr_mark!("Account"), &[Section::Account]),
     (
-        "Experience",
+        tr_mark!("Experience"),
         &[
             Section::Voice,
             Section::Messages,
@@ -172,12 +180,13 @@ const GROUPS: [(&str, &[Section]); 3] = [
         ],
     ),
     (
-        "App Settings",
+        tr_mark!("App Settings"),
         &[
             Section::Discord,
             Section::Games,
             Section::Themes,
             Section::Keybinds,
+            Section::LanguageTime,
             Section::Advanced,
             Section::About,
         ],
@@ -187,6 +196,8 @@ const GROUPS: [(&str, &[Section]); 3] = [
 /// Which dropdown is open, at most one.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Drop {
+    Language,
+    TimeFormat,
     Microphone,
     Speaker,
     Camera,
@@ -569,6 +580,7 @@ impl<'a> Page<'a> {
             Section::Discord => self.discord_page(),
             Section::Sounds => self.sounds_page(),
             Section::Advanced => self.advanced_page(),
+            Section::LanguageTime => self.language_time_page(),
             Section::Appearance => self.appearance_page(),
             Section::Themes => self.themes_page(),
             Section::Games => self.games_page(),
@@ -578,7 +590,7 @@ impl<'a> Page<'a> {
         let line = bar(theme.line, Length::Fill, 1);
         let header = column![
             row![
-                text(section.title())
+                text(section.localized_title(self.cx.i18n))
                     .size(15)
                     .font(BOLD)
                     .color(theme.text)
@@ -587,7 +599,7 @@ impl<'a> Page<'a> {
                     .look
                     .icon_button(
                         Icon::X,
-                        "Close Settings",
+                        tr!(self.cx.i18n, "Close Settings"),
                         crate::app::settings(Event::Close)
                     )
                     .size(32.0, 18)
@@ -688,7 +700,10 @@ impl<'a> Page<'a> {
         };
         let shown = crate::sheet::backdrop(theme, card, MARGIN, crate::app::settings(Event::Close));
         let mut layers = vec![shown];
-        if let Some(review) = settings.marketplace.review_dialog(self.cx.look) {
+        if let Some(review) = settings
+            .marketplace
+            .review_dialog(self.cx.look, self.cx.i18n)
+        {
             let review = review.map(|event| crate::app::settings(Event::Marketplace(event)));
             let stock = settings.marketplace.protected_theme().unwrap_or(theme);
             let width = (self.cx.look.window.width - 32.0).min(560.0);
@@ -726,7 +741,7 @@ impl<'a> Page<'a> {
             names = names.push(
                 button(
                     row![
-                        text("Edit Profile").size(13),
+                        text(tr!(self.cx.i18n, "Edit Profile")).size(13),
                         self.cx.look.glyph(Icon::Pencil, 12, theme.muted)
                     ]
                     .spacing(4)
@@ -755,7 +770,7 @@ impl<'a> Page<'a> {
             controls::field(
                 theme,
                 SEARCH,
-                "Search settings",
+                tr!(self.cx.i18n, "Search settings"),
                 &settings.query,
                 false,
                 true,
@@ -770,7 +785,7 @@ impl<'a> Page<'a> {
         for (index, (group, sections)) in GROUPS.iter().enumerate() {
             if query.is_empty() {
                 entries = entries.push(
-                    container(text(*group).size(12).color(theme.muted))
+                    container(text(self.cx.i18n.text(group)).size(12).color(theme.muted))
                         .padding(iced::Padding {
                             top: if index == 0 { 0.0 } else { 16.0 },
                             left: 8.0,
@@ -786,10 +801,11 @@ impl<'a> Page<'a> {
                 if discord_only && self.cx.state.preview {
                     continue;
                 }
-                if !query.is_empty() && !section.title().to_lowercase().contains(&query) {
+                let title = section.localized_title(self.cx.i18n);
+                if !query.is_empty() && !title.to_lowercase().contains(&query) {
                     continue;
                 }
-                entries = entries.push(self.nav_row(section, settings.section() == section));
+                entries = entries.push(self.nav_row(section, title, settings.section() == section));
             }
         }
         let list = scroll_view(container(entries).padding(iced::Padding {
@@ -816,16 +832,15 @@ impl<'a> Page<'a> {
     /// A section's row as a theme's channel list draws its rows: Slint's
     /// settings sections are its `ChannelRow`s, each with seed 0 (the
     /// list's first frame), the selected frame or underline, the list's
-    /// case, face, weight, inks and the selected words' shadow. `None`
-    /// without a theme's channel list.
-    fn themed_nav_row(self, section: Section, selected: bool) -> Option<Element<'a, Message>> {
+    /// case, face, weight, inks and the selected words' shadow. A packaged
+    /// theme without its own channel list draws the plain themed rows.
+    fn themed_nav_row(
+        self,
+        section: Section,
+        title: &'a str,
+        selected: bool,
+    ) -> Element<'a, Message> {
         let theme = self.cx.look.theme;
-        // A theme's sections are Slint's `ChannelRow`s with or without a
-        // channel list of its own (Phosphor's plain rows); stock keeps
-        // Wired's.
-        if !theme.packaged() {
-            return None;
-        }
         let listed = self.cx.themes.channel_rows(&theme.id);
         let fallback = yapfast_core::themes::lists::ChannelRows::default();
         let rows = listed.unwrap_or(&fallback);
@@ -888,7 +903,7 @@ impl<'a> Page<'a> {
         } else {
             crate::piece::TextLight::default()
         };
-        let words = crate::themes::list_case(rows.case, section.title()).into_owned();
+        let words = crate::themes::list_case(rows.case, title);
         let underlined = selected && rows.selected.underline.is_some();
         let hug = rows.fit_text || underlined;
         let name = crate::elide::elide(words)
@@ -932,20 +947,18 @@ impl<'a> Page<'a> {
             listed.is_some(),
             Some(0),
         );
-        Some(
-            container(row)
-                .padding(iced::Padding {
-                    bottom: gap,
-                    ..iced::Padding::ZERO
-                })
-                .into(),
-        )
+        container(row)
+            .padding(iced::Padding {
+                bottom: gap,
+                ..iced::Padding::ZERO
+            })
+            .into()
     }
 
     /// A section's row.
-    fn nav_row(self, section: Section, selected: bool) -> Element<'a, Message> {
-        if let Some(row) = self.themed_nav_row(section, selected) {
-            return row;
+    fn nav_row(self, section: Section, title: &'a str, selected: bool) -> Element<'a, Message> {
+        if self.cx.look.theme.packaged() {
+            return self.themed_nav_row(section, title, selected);
         }
         let fresh = section.page().is_some_and(|page| {
             new_tags::page_new(
@@ -957,7 +970,7 @@ impl<'a> Page<'a> {
         crate::sheet::nav_row(
             self.cx.look,
             section.icon(),
-            section.title(),
+            title,
             crate::sheet::NavState {
                 selected,
                 danger: false,

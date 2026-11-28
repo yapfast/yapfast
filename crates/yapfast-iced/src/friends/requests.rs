@@ -141,12 +141,15 @@ pub(super) fn request_rows(
 /// those this account sent, and spam folded away.
 pub fn requests_screen<'a>(ctx: crate::ctx::Ctx<'a>) -> Element<'a, Message> {
     let state = ctx.state;
-    let rows = request_rows(state, ctx.layout.prefs.twelve_hour_clock);
+    let rows = request_rows(state, ctx.layout.prefs.twelve_hour_clock());
     if rows.incoming.is_empty() && rows.sent.is_empty() && rows.spam.is_empty() {
         return ctx.look.empty_screen(
             Icon::Inbox,
-            "No requests",
-            "Friend requests and messages from people you don't know show up here.",
+            crate::i18n::tr!(ctx.i18n, "No requests"),
+            crate::i18n::tr!(
+                ctx.i18n,
+                "Friend requests and messages from people you don't know show up here."
+            ),
             None,
         );
     }
@@ -157,13 +160,21 @@ pub fn requests_screen<'a>(ctx: crate::ctx::Ctx<'a>) -> Element<'a, Message> {
         bottom: 16.0,
     });
     if !rows.incoming.is_empty() {
-        list = list.push(ctx.list_heading(format!("REQUESTS — {}", rows.incoming.len())));
+        list = list.push(ctx.list_heading(format!(
+            "{} — {}",
+            crate::i18n::tr!(ctx.i18n, "REQUESTS"),
+            rows.incoming.len()
+        )));
     }
     for request in rows.incoming {
         list = list.push(request_item(ctx, request, false));
     }
     if !rows.sent.is_empty() {
-        list = list.push(ctx.list_heading(format!("SENT — {}", rows.sent.len())));
+        list = list.push(ctx.list_heading(format!(
+            "{} — {}",
+            crate::i18n::tr!(ctx.i18n, "SENT"),
+            rows.sent.len()
+        )));
     }
     for request in rows.sent {
         list = list.push(request_item(ctx, request, false));
@@ -180,9 +191,13 @@ pub fn requests_screen<'a>(ctx: crate::ctx::Ctx<'a>) -> Element<'a, Message> {
         list = list.push(
             button(
                 row![
-                    text(format!("SPAM — {}", rows.spam.len()))
-                        .size(12)
-                        .font(BOLD),
+                    text(format!(
+                        "{} — {}",
+                        crate::i18n::tr!(ctx.i18n, "SPAM"),
+                        rows.spam.len()
+                    ))
+                    .size(12)
+                    .font(BOLD),
                     ctx.look.glyph(chevron, 14, muted),
                 ]
                 .spacing(4)
@@ -223,11 +238,13 @@ pub(super) fn request_item<'a>(
     let theme = ctx.look.theme;
     let messaged = request.room.is_some();
     let about = match (spam, request.friend, messaged) {
-        (true, _, _) => "Maybe spam",
-        (_, Some(true), true) => "Sent you a friend request and a message",
-        (_, Some(true), false) => "Sent you a friend request",
-        (_, Some(false), _) => "You sent a friend request",
-        (_, None, _) => "Wants to message you",
+        (true, _, _) => crate::i18n::tr!(ctx.i18n, "Maybe spam"),
+        (_, Some(true), true) => {
+            crate::i18n::tr!(ctx.i18n, "Sent you a friend request and a message")
+        }
+        (_, Some(true), false) => crate::i18n::tr!(ctx.i18n, "Sent you a friend request"),
+        (_, Some(false), _) => crate::i18n::tr!(ctx.i18n, "You sent a friend request"),
+        (_, None, _) => crate::i18n::tr!(ctx.i18n, "Wants to message you"),
     };
     let bold = request.unread || request.friend == Some(true);
     let mut words = column![
@@ -250,7 +267,7 @@ pub(super) fn request_item<'a>(
         top = top.push(
             action(
                 theme,
-                "Accept",
+                crate::i18n::tr!(ctx.i18n, "Accept"),
                 Kind::Primary,
                 Some(Message::Friends(Event::Accept(id.clone()))),
             )
@@ -263,7 +280,11 @@ pub(super) fn request_item<'a>(
         top = top.push(
             action(
                 theme,
-                if incoming { "Ignore" } else { "Cancel" },
+                if incoming {
+                    crate::i18n::tr!(ctx.i18n, "Ignore")
+                } else {
+                    crate::i18n::tr!(ctx.i18n, "Cancel")
+                },
                 Kind::Plain,
                 Some(Message::Friends(Event::Remove(id))),
             )
@@ -320,17 +341,25 @@ pub(super) fn request_message<'a>(
         Some(message) if !message.is_empty() => {
             (message, if unread { theme.text } else { theme.secondary })
         }
-        _ => ("Open to read their message", theme.muted),
+        _ => (
+            crate::i18n::tr!(ctx.i18n, "Open to read their message"),
+            theme.muted,
+        ),
     };
     let mut end = row![].spacing(6).align_y(Alignment::Center);
     if unread {
         let (accent, on_accent) = (theme.accent, theme.on_accent);
         end = end.push(
-            container(text("New").size(11).font(BOLD).color(on_accent))
-                .padding([0, 5])
-                .height(16)
-                .align_y(Alignment::Center)
-                .style(move |_| rounded(accent, 4)),
+            container(
+                text(crate::i18n::tr!(ctx.i18n, "New"))
+                    .size(11)
+                    .font(BOLD)
+                    .color(on_accent),
+            )
+            .padding([0, 5])
+            .height(16)
+            .align_y(Alignment::Center)
+            .style(move |_| rounded(accent, 4)),
         );
     }
     if !request.time.is_empty() {

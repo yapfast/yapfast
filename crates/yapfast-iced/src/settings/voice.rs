@@ -384,10 +384,10 @@ impl<'a> Page<'a> {
         let mic_volume = u32::from(voice.microphone_volume.unwrap_or(100));
         let speaker_volume = u32::from(voice.speaker_volume.unwrap_or(100));
         let mut parts = vec![
-            form::title(theme, "Voice & video"),
+            form::title(theme, crate::i18n::tr!(self.cx.i18n, "Voice & video")),
             form::halves(
                 form::group([
-                    form::heading(theme, "MICROPHONE"),
+                    form::heading(theme, crate::i18n::tr!(self.cx.i18n, "MICROPHONE")),
                     device(Drop::Microphone, microphones, microphone),
                     slider(
                         "Microphone volume",
@@ -399,7 +399,7 @@ impl<'a> Page<'a> {
                     .view(theme),
                 ]),
                 form::group([
-                    form::heading(theme, "SPEAKERS"),
+                    form::heading(theme, crate::i18n::tr!(self.cx.i18n, "SPEAKERS")),
                     device(Drop::Speaker, speakers, speaker),
                     slider(
                         "Speaker volume",
@@ -422,7 +422,7 @@ impl<'a> Page<'a> {
             parts.push(self.mic_test());
         }
         let mut camera_group = vec![
-            form::heading(theme, "CAMERA"),
+            form::heading(theme, crate::i18n::tr!(self.cx.i18n, "CAMERA")),
             device(Drop::Camera, cameras, camera),
         ];
         if state.cameras.is_empty() {
@@ -434,7 +434,7 @@ impl<'a> Page<'a> {
         parts.push(form::halves(
             form::group(camera_group),
             form::group([
-                form::heading(theme, "PREVIEW"),
+                form::heading(theme, crate::i18n::tr!(self.cx.i18n, "PREVIEW")),
                 self.camera_preview(),
                 form::buttons([action(
                     theme,
@@ -489,7 +489,7 @@ impl<'a> Page<'a> {
         }
         let push = voice.input_mode == InputMode::PushToTalk;
         parts.push(form::group([
-            form::heading(theme, "INPUT MODE"),
+            form::heading(theme, crate::i18n::tr!(self.cx.i18n, "INPUT MODE")),
             choices(
                 theme,
                 &["Voice activity", "Push to talk"],
@@ -566,7 +566,10 @@ impl<'a> Page<'a> {
             .position(|kind| *kind == voice.noise_suppression)
             .unwrap_or(0);
         let mut parts = vec![form::group([
-            form::heading(theme, "NOISE SUPPRESSION IN DISCORD CALLS"),
+            form::heading(
+                theme,
+                crate::i18n::tr!(self.cx.i18n, "NOISE SUPPRESSION IN DISCORD CALLS"),
+            ),
             choices(
                 theme,
                 &["DeepFilterNet", "RNNoise", "Off"],
@@ -584,7 +587,7 @@ impl<'a> Page<'a> {
                 .position(|kind| *kind == voice.noise_strength)
                 .unwrap_or(1);
             parts.push(form::group([
-                form::heading(theme, "NOISE SUPPRESSION STRENGTH"),
+                form::heading(theme, crate::i18n::tr!(self.cx.i18n, "NOISE SUPPRESSION STRENGTH")),
                 choices(theme, &["Full", "Medium", "Light"], strength, |index| {
                     voice_message(Event::Strength(index))
                 }),
@@ -601,7 +604,7 @@ impl<'a> Page<'a> {
                 .clamp(0.0, 100.0) as u32
         });
         parts.push(form::group([
-            form::heading(theme, "SOUNDBOARD VOLUME"),
+            form::heading(theme, crate::i18n::tr!(self.cx.i18n, "SOUNDBOARD VOLUME")),
             slider("Soundboard volume", board, 100, |value| {
                 voice_message(Event::SoundboardVolume(value, false))
             })
@@ -734,7 +737,7 @@ impl<'a> Page<'a> {
             );
         }
         form::group([
-            form::heading(theme, "ENTRANCE SOUNDS"),
+            form::heading(theme, crate::i18n::tr!(self.cx.i18n, "ENTRANCE SOUNDS")),
             row(line).spacing(8).align_y(Alignment::Center).into(),
             form::note(
                 theme,
@@ -782,12 +785,18 @@ impl<'a> Page<'a> {
         };
         vec![
             form::group([
-                form::heading(theme, "PUSH TO TALK KEYBIND"),
+                form::heading(
+                    theme,
+                    crate::i18n::tr!(self.cx.i18n, "PUSH TO TALK KEYBIND"),
+                ),
                 form::buttons([form::capture(theme, key, recorded, 200.0), button]),
                 form::note(theme, note),
             ]),
             form::group([
-                form::heading(theme, "PUSH TO TALK RELEASE DELAY"),
+                form::heading(
+                    theme,
+                    crate::i18n::tr!(self.cx.i18n, "PUSH TO TALK RELEASE DELAY"),
+                ),
                 slider(
                     "Push to talk release delay",
                     delay,
@@ -874,10 +883,13 @@ impl<'a> Page<'a> {
             "Yapfast sends your voice when it's louder than the handle, and other sounds when they're 18 dB louder still. The bar is your microphone after noise suppression and at its volume, as Yapfast hears it to decide."
         };
         form::group([
-            form::heading(theme, "INPUT SENSITIVITY IN DISCORD CALLS"),
+            form::heading(
+                theme,
+                crate::i18n::tr!(self.cx.i18n, "INPUT SENSITIVITY IN DISCORD CALLS"),
+            ),
             column![
                 row![
-                    text("Input sensitivity")
+                    text(crate::i18n::tr!(self.cx.i18n, "Input sensitivity"))
                         .size(13)
                         .font(SEMIBOLD)
                         .color(theme.secondary)
@@ -954,7 +966,7 @@ impl<'a> Page<'a> {
         )
         .small();
         let mut group = vec![
-            form::heading(theme, "MIC TEST"),
+            form::heading(theme, crate::i18n::tr!(self.cx.i18n, "MIC TEST")),
             form::note(
                 theme,
                 "Having mic issues? Start a test and say something fun, and Yapfast plays your voice back to you, with your noise suppression and volumes. Wear headphones, or it echoes.",

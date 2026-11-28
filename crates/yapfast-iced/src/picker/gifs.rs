@@ -1,5 +1,5 @@
 //! The GIFs tab: a search over Klipy after a quarter second's pause in
-//! typing; a home of the Favorites tile, "Trending GIFs" and the trending
+//! typing; a home of the Favorites tile, crate::i18n::tr!(self.cx.i18n, "Trending GIFs") and the trending
 //! terms; the GIFs found, in Discord's masonry of columns about 200 px wide.
 //! A click sends a GIF, Shift and a click puts it in the composer, and its
 //! star keeps it among the favourites. Back, or Escape, goes home; Escape
@@ -377,7 +377,7 @@ impl<'a> View<'a> {
         if view == GifView::Trending {
             let raised = theme.raised;
             let title = container(
-                text("Trending GIFs")
+                text(crate::i18n::tr!(self.cx.i18n, "Trending GIFs"))
                     .size(16)
                     .font(crate::fonts::BOLD)
                     .color(theme.text),
@@ -444,7 +444,10 @@ impl<'a> View<'a> {
         // the pointer.
         let label = match item {
             Item::Favorites(_) => Some((Some(Icon::StarFilled), "Favorites".to_owned())),
-            Item::Trending(_) => Some((Some(Icon::TrendingUp), "Trending GIFs".to_owned())),
+            Item::Trending(_) => Some((
+                Some(Icon::TrendingUp),
+                crate::i18n::tr!(self.cx.i18n, "Trending GIFs").to_owned(),
+            )),
             Item::Term { name, .. } => Some((None, name.clone())),
             _ => None,
         };
@@ -537,11 +540,14 @@ impl<'a> View<'a> {
             );
         }
         column![
-            text("Your perfect GIF is in another castle. Try the suggested keywords below!")
-                .size(14)
-                .color(theme.secondary)
-                .align_x(Alignment::Center)
-                .width(Length::Fill),
+            text(crate::i18n::tr!(
+                self.cx.i18n,
+                "Your perfect GIF is in another castle. Try the suggested keywords below!"
+            ))
+            .size(14)
+            .color(theme.secondary)
+            .align_x(Alignment::Center)
+            .width(Length::Fill),
             container(terms.wrap()).center_x(Length::Fill)
         ]
         .spacing(10)

@@ -52,7 +52,11 @@ pub(crate) fn sound_board<'a>(
         top = top.push(text(note).size(13).color(theme.muted));
     }
     if groups.is_empty() {
-        top = top.push(text("Loading sounds...").size(13).color(theme.muted));
+        top = top.push(
+            text(crate::i18n::tr!(ctx.i18n, "Loading sounds..."))
+                .size(13)
+                .color(theme.muted),
+        );
     }
     let cell = (SOUNDBOARD_WIDTH - 20.0 - 12.0) / 3.0;
     let mut rows = column![].padding([0, 10]);

@@ -53,7 +53,7 @@ pub fn view<'a>(ctx: crate::ctx::Ctx<'a>) -> Option<Element<'a, Message>> {
     let head = container(
         row![
             ctx.look.glyph(Icon::Hash, 22, theme.muted),
-            text("Browse Channels")
+            text(crate::i18n::tr!(ctx.i18n, "Browse Channels"))
                 .size(16)
                 .font(BOLD)
                 .color(theme.text)
@@ -135,7 +135,7 @@ fn browse_heading<'a>(
     category: &'a BrowsedChannel,
 ) -> Element<'a, Message> {
     let switch = form::switch(
-        "Follow category",
+        crate::i18n::tr!(ctx.i18n, "Follow category"),
         category.followed,
         Some(Message::BrowseChannels(Event::Follow(
             category.id.clone(),

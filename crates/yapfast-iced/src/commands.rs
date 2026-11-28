@@ -40,7 +40,7 @@ pub fn command_enter(app: &App) -> Option<Task<Message>> {
     let focused = command.focused;
     let option = command.options.get(focused);
     if option.is_some_and(|option| option.is_attachment() && option.file.is_none()) {
-        return Some(command_file(focused));
+        return Some(command_file(focused, &app.i18n));
     }
     None
 }
@@ -70,11 +70,12 @@ pub fn focus_option(app: &mut App, index: usize) -> Task<Message> {
 }
 
 /// A file option's file, from the same dialog as the composer's files.
-pub fn command_file(index: usize) -> Task<Message> {
+pub fn command_file(index: usize, i18n: &crate::i18n::I18n) -> Task<Message> {
+    let title = crate::i18n::tr!(i18n, "Choose a file").to_owned();
     Task::perform(
-        async {
+        async move {
             rfd::AsyncFileDialog::new()
-                .set_title("Choose a file")
+                .set_title(title)
                 .pick_file()
                 .await
                 .map(|file| file.path().to_string_lossy().into_owned())

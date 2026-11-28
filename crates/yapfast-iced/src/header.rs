@@ -84,6 +84,7 @@ pub struct Header {
     pub members_n: u64,
     pub members: String,
     pub profile_available: bool,
+    /// Channel or server name shown in the search field's placeholder.
     pub search: Option<String>,
 }
 
@@ -177,7 +178,7 @@ pub fn header(state: &AppState, was: &Header, link: u32) -> Header {
                 .as_deref()
                 .and_then(|place| state.servers.iter().find(|server| server.id == place))
                 .map_or(room.name.as_str(), |server| server.name.as_str());
-            format!("Search {looks_in}")
+            looks_in.to_owned()
         }),
     }
 }
@@ -458,7 +459,7 @@ fn labelled_topic_line<'a>(ctx: crate::ctx::Ctx<'a>, topic: &'a Body) -> Element
 fn header_icon_button<'a>(
     ctx: crate::ctx::Ctx<'a>,
     icon: Icon,
-    label: &'static str,
+    label: &'a str,
     message: impl Into<Option<Message>>,
     lit: bool,
 ) -> Element<'a, Message> {
@@ -486,17 +487,20 @@ fn header_buttons<'a>(ctx: crate::ctx::Ctx<'a>) -> Vec<Element<'a, Message>> {
     let theme = ctx.look.theme;
     let shown = ctx.open.members;
     let members = if shown {
-        "Hide member list"
+        crate::i18n::tr!(ctx.i18n, "Hide member list")
     } else {
-        "Show member list"
+        crate::i18n::tr!(ctx.i18n, "Show member list")
     };
     let mut buttons: Vec<Element<'a, Message>> = Vec::new();
     // A voice channel's chat, or its call again.
     if let Some(chat) = header.voice_chat {
         let (icon, label) = if chat {
-            (Icon::Volume, "Show voice channel")
+            (
+                Icon::Volume,
+                crate::i18n::tr!(ctx.i18n, "Show voice channel"),
+            )
         } else {
-            (Icon::Forum, "Open chat")
+            (Icon::Forum, crate::i18n::tr!(ctx.i18n, "Open chat"))
         };
         buttons.push(
             ctx.look
@@ -512,9 +516,9 @@ fn header_buttons<'a>(ctx: crate::ctx::Ctx<'a>) -> Vec<Element<'a, Message>> {
     }
     if header.can_call {
         let label = if header.call_going {
-            "Join Voice Call"
+            crate::i18n::tr!(ctx.i18n, "Join Voice Call")
         } else {
-            "Start Voice Call"
+            crate::i18n::tr!(ctx.i18n, "Start Voice Call")
         };
         let call = |video| {
             header
@@ -532,7 +536,7 @@ fn header_buttons<'a>(ctx: crate::ctx::Ctx<'a>) -> Vec<Element<'a, Message>> {
             buttons.push(header_icon_button(
                 ctx,
                 Icon::Video,
-                "Start Video Call",
+                crate::i18n::tr!(ctx.i18n, "Start Video Call"),
                 call(true),
                 false,
             ));
@@ -545,7 +549,7 @@ fn header_buttons<'a>(ctx: crate::ctx::Ctx<'a>) -> Vec<Element<'a, Message>> {
         let open = ctx.state.thread_list().is_some();
         push(
             Icon::Thread,
-            "Threads",
+            crate::i18n::tr!(ctx.i18n, "Threads"),
             Message::Popover(crate::header_popovers::Event::Threads),
             open,
         );
@@ -554,27 +558,32 @@ fn header_buttons<'a>(ctx: crate::ctx::Ctx<'a>) -> Vec<Element<'a, Message>> {
         if header.muted {
             push(
                 Icon::BellOff,
-                "Notification settings, muted",
+                crate::i18n::tr!(ctx.i18n, "Notification settings, muted"),
                 Message::Bell,
                 false,
             );
         } else {
-            push(Icon::Bell, "Notification settings", Message::Bell, false);
+            push(
+                Icon::Bell,
+                crate::i18n::tr!(ctx.i18n, "Notification settings"),
+                Message::Bell,
+                false,
+            );
         }
     }
     if header.can_pin {
         push(
             Icon::Pin,
-            "Pinned messages",
+            crate::i18n::tr!(ctx.i18n, "Pinned messages"),
             Message::Popover(crate::header_popovers::Event::Pins),
             false,
         );
     }
     if let Some(one_to_one) = header.add_people {
         let label = if one_to_one {
-            "Add friends to DM"
+            crate::i18n::tr!(ctx.i18n, "Add friends to DM")
         } else {
-            "Add friends to the group"
+            crate::i18n::tr!(ctx.i18n, "Add friends to the group")
         };
         push(
             Icon::UserPlus,
@@ -603,14 +612,18 @@ fn header_buttons<'a>(ctx: crate::ctx::Ctx<'a>) -> Vec<Element<'a, Message>> {
     if header.thread {
         push(
             Icon::Ellipsis,
-            "More",
+            crate::i18n::tr!(ctx.i18n, "More"),
             Message::Popover(crate::header_popovers::Event::ThreadMore),
             false,
         );
     }
     if header.profile_available {
         let open = ctx.state.profile_panel;
-        let label = if open { "Hide profile" } else { "Show profile" };
+        let label = if open {
+            crate::i18n::tr!(ctx.i18n, "Hide profile")
+        } else {
+            crate::i18n::tr!(ctx.i18n, "Show profile")
+        };
         push(
             Icon::User,
             label,
@@ -621,7 +634,8 @@ fn header_buttons<'a>(ctx: crate::ctx::Ctx<'a>) -> Vec<Element<'a, Message>> {
     if header.members_available && header.direct {
         buttons.push(members_toggle(ctx, members, shown));
     }
-    if let Some(placeholder) = &header.search {
+    if let Some(target) = &header.search {
+        let placeholder = crate::i18n::tr!(ctx.i18n, "Search {target}").replace("{target}", target);
         buttons.push(crate::search::header_search(
             ctx.searching,
             placeholder,
@@ -669,7 +683,7 @@ fn header_signal<'a>(ctx: crate::ctx::Ctx<'a>) -> Option<Element<'a, Message>> {
 /// A group DM's member list toggle: its icon and count.
 fn members_toggle<'a>(
     ctx: crate::ctx::Ctx<'a>,
-    label: &'static str,
+    label: &'a str,
     open: bool,
 ) -> Element<'a, Message> {
     let theme = ctx.look.theme;

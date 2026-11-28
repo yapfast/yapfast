@@ -88,6 +88,7 @@ pub struct App {
     /// What the window keeps in `layout.json`: open folders, collapsed
     /// categories.
     pub layout: crate::layout::Layout,
+    pub(crate) i18n: crate::i18n::I18n,
     /// The thread beside's width as its edge was pressed, while it's dragged.
     pub aside_drag: Option<f32>,
     /// The minute now, as the clocks that show minutes read it, and the
@@ -322,6 +323,7 @@ impl App {
             announce_updates: false,
             win: Window::new(crate::pictures::Pictures::new(fitter), theme_icons),
             pointed: Pointed::default(),
+            i18n: crate::i18n::I18n::new(layout.prefs.language.as_deref()),
             layout,
             aside_drag: None,
             minute: yapfast_core::clock::now_ms() / 1000 / 60 * 60,

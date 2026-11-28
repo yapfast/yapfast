@@ -70,7 +70,7 @@ pub fn found_marked(
         yapfast_core::clock::sent(
             message.timestamp,
             now,
-            app.layout.prefs.twelve_hour_clock,
+            app.layout.prefs.twelve_hour_clock(),
             false,
         )
     };

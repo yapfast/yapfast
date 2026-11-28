@@ -320,12 +320,14 @@ fn message(event: Event) -> Message {
     crate::app::settings(SettingsEvent::Theme(appearance::Event::Creator(event)))
 }
 
-fn pick_picture(generation: u64) -> Task<Message> {
+fn pick_picture(generation: u64, i18n: &crate::i18n::I18n) -> Task<Message> {
+    let title = crate::i18n::tr!(i18n, "Choose a picture for your theme").to_owned();
+    let filter = crate::i18n::tr!(i18n, "Pictures").to_owned();
     Task::perform(
-        async {
+        async move {
             rfd::AsyncFileDialog::new()
-                .set_title("Choose a picture for your theme")
-                .add_filter("Pictures", &["jpg", "jpeg", "png", "webp", "bmp", "gif"])
+                .set_title(title)
+                .add_filter(filter, &["jpg", "jpeg", "png", "webp", "bmp", "gif"])
                 .pick_file()
                 .await
                 .map(|file| file.path().to_owned())
@@ -414,15 +416,17 @@ fn suggest_pictures(generation: u64) -> Task<Message> {
     )
 }
 
-fn pick_font(generation: u64, headings: bool) -> Task<Message> {
+fn pick_font(generation: u64, headings: bool, i18n: &crate::i18n::I18n) -> Task<Message> {
+    let title = crate::i18n::tr!(i18n, "Import a font for your theme").to_owned();
+    let filter = crate::i18n::tr!(i18n, "Fonts").to_owned();
     Task::perform(
         async move {
             (
                 generation,
                 headings,
                 rfd::AsyncFileDialog::new()
-                    .set_title("Import a font for your theme")
-                    .add_filter("Fonts", &["ttf", "otf"])
+                    .set_title(title)
+                    .add_filter(filter, &["ttf", "otf"])
                     .pick_file()
                     .await
                     .map(|file| file.path().to_owned()),
@@ -595,18 +599,16 @@ impl Settings {
                         .as_ref()
                         .is_none_or(|creator| creator.spec.picture.is_none())
                 {
-                    return self
-                        .creator
-                        .as_ref()
-                        .map_or_else(Task::none, |creator| pick_picture(creator.generation));
+                    return self.creator.as_ref().map_or_else(Task::none, |creator| {
+                        pick_picture(creator.generation, cx.i18n)
+                    });
                 }
                 self.creator_change(cx, true, |spec| spec.background = background);
             }
             Event::PickPicture => {
-                return self
-                    .creator
-                    .as_ref()
-                    .map_or_else(Task::none, |creator| pick_picture(creator.generation));
+                return self.creator.as_ref().map_or_else(Task::none, |creator| {
+                    pick_picture(creator.generation, cx.i18n)
+                });
             }
             Event::PicturePicked(generation, path) => {
                 if !self.creator_is(generation) {
@@ -664,7 +666,7 @@ impl Settings {
             }
             Event::PickFont(headings) => {
                 return self.creator.as_ref().map_or_else(Task::none, |creator| {
-                    pick_font(creator.generation, headings)
+                    pick_font(creator.generation, headings, cx.i18n)
                 });
             }
             Event::FontPicked(generation, headings, path) => {
@@ -721,10 +723,11 @@ impl Settings {
                     .as_ref()
                     .map(|creator| creator.generation)
                     .unwrap_or_default();
+                let title = crate::i18n::tr!(cx.i18n, "Export the theme as a package").to_owned();
                 return Task::perform(
-                    async {
+                    async move {
                         rfd::AsyncFileDialog::new()
-                            .set_title("Export the theme as a package")
+                            .set_title(title)
                             .pick_folder()
                             .await
                             .map(|folder| folder.path().to_owned())

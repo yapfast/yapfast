@@ -726,7 +726,7 @@ pub(super) fn side_list<'a>(
             if share.switching {
                 rows = rows.push(
                     container(
-                        text("Changes apply immediately")
+                        text(crate::i18n::tr!(ctx.i18n, "Changes apply immediately"))
                             .size(12)
                             .color(theme.secondary),
                     )

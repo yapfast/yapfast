@@ -107,6 +107,19 @@ fn the_invite_dialog_shows_its_link_and_how_long_it_lasts() {
         ui.click("Copy").expect("Copy");
     });
     assert!(shows(&app, "Copied"));
+    app.i18n.select(Some("ru"));
+    assert!(shows(
+        &app,
+        "Ссылка действует бессрочно и доступна для одного использования"
+    ));
+    assert!(shows(&app, "Без лимита"));
+    app.i18n.select(Some("de"));
+    assert!(shows(
+        &app,
+        "Dieser Link läuft nie ab und kann einmal verwendet werden."
+    ));
+    assert!(shows(&app, "Unbegrenzt"));
+    app.i18n.select(Some("en"));
     press(&mut app, key::Named::Escape);
     assert!(app.client.state().invite.is_none());
     assert!(!shows(&app, "Invite friends to Test"));

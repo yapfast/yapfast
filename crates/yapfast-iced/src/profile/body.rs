@@ -303,7 +303,7 @@ pub(super) fn profile_body<'a>(
         body = body.push(
             action(
                 theme,
-                "Edit Profile",
+                crate::i18n::tr!(ctx.i18n, "Edit Profile"),
                 Kind::Primary,
                 Some(Message::Profile(Event::EditProfile)),
             )
@@ -358,13 +358,13 @@ pub(super) fn profile_body<'a>(
 }
 
 /// The bar above a private profile's banner, in the profile's colour
-/// mostly dark: a lock and "Private Profile", in white.
+/// mostly dark: a lock and crate::i18n::tr!(ctx.i18n, "Private Profile"), in white.
 fn private_bar<'a>(ctx: crate::ctx::Ctx<'a>, inks: &Inks) -> Element<'a, Message> {
     let ground = crate::theme::mix(inks.primary, Color::from_rgb8(0x1a, 0x1a, 0x1e), 0.15);
     container(
         row![
             ctx.look.glyph(Icon::Lock, 14, Color::WHITE),
-            text("Private Profile")
+            text(crate::i18n::tr!(ctx.i18n, "Private Profile"))
                 .size(14)
                 .font(BOLD)
                 .color(Color::WHITE)
@@ -926,7 +926,7 @@ fn profile_actions<'a>(
         return Some(
             action(
                 theme,
-                "Edit Profile",
+                crate::i18n::tr!(ctx.i18n, "Edit Profile"),
                 Kind::Primary,
                 Some(Message::Profile(Event::EditProfile)),
             )
@@ -1203,7 +1203,7 @@ fn mutual_line<'a>(
     container(line).height(20).align_y(Alignment::Center).into()
 }
 
-/// The bio: three lines and "View full bio" on the card, whole
+/// The bio: three lines and crate::i18n::tr!(ctx.i18n, "View full bio") on the card, whole
 /// elsewhere.
 pub(super) fn bio_view<'a>(
     ctx: crate::ctx::Ctx<'a>,
@@ -1231,10 +1231,15 @@ pub(super) fn bio_view<'a>(
     let three = line_height * 3.0;
     Fold::new(
         shown,
-        button(text("View full bio").size(12).font(BOLD).color(inks.ink))
-            .padding(0)
-            .on_press(Message::Profile(Event::Enlarge(None, false)))
-            .style(|_, _| iced::widget::button::Style::default()),
+        button(
+            text(crate::i18n::tr!(ctx.i18n, "View full bio"))
+                .size(12)
+                .font(BOLD)
+                .color(inks.ink),
+        )
+        .padding(0)
+        .on_press(Message::Profile(Event::Enlarge(None, false)))
+        .style(|_, _| iced::widget::button::Style::default()),
         true,
         (three + 2.0, three, 6.0),
     )
@@ -1380,28 +1385,31 @@ fn connections<'a>(
 /// profile closes.
 fn note_editor<'a>(ctx: crate::ctx::Ctx<'a>, inks: &Inks) -> Element<'a, Message> {
     let (ground, ink, hint, accent) = (inks.field, inks.ink, inks.ink3, ctx.look.theme.accent);
-    let field = text_input("Click to add a note", &ctx.profiles.note)
-        .id(iced::widget::Id::new(NOTE_FIELD))
-        .size(14)
-        .padding(8)
-        .on_input(|text| Message::Profile(Event::Note(text)))
-        .on_submit(Message::Profile(Event::SaveNote))
-        .style(move |_, status| text_input::Style {
-            background: ground.into(),
-            border: Border {
-                color: accent,
-                width: if matches!(status, text_input::Status::Focused { .. }) {
-                    1.0
-                } else {
-                    0.0
-                },
-                radius: 4.0.into(),
+    let field = text_input(
+        crate::i18n::tr!(ctx.i18n, "Click to add a note"),
+        &ctx.profiles.note,
+    )
+    .id(iced::widget::Id::new(NOTE_FIELD))
+    .size(14)
+    .padding(8)
+    .on_input(|text| Message::Profile(Event::Note(text)))
+    .on_submit(Message::Profile(Event::SaveNote))
+    .style(move |_, status| text_input::Style {
+        background: ground.into(),
+        border: Border {
+            color: accent,
+            width: if matches!(status, text_input::Status::Focused { .. }) {
+                1.0
+            } else {
+                0.0
             },
-            icon: ink,
-            placeholder: hint,
-            value: ink,
-            selection: Color { a: 0.35, ..accent },
-        });
+            radius: 4.0.into(),
+        },
+        icon: ink,
+        placeholder: hint,
+        value: ink,
+        selection: Color { a: 0.35, ..accent },
+    });
     column![title("Note (only visible to you)", inks.ink), field]
         .spacing(6)
         .into()

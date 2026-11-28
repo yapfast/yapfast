@@ -612,7 +612,7 @@ fn the_command_list_scrolls_past_its_eight_rows() {
 fn the_timed_out_line_follows_the_twelve_hour_clock() {
     use std::sync::Arc;
     let (mut app, _folder) = with_commands(0);
-    app.layout.prefs.twelve_hour_clock = true;
+    app.layout.prefs.time_format = Some(crate::time_format::TimeFormat::Hour12);
     let at = chrono::Local::now()
         .date_naive()
         .and_hms_opt(14, 30, 0)

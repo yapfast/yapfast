@@ -15,6 +15,7 @@ use crate::{
     ctx::{Cx, Pref as Shown, Request},
     fonts::MEDIUM,
     form::{self, switch},
+    i18n::tr,
     layout::{SCROLL_SPEEDS, TEXT_SIZES},
 };
 
@@ -24,14 +25,19 @@ impl<'a> Page<'a> {
         let layout = self.cx.layout;
         let size = super::message_size(&layout.prefs);
         let preview = column![
-            text("Preview").size(14).font(MEDIUM).color(theme.muted),
+            text(tr!(self.cx.i18n, "Preview"))
+                .size(14)
+                .font(MEDIUM)
+                .color(theme.muted),
             self.sample(vec![
-                text("what happened to all the beans")
+                text(tr!(self.cx.i18n, "what happened to all the beans"))
                     .size(size)
                     .color(theme.text)
                     .into(),
                 row![
-                    text("here's a link ").size(size).color(theme.text),
+                    text(tr!(self.cx.i18n, "here's a link "))
+                        .size(size)
+                        .color(theme.text),
                     text("https://discord.com/accessibility")
                         .size(size)
                         .color(theme.link),
@@ -50,7 +56,7 @@ impl<'a> Page<'a> {
             .map(|&size| (u32::from(size - least), format!("{size}px")))
             .collect();
         let text_size = slider(
-            "Text size in chat",
+            tr!(self.cx.i18n, "Text size in chat"),
             u32::from(px - least),
             u32::from(most - least),
             move |value| pref(Pref::TextPx(least.saturating_add(value as u8))),
@@ -71,10 +77,14 @@ impl<'a> Page<'a> {
             .position(|kind| *kind == layout.animate())
             .unwrap_or(0);
         let mut plays = vec![
-            form::heading(theme, "PLAY GIFS, EMOJI AND STICKERS"),
+            form::heading(theme, tr!(self.cx.i18n, "PLAY GIFS, EMOJI AND STICKERS")),
             choices(
                 theme,
-                &["While Yapfast is focused", "Always", "Never"],
+                &[
+                    tr!(self.cx.i18n, "While Yapfast is focused"),
+                    tr!(self.cx.i18n, "Always"),
+                    tr!(self.cx.i18n, "Never"),
+                ],
                 animate,
                 |index| pref(Pref::Animate(index)),
             ),
@@ -82,20 +92,20 @@ impl<'a> Page<'a> {
         if layout.animate_stilled && reduced {
             plays.push(form::note(
                 theme,
-                "This setting has been automatically disabled because of your Reduced Motion setting.",
+                tr!(self.cx.i18n, "This setting has been automatically disabled because of your Reduced Motion setting."),
             ));
         }
         form::page([
-            form::title(theme, "Accessibility"),
+            form::title(theme, tr!(self.cx.i18n, "Accessibility")),
             preview.into(),
             form::group([
-                form::heading(theme, "TEXT READABILITY"),
+                form::heading(theme, tr!(self.cx.i18n, "TEXT READABILITY")),
                 text_size,
-                form::note(theme, "Adjust the size of the chat font."),
+                form::note(theme, tr!(self.cx.i18n, "Adjust the size of the chat font.")),
             ]),
             form::rule(theme),
             form::group([
-                form::heading(theme, "SCROLL SPEED"),
+                form::heading(theme, tr!(self.cx.i18n, "SCROLL SPEED")),
                 choices(
                     theme,
                     &["50%", "100%", "150%", "200%", "300%"],
@@ -105,22 +115,22 @@ impl<'a> Page<'a> {
             ]),
             form::rule(theme),
             form::group([
-                form::heading(theme, "REDUCED MOTION"),
+                form::heading(theme, tr!(self.cx.i18n, "REDUCED MOTION")),
                 switch(
-                    "Enable Reduced Motion",
+                    tr!(self.cx.i18n, "Enable Reduced Motion"),
                     reduced,
                     Some(pref(Pref::ReducedMotion(!reduced))),
                 )
                 .description(
-                    "Reduce the amount and intensity of animations, hover effects, and other moving effects: themes' animations stay still, and GIFs, emoji and stickers stop playing.",
+                    tr!(self.cx.i18n, "Reduce the amount and intensity of animations, hover effects, and other moving effects: themes' animations stay still, and GIFs, emoji and stickers stop playing."),
                 )
                 .view(self.cx.look),
                 switch(
-                    "Sync with computer setting",
+                    tr!(self.cx.i18n, "Sync with computer setting"),
                     sync,
                     Some(pref(Pref::SyncReducedMotion(!sync))),
                 )
-                .description("Reduced motion follows whether your desktop turns its animations off.")
+                .description(tr!(self.cx.i18n, "Reduced motion follows whether your desktop turns its animations off."))
                 .view(self.cx.look),
             ]),
             form::group(plays),

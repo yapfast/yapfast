@@ -1,9 +1,9 @@
 //! Discord polls on messages, shown after Discord's client: the question
 //! and its answers to pick, and once this account voted, the poll closed or
-//! "Show results" was clicked, each answer's share of the votes, and a
+//! crate::i18n::tr!(ctx.i18n, "Show results") was clicked, each answer's share of the votes, and a
 //! click on an answer, or on the votes so far, shows who voted. What this
 //! device alone knows of a poll (the answers picked before voting, whether
-//! "Show results" was clicked) is kept among `revealed`, as
+//! crate::i18n::tr!(ctx.i18n, "Show results") was clicked) is kept among `revealed`, as
 //! `{item}/pick{id}` and `{item}/results`.
 
 use iced::{
@@ -381,7 +381,7 @@ fn poll_footer<'a>(
         footer = footer.push(
             action(
                 theme,
-                "Show results",
+                crate::i18n::tr!(ctx.i18n, "Show results"),
                 Kind::Ghost,
                 Some(Message::Poll(Event::ShowResults(item.to_owned()))),
             )
@@ -428,21 +428,24 @@ fn poll_footer<'a>(
     }
     let ask = column![
         crate::controls::bar(theme.line, Length::Fill, 1),
-        text("End the poll now? This will close it immediately and reveal the results.")
-            .size(14)
-            .color(theme.secondary),
+        text(crate::i18n::tr!(
+            ctx.i18n,
+            "End the poll now? This will close it immediately and reveal the results."
+        ))
+        .size(14)
+        .color(theme.secondary),
         row![
             Space::new().width(Length::Fill),
             action(
                 theme,
-                "Cancel",
+                crate::i18n::tr!(ctx.i18n, "Cancel"),
                 Kind::Ghost,
                 Some(Message::Poll(Event::KeepPoll))
             )
             .small(),
             action(
                 theme,
-                "End Poll Now",
+                crate::i18n::tr!(ctx.i18n, "End Poll Now"),
                 Kind::Danger,
                 Some(Message::Poll(Event::EndPoll))
             )
@@ -469,9 +472,12 @@ fn found_footer<'a>(ctx: crate::ctx::Ctx<'a>, closed: bool, total: usize) -> Ele
             .push(text("\u{00b7}  Poll closed").size(14).color(theme.muted));
     } else {
         footer = footer.push(
-            text("View original message to interact")
-                .size(14)
-                .color(theme.secondary),
+            text(crate::i18n::tr!(
+                ctx.i18n,
+                "View original message to interact"
+            ))
+            .size(14)
+            .color(theme.secondary),
         );
     }
     footer.into()

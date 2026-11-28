@@ -237,9 +237,9 @@ impl<'a> View<'a> {
             );
         }
         form::page([
-            form::title(theme, "Safety Setup"),
+            form::title(theme, crate::i18n::tr!(self.cx.i18n, "Safety Setup")),
             form::group([
-                form::heading(theme, "VERIFICATION LEVEL"),
+                form::heading(theme, crate::i18n::tr!(self.cx.i18n, "VERIFICATION LEVEL")),
                 form::note(
                     theme,
                     if community {
@@ -252,7 +252,10 @@ impl<'a> View<'a> {
             ]),
             form::group(mfa),
             form::group([
-                form::heading(theme, "SENSITIVE CONTENT FILTERS"),
+                form::heading(
+                    theme,
+                    crate::i18n::tr!(self.cx.i18n, "SENSITIVE CONTENT FILTERS"),
+                ),
                 form::note(
                     theme,
                     "Choose if server members can share image-based media detected by Discord's sensitive content filters. This setting will apply to channels that are not age-restricted.",
@@ -295,9 +298,12 @@ impl<'a> View<'a> {
         .align_y(Alignment::Center);
         let shown = page.on_page();
         let list: Element<'a, Message> = if shown.is_empty() && page.fetching {
-            container(form::note(theme, "Loading..."))
-                .height(Length::Fill)
-                .into()
+            container(form::note(
+                theme,
+                crate::i18n::tr!(self.cx.i18n, "Loading..."),
+            ))
+            .height(Length::Fill)
+            .into()
         } else if shown.is_empty() {
             empty(
                 theme,
@@ -315,7 +321,7 @@ impl<'a> View<'a> {
                 .into()
         };
         let mut parts = column![
-            form::title(theme, "Server Ban List"),
+            form::title(theme, crate::i18n::tr!(self.cx.i18n, "Server Ban List")),
             form::note(
                 theme,
                 "Bans by default are by account and IP.\nA user can circumvent an IP ban by using a proxy.\nBan circumvention can be made very hard by enabling phone verification in Safety Setup.",
@@ -396,7 +402,10 @@ impl<'a> View<'a> {
                 .color(theme.text)
                 .wrapping(text::Wrapping::None),
             column![
-                text("Ban Reason").size(15).font(MEDIUM).color(theme.text),
+                text(crate::i18n::tr!(self.cx.i18n, "Ban Reason"))
+                    .size(15)
+                    .font(MEDIUM)
+                    .color(theme.text),
                 text(ban_.reason.as_deref().unwrap_or("No reason provided"))
                     .size(13)
                     .color(theme.muted),
@@ -406,7 +415,7 @@ impl<'a> View<'a> {
         .spacing(12)
         .padding(16);
         if let Some(error) = &page.open_error {
-            body = body.push(form::error(theme, error.as_str()));
+            body = body.push(form::error(theme, self.cx.i18n.text(error)));
         }
         if self.cx.app.may(&core.server, Permission::Ban) {
             body = body.push(
@@ -506,16 +515,23 @@ impl<'a> View<'a> {
             .into()
         };
         let head = row![
-            container(form::title(theme, "Audit Log")).width(Length::Fill),
+            container(form::title(
+                theme,
+                crate::i18n::tr!(self.cx.i18n, "Audit Log")
+            ))
+            .width(Length::Fill),
             filter("Filter by User", by_user),
             filter("Filter by Action", by_action),
         ]
         .spacing(form::GAP)
         .align_y(Alignment::Center);
         let body: Element<'a, Message> = if page.rows.is_empty() && fetching {
-            container(form::note(theme, "Loading..."))
-                .height(Length::Fill)
-                .into()
+            container(form::note(
+                theme,
+                crate::i18n::tr!(self.cx.i18n, "Loading..."),
+            ))
+            .height(Length::Fill)
+            .into()
         } else if page.rows.is_empty() && page.failed {
             empty(
                 theme,
@@ -537,7 +553,11 @@ impl<'a> View<'a> {
                 rows = rows.push(
                     container(action(
                         theme,
-                        if fetching { "Loading..." } else { "Load More" },
+                        if fetching {
+                            crate::i18n::tr!(self.cx.i18n, "Loading...")
+                        } else {
+                            "Load More"
+                        },
                         Kind::Plain,
                         (!fetching).then(|| audit(AuditInput::More)),
                     ))
@@ -570,7 +590,7 @@ impl<'a> View<'a> {
     fn audit_row(self, page: &'a AuditLogPage, index: usize) -> Element<'a, Message> {
         let theme = self.cx.look.theme;
         let entry = &page.rows[index];
-        let twelve_hour = self.cx.layout.prefs.twelve_hour_clock;
+        let twelve_hour = self.cx.layout.prefs.twelve_hour_clock();
         let now = clock::now_ms() / 1000;
         let when = |seconds: u64| clock::calendar(seconds, now, twelve_hour);
         let (start, end) = (when(entry.start), when(entry.end));
@@ -679,7 +699,7 @@ impl<'a> View<'a> {
         now: u64,
     ) -> Element<'a, Message> {
         let strong = self.cx.look.theme.text;
-        let twelve_hour = self.cx.layout.prefs.twelve_hour_clock;
+        let twelve_hour = self.cx.layout.prefs.twelve_hour_clock();
         let spans: Vec<Span<'a, (), iced::Font>> = words
             .spans()
             .filter_map(|piece| match piece {

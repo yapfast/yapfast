@@ -190,7 +190,13 @@ impl<'a> super::View<'a> {
                 face = face.push(
                     tooltip(
                         self.cx.look.glyph(Icon::MicOff, 16, theme.danger),
-                        controls::tip(theme, "Speaking is restricted in this channel"),
+                        controls::tip(
+                            theme,
+                            crate::i18n::tr!(
+                                self.cx.i18n,
+                                "Speaking is restricted in this channel"
+                            ),
+                        ),
                         tooltip::Position::Top,
                     )
                     .gap(4),
@@ -257,7 +263,10 @@ impl<'a> super::View<'a> {
         // This account, in the call from another client.
         tooltip(
             drags,
-            controls::tip(theme, "Connected on another client"),
+            controls::tip(
+                theme,
+                crate::i18n::tr!(self.cx.i18n, "Connected on another client"),
+            ),
             tooltip::Position::Top,
         )
         .gap(4)

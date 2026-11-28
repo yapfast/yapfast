@@ -922,7 +922,7 @@ fn theme_topbar(app: &App) -> Option<Element<'_, Message>> {
         .map_or("", |playing| playing.name.as_str());
     let time = yapfast_core::clock::time_on(
         yapfast_core::clock::now_ms() / 1000,
-        app.layout.prefs.twelve_hour_clock,
+        app.layout.prefs.twelve_hour_clock(),
     );
     let values = [
         ("name", app.account.name.as_str()),

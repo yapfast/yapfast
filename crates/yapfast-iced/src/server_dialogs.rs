@@ -41,9 +41,23 @@ const CHANNEL_FIELD: &str = "channel-name";
 /// The choices for a new invite link, as Discord's dialog words them, in
 /// the order of `INVITE_AGES` and `INVITE_USES`.
 const AGES: [&str; 7] = [
-    "30 min", "1 hr", "6 hr", "12 hr", "1 day", "7 days", "Never",
+    crate::i18n::tr_mark!("30 min"),
+    crate::i18n::tr_mark!("1 hr"),
+    crate::i18n::tr_mark!("6 hr"),
+    crate::i18n::tr_mark!("12 hr"),
+    crate::i18n::tr_mark!("1 day"),
+    crate::i18n::tr_mark!("7 days"),
+    crate::i18n::tr_mark!("Never"),
 ];
-const USES: [&str; 7] = ["No limit", "1", "5", "10", "25", "50", "100"];
+const USES: [&str; 7] = [
+    crate::i18n::tr_mark!("No limit"),
+    "1",
+    "5",
+    "10",
+    "25",
+    "50",
+    "100",
+];
 
 /// What's being chosen or typed in the open dialogs.
 #[derive(Default)]
@@ -348,6 +362,7 @@ impl<'a> View<'a> {
         let invite = self.cx.state.invite.as_ref()?;
         let choice = self.s.invite.as_ref()?;
         let theme = self.cx.look.theme;
+        let i18n = self.cx.i18n;
         let place = if invite.voice {
             invite.channel.clone()
         } else {
@@ -356,14 +371,18 @@ impl<'a> View<'a> {
         let link = invite.link.as_deref().unwrap_or_default();
         let copied = !link.is_empty() && choice.copied.as_deref() == Some(link);
         let shown = if invite.making {
-            text("Making a link...").color(theme.muted)
+            text(crate::i18n::tr!(self.cx.i18n, "Making a link...")).color(theme.muted)
         } else {
             text(link).color(theme.text)
         };
         let sunken = theme.sunken;
         let copy = action(
             theme,
-            if copied { "Copied" } else { "Copy" },
+            if copied {
+                crate::i18n::tr!(self.cx.i18n, "Copied")
+            } else {
+                crate::i18n::tr!(self.cx.i18n, "Copy")
+            },
             if copied { Kind::Plain } else { Kind::Primary },
             (!link.is_empty()).then(|| message(Event::Copy(link.to_owned()))),
         );
@@ -387,20 +406,27 @@ impl<'a> View<'a> {
         .style(move |_| rounded(sunken, 8));
         let mut body = vec![
             self.cx.look.dialog_head(
-                format!("Invite friends to {}", invite.server),
+                crate::i18n::tr!(self.cx.i18n, "Invite friends to {server}")
+                    .replace("{server}", &invite.server),
                 message(Event::CloseInvite),
             ),
-            form::note(theme, format!("They'll land in {place}.")),
-            form::heading(theme, "INVITE LINK"),
+            form::note(
+                theme,
+                crate::i18n::tr!(self.cx.i18n, "They'll land in {place}.")
+                    .replace("{place}", &place),
+            ),
+            form::heading(theme, crate::i18n::tr!(self.cx.i18n, "INVITE LINK")),
             link_box.into(),
         ];
         if invite.link.is_some() {
             body.push(form::note(
                 theme,
-                format!(
-                    "This link {}{}.",
-                    lasts(invite.max_age),
-                    works(invite.max_uses)
+                yapfast_core::themes::chrome::fill(
+                    crate::i18n::tr!(i18n, "This link {expiry}{usage}."),
+                    &[
+                        ("expiry", &lasts(i18n, invite.max_age)),
+                        ("usage", &works(i18n, invite.max_uses)),
+                    ],
                 ),
             ));
         }
@@ -408,25 +434,31 @@ impl<'a> View<'a> {
             body.push(form::note_in(error.as_str(), theme.danger));
         }
         body.extend([
-            form::heading(theme, "EXPIRE AFTER"),
-            controls::choices(theme, &AGES, choice.age, |index| {
-                message(Event::InviteAge(index))
-            }),
-            form::heading(theme, "MAX NUMBER OF USES"),
-            controls::choices(theme, &USES, choice.uses, |index| {
-                message(Event::InviteUses(index))
-            }),
+            form::heading(theme, crate::i18n::tr!(self.cx.i18n, "EXPIRE AFTER")),
+            controls::choices(
+                theme,
+                &AGES.map(|label| i18n.text(label)),
+                choice.age,
+                |index| message(Event::InviteAge(index)),
+            ),
+            form::heading(theme, crate::i18n::tr!(self.cx.i18n, "MAX NUMBER OF USES")),
+            controls::choices(
+                theme,
+                &USES.map(|label| i18n.text(label)),
+                choice.uses,
+                |index| message(Event::InviteUses(index)),
+            ),
             buttons([
                 action(
                     theme,
-                    "Done",
+                    crate::i18n::tr!(self.cx.i18n, "Done"),
                     Kind::Ghost,
                     Some(message(Event::CloseInvite)),
                 )
                 .into(),
                 action(
                     theme,
-                    "Generate a new link",
+                    crate::i18n::tr!(self.cx.i18n, "Generate a new link"),
                     Kind::Plain,
                     (!invite.making).then(|| message(Event::Remake)),
                 )
@@ -451,9 +483,9 @@ impl<'a> View<'a> {
         let preview = join.preview.as_ref();
         let busy = join.resolving || join.joining;
         let title = if join.from_link {
-            "You've been invited to join a server"
+            crate::i18n::tr!(self.cx.i18n, "You've been invited to join a server")
         } else {
-            "Join a Server"
+            crate::i18n::tr!(self.cx.i18n, "Join a Server")
         };
         let mut body = vec![
             self.cx
@@ -464,9 +496,12 @@ impl<'a> View<'a> {
             body.extend([
                 form::note(
                     theme,
-                    "Paste an invite link or code to join a server you were invited to.",
+                    crate::i18n::tr!(
+                        self.cx.i18n,
+                        "Paste an invite link or code to join a server you were invited to."
+                    ),
                 ),
-                form::heading(theme, "INVITE LINK"),
+                form::heading(theme, crate::i18n::tr!(self.cx.i18n, "INVITE LINK")),
                 form::field(theme, JOIN_FIELD, "https://discord.gg/yapfast", typed)
                     .padding([8.0, 10.0])
                     .on_input(|link| message(Event::JoinLink(link)))
@@ -477,7 +512,13 @@ impl<'a> View<'a> {
         if let Some(preview) = preview {
             let detail = match (preview.members, preview.online) {
                 (Some(members), Some(online)) if members >= 5 || online > 0 => {
-                    format!("{online} online, {members} members")
+                    yapfast_core::themes::chrome::fill(
+                        crate::i18n::tr!(self.cx.i18n, "{online} online, {members} members"),
+                        &[
+                            ("online", &online.to_string()),
+                            ("members", &members.to_string()),
+                        ],
+                    )
                 }
                 _ if preview.voice => preview.channel.clone(),
                 _ => format!("#{}", preview.channel),
@@ -494,15 +535,21 @@ impl<'a> View<'a> {
             );
         }
         let status = if join.form.is_some() {
-            "You joined. This server asks new members to fill in a form before they can talk, which Yapfast can't show yet. Finish it in Discord's web app."
+            crate::i18n::tr!(
+                self.cx.i18n,
+                "You joined. This server asks new members to fill in a form before they can talk, which Yapfast can't show yet. Finish it in Discord's web app."
+            )
         } else if join.captcha.is_some() {
-            "Discord asks for a captcha first. Solve it in your browser."
+            crate::i18n::tr!(
+                self.cx.i18n,
+                "Discord asks for a captcha first. Solve it in your browser."
+            )
         } else if join.joining {
-            "Joining..."
+            crate::i18n::tr!(self.cx.i18n, "Joining...")
         } else if join.resolving {
-            "Looking up the invite..."
+            crate::i18n::tr!(self.cx.i18n, "Looking up the invite...")
         } else if join.member {
-            "You're already in this server."
+            crate::i18n::tr!(self.cx.i18n, "You're already in this server.")
         } else {
             ""
         };
@@ -510,26 +557,26 @@ impl<'a> View<'a> {
             body.push(form::note(theme, status));
         }
         if let Some(error) = &join.error {
-            body.push(form::note_in(error.as_str(), theme.danger));
+            body.push(form::note_in(self.cx.i18n.text(error), theme.danger));
         }
         let confirm = if join.form.is_some() {
-            "Open in browser"
+            crate::i18n::tr!(self.cx.i18n, "Open in browser")
         } else if join.member {
-            "Open Server"
+            crate::i18n::tr!(self.cx.i18n, "Open Server")
         } else if preview.is_some() {
-            "Join in Browser"
+            crate::i18n::tr!(self.cx.i18n, "Join in Browser")
         } else if join.from_link {
             ""
         } else {
-            "Find Invite"
+            crate::i18n::tr!(self.cx.i18n, "Find Invite")
         };
         let mut row_ = vec![
             action(
                 theme,
                 if join.form.is_some() || confirm.is_empty() {
-                    "Close"
+                    crate::i18n::tr!(self.cx.i18n, "Close")
                 } else {
-                    "Cancel"
+                    crate::i18n::tr!(self.cx.i18n, "Cancel")
                 },
                 Kind::Ghost,
                 Some(message(Event::CloseJoin)),
@@ -540,7 +587,7 @@ impl<'a> View<'a> {
             row_.push(
                 action(
                     theme,
-                    "Open the captcha again",
+                    crate::i18n::tr!(self.cx.i18n, "Open the captcha again"),
                     Kind::Plain,
                     Some(message(Event::OpenCaptcha)),
                 )
@@ -574,7 +621,16 @@ impl<'a> View<'a> {
         let draft = self.s.channel.as_ref()?;
         let theme = self.cx.look.theme;
         let category = asked.kind == ChannelKind::Category;
-        let thing = if category { "category" } else { "channel" };
+        let create = if category {
+            crate::i18n::tr!(self.cx.i18n, "Create category")
+        } else {
+            crate::i18n::tr!(self.cx.i18n, "Create channel")
+        };
+        let delete = if category {
+            crate::i18n::tr!(self.cx.i18n, "Delete category")
+        } else {
+            crate::i18n::tr!(self.cx.i18n, "Delete channel")
+        };
         let named = |name: &str| {
             if asked.kind == ChannelKind::Text {
                 format!("#{name}")
@@ -584,29 +640,32 @@ impl<'a> View<'a> {
         };
         let (title, detail, confirm) = match &asked.ask {
             ChannelAsk::Create { .. } => (
-                format!("Create {thing}"),
+                create.to_owned(),
                 if asked.name.is_empty() {
-                    format!("In {}", asked.server_name)
+                    crate::i18n::tr!(self.cx.i18n, "In {name}")
+                        .replace("{name}", &asked.server_name)
                 } else {
-                    format!("In {}", asked.name)
+                    crate::i18n::tr!(self.cx.i18n, "In {name}").replace("{name}", &asked.name)
                 },
-                format!("Create {thing}"),
+                create.to_owned(),
             ),
             ChannelAsk::Duplicate(_) => (
-                "Duplicate channel".to_owned(),
-                format!(
-                    "A copy of {}, with its settings and permissions, in the same category.",
-                    named(&asked.name)
-                ),
-                "Create channel".to_owned(),
+                crate::i18n::tr!(self.cx.i18n, "Duplicate channel").to_owned(),
+                crate::i18n::tr!(
+                    self.cx.i18n,
+                    "A copy of {name}, with its settings and permissions, in the same category."
+                )
+                .replace("{name}", &named(&asked.name)),
+                crate::i18n::tr!(self.cx.i18n, "Create channel").to_owned(),
             ),
             ChannelAsk::Delete(_) => (
-                format!("Delete {thing}"),
-                format!(
-                    "Are you sure you want to delete {}? This cannot be undone.",
-                    named(&asked.name)
-                ),
-                format!("Delete {thing}"),
+                delete.to_owned(),
+                crate::i18n::tr!(
+                    self.cx.i18n,
+                    "Are you sure you want to delete {name}? This cannot be undone."
+                )
+                .replace("{name}", &named(&asked.name)),
+                delete.to_owned(),
             ),
         };
         let deleting = matches!(asked.ask, ChannelAsk::Delete(_));
@@ -619,10 +678,13 @@ impl<'a> View<'a> {
         ];
         if matches!(asked.ask, ChannelAsk::Create { .. }) && !category {
             body.extend([
-                form::heading(theme, "CHANNEL TYPE"),
+                form::heading(theme, crate::i18n::tr!(self.cx.i18n, "CHANNEL TYPE")),
                 controls::choices(
                     theme,
-                    &["Text", "Voice"],
+                    &[
+                        crate::i18n::tr!(self.cx.i18n, "Text"),
+                        crate::i18n::tr!(self.cx.i18n, "Voice"),
+                    ],
                     usize::from(draft.voice),
                     |index| message(Event::ChannelVoice(index == 1)),
                 ),
@@ -630,9 +692,15 @@ impl<'a> View<'a> {
         }
         if !deleting {
             let (field, placeholder) = if category {
-                ("CATEGORY NAME", "New Category")
+                (
+                    crate::i18n::tr!(self.cx.i18n, "CATEGORY NAME"),
+                    crate::i18n::tr!(self.cx.i18n, "New Category"),
+                )
             } else {
-                ("CHANNEL NAME", "new-channel")
+                (
+                    crate::i18n::tr!(self.cx.i18n, "CHANNEL NAME"),
+                    "new-channel",
+                )
             };
             body.extend([
                 form::heading(theme, field),
@@ -649,7 +717,7 @@ impl<'a> View<'a> {
         body.push(buttons([
             action(
                 theme,
-                "Cancel",
+                crate::i18n::tr!(self.cx.i18n, "Cancel"),
                 Kind::Ghost,
                 Some(message(Event::CloseChannel)),
             )
@@ -679,20 +747,24 @@ impl<'a> View<'a> {
     fn leave_view(self) -> Option<Element<'a, Message>> {
         let leave = self.cx.state.leave.as_ref()?;
         let theme = self.cx.look.theme;
-        let what = if leave.group { "group" } else { "server" };
+        let detail = if leave.group {
+            crate::i18n::tr!(
+                self.cx.i18n,
+                "Are you sure you want to leave {name}? You won't be able to rejoin this group unless you are re-invited."
+            )
+        } else {
+            crate::i18n::tr!(
+                self.cx.i18n,
+                "Are you sure you want to leave {name}? You won't be able to rejoin this server unless you are re-invited."
+            )
+        };
         let ready = !leave.leaving;
         let mut body = vec![
             self.cx.look.dialog_head(
-                format!("Leave '{}'", leave.name),
+                crate::i18n::tr!(self.cx.i18n, "Leave '{name}'").replace("{name}", &leave.name),
                 message(Event::CloseLeave),
             ),
-            form::note(
-                theme,
-                format!(
-                    "Are you sure you want to leave {}? You won't be able to rejoin this {what} unless you are re-invited.",
-                    leave.name
-                ),
-            ),
+            form::note(theme, detail.replace("{name}", &leave.name)),
         ];
         if leave.group {
             body.push(
@@ -704,10 +776,13 @@ impl<'a> View<'a> {
                                 ..iced::Padding::ZERO
                             }
                         ),
-                        text("Leave without notifying other members")
-                            .size(14)
-                            .color(theme.secondary)
-                            .width(Length::Fill)
+                        text(crate::i18n::tr!(
+                            self.cx.i18n,
+                            "Leave without notifying other members"
+                        ))
+                        .size(14)
+                        .color(theme.secondary)
+                        .width(Length::Fill)
                     ]
                     .spacing(10),
                 )
@@ -724,14 +799,18 @@ impl<'a> View<'a> {
         body.push(buttons([
             action(
                 theme,
-                "Cancel",
+                crate::i18n::tr!(self.cx.i18n, "Cancel"),
                 Kind::Ghost,
                 Some(message(Event::CloseLeave)),
             )
             .into(),
             action(
                 theme,
-                format!("Leave {what}"),
+                if leave.group {
+                    crate::i18n::tr!(self.cx.i18n, "Leave group")
+                } else {
+                    crate::i18n::tr!(self.cx.i18n, "Leave server")
+                },
                 Kind::Danger,
                 ready.then(|| message(Event::Leave)),
             )
@@ -756,27 +835,30 @@ impl<'a> View<'a> {
         let theme = self.cx.look.theme;
         let body = vec![
             self.cx.look.dialog_head(
-                "Sync permissions?".to_owned(),
+                crate::i18n::tr!(self.cx.i18n, "Sync permissions?").to_owned(),
                 message(Event::MoveSync(None)),
             ),
             form::note(
                 theme,
-                format!(
-                    "Would you like to sync {} permissions with {}?",
-                    asked.channel, asked.category
+                yapfast_core::themes::chrome::fill(
+                    crate::i18n::tr!(
+                        self.cx.i18n,
+                        "Would you like to sync {channel} permissions with {category}?"
+                    ),
+                    &[("channel", &asked.channel), ("category", &asked.category)],
                 ),
             ),
             buttons([
                 action(
                     theme,
-                    "Keep Current Permissions",
+                    crate::i18n::tr!(self.cx.i18n, "Keep Current Permissions"),
                     Kind::Ghost,
                     Some(message(Event::MoveSync(Some(false)))),
                 )
                 .into(),
                 action(
                     theme,
-                    "Sync Permissions",
+                    crate::i18n::tr!(self.cx.i18n, "Sync Permissions"),
                     Kind::Primary,
                     Some(message(Event::MoveSync(Some(true)))),
                 )
@@ -793,22 +875,26 @@ impl<'a> View<'a> {
 }
 
 /// How long an invite link lasts, as the dialog says it.
-fn lasts(age: u32) -> String {
+fn lasts(i18n: &crate::i18n::I18n, age: u32) -> String {
     match age {
-        0 => "never expires".to_owned(),
-        1800 => "expires in 30 minutes".to_owned(),
-        3600 => "expires in an hour".to_owned(),
-        86_400 => "expires in a day".to_owned(),
-        age if age % 86_400 == 0 => format!("expires in {} days", age / 86_400),
-        age => format!("expires in {} hours", age / 3600),
+        0 => crate::i18n::tr!(i18n, "never expires").to_owned(),
+        1800 => crate::i18n::tr!(i18n, "expires in 30 minutes").to_owned(),
+        3600 => crate::i18n::tr!(i18n, "expires in an hour").to_owned(),
+        86_400 => crate::i18n::tr!(i18n, "expires in a day").to_owned(),
+        age if age % 86_400 == 0 => crate::i18n::tr!(i18n, "expires in {count} days")
+            .replace("{count}", &(age / 86_400).to_string()),
+        age => crate::i18n::tr!(i18n, "expires in {count} hours")
+            .replace("{count}", &(age / 3600).to_string()),
     }
 }
 
 /// How often it works, after how long it lasts.
-fn works(uses: u32) -> String {
+fn works(i18n: &crate::i18n::I18n, uses: u32) -> String {
     match uses {
         0 => String::new(),
-        1 => " and works once".to_owned(),
-        uses => format!(" and works {uses} times"),
+        1 => crate::i18n::tr!(i18n, " and works once").to_owned(),
+        uses => {
+            crate::i18n::tr!(i18n, " and works {count} times").replace("{count}", &uses.to_string())
+        }
     }
 }

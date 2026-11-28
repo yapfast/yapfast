@@ -124,7 +124,10 @@ impl<'a> View<'a> {
             .style(crate::controls::lit_style(None, theme.hover, 6.0));
         let heading = row![
             column![
-                text("Forward To").size(18).font(BOLD).color(theme.text),
+                text(crate::i18n::tr!(self.cx.i18n, "Forward To"))
+                    .size(18)
+                    .font(BOLD)
+                    .color(theme.text),
                 text(if chosen < FORWARD_LIMIT {
                     "Select where you want to share this message.".to_owned()
                 } else {

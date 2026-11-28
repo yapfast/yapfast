@@ -466,9 +466,9 @@ impl Settings {
             Event::Save => self.save_theme(cx),
             Event::Cancel => self.cancel_theme(cx),
             Event::Delete => self.delete_theme(cx),
-            Event::Import => return import_dialog(),
+            Event::Import => return import_dialog(cx.i18n),
             Event::Imported(path) => self.import_theme(&path, cx),
-            Event::Export => return self.export_dialog(),
+            Event::Export => return self.export_dialog(cx.i18n),
             Event::Exported(name, result) => self.exported(&name, result),
             Event::Copy => return self.copy_theme(),
             Event::Paste => {
@@ -584,16 +584,18 @@ impl Settings {
     }
 
     /// Asks where to save the theme in the editor.
-    fn export_dialog(&self) -> iced::Task<Message> {
+    fn export_dialog(&self, i18n: &crate::i18n::I18n) -> iced::Task<Message> {
         let Some((file_name, text)) = self.theme_file() else {
             return iced::Task::none();
         };
+        let title = crate::i18n::tr!(i18n, "Export theme").to_owned();
+        let filter = crate::i18n::tr!(i18n, "Yapfast theme").to_owned();
         iced::Task::perform(
             async move {
                 let file = rfd::AsyncFileDialog::new()
-                    .set_title("Export theme")
+                    .set_title(title)
                     .set_file_name(file_name)
-                    .add_filter("Yapfast theme", &["json"])
+                    .add_filter(filter, &["json"])
                     .save_file()
                     .await?;
                 let result = std::fs::write(file.path(), text).map_err(|error| error.to_string());
@@ -739,12 +741,14 @@ impl Settings {
 
 /// The system's file dialog for a theme file: `Event::Imported` with it, or
 /// nothing if it's closed.
-fn import_dialog() -> iced::Task<Message> {
+fn import_dialog(i18n: &crate::i18n::I18n) -> iced::Task<Message> {
+    let title = crate::i18n::tr!(i18n, "Import theme").to_owned();
+    let filter = crate::i18n::tr!(i18n, "Yapfast theme").to_owned();
     iced::Task::perform(
-        async {
+        async move {
             rfd::AsyncFileDialog::new()
-                .set_title("Import theme")
-                .add_filter("Yapfast theme", &["json"])
+                .set_title(title)
+                .add_filter(filter, &["json"])
                 .pick_file()
                 .await
                 .map(|file| file.path().to_owned())
@@ -858,7 +862,7 @@ impl<'a> Page<'a> {
         let actions = row![
             action(
                 theme,
-                "Browse themes",
+                crate::i18n::tr!(self.cx.i18n, "Browse themes"),
                 Kind::Plain,
                 Some(crate::app::settings(SettingsEvent::Open(Section::Themes))),
             )
@@ -917,11 +921,14 @@ impl<'a> Page<'a> {
                 )
             },
         );
-        let mut head = vec![form::title(theme, "Appearance")];
+        let mut head = vec![form::title(
+            theme,
+            crate::i18n::tr!(self.cx.i18n, "Appearance"),
+        )];
         head.extend(self.theme_note());
         head.extend([
             form::group([
-                form::beside(form::heading(theme, "THEME"), actions),
+                form::beside(form::heading(theme, crate::i18n::tr!(self.cx.i18n, "THEME")), actions),
                 tiles,
             ]),
             self.font_section(),
@@ -952,7 +959,7 @@ impl<'a> Page<'a> {
             self.desktop_icons(),
             self.title_bar_switch(),
             column![
-                form::heading(theme, "PROFILES"),
+                form::heading(theme, crate::i18n::tr!(self.cx.i18n, "PROFILES")),
                 profile(
                     "Play profile effects",
                     "The animations some people put over their profile cards.",
@@ -1024,7 +1031,7 @@ impl<'a> Page<'a> {
                     "The accounts people link, such as Steam or GitHub, on the card as on the full profile.",
                 )
                 .view(self.cx.look),
-                form::heading(theme, "MEMBER LIST"),
+                form::heading(theme, crate::i18n::tr!(self.cx.i18n, "MEMBER LIST")),
                 profile(
                     "Show activity cards",
                     "What people in the server are playing, above its member list. Off, only the Activity heading stays, and its eye shows them again.",
@@ -1188,7 +1195,7 @@ impl<'a> Page<'a> {
                     .map(|start| start.name.to_owned())
                     .collect();
                 parts.push(form::group([
-                    form::heading(theme, "START FROM"),
+                    form::heading(theme, crate::i18n::tr!(self.cx.i18n, "START FROM")),
                     form::dropdown(
                         names,
                         Some(editor.start),
@@ -1209,7 +1216,7 @@ impl<'a> Page<'a> {
                 .view(self.cx.look),
             );
             parts.push(form::group([
-                form::heading(theme, "EVERY COLOUR"),
+                form::heading(theme, crate::i18n::tr!(self.cx.i18n, "EVERY COLOUR")),
                 form::note(
                     theme,
                     "Each as #rgb, #rrggbb or #rrggbbaa, or picked from its swatch. The window shows a change as you make it.",

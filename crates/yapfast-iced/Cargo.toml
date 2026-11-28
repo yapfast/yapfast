@@ -26,6 +26,9 @@ yapfast-iced-kit = { path = "../yapfast-iced-kit" }
 yapfast-core = { path = "../yapfast-core", default-features = false, features = ["discord"] }
 tokio.workspace = true
 tracing.workspace = true
+polib = "0.3"
+sys-locale = "0.3"
+unic-langid = "0.9"
 # Installed themes and the marketplace are fetched from their checked GitHub
 # addresses on the core's background runtime.
 reqwest = { version = "0.13", default-features = false, features = ["http2", "rustls-no-provider"] }
@@ -72,6 +75,12 @@ image = { version = "0.25", default-features = false, features = ["png", "jpeg",
 # Reviewed-theme trials keep checked files in a private temporary folder for
 # their 30-second lifetime, without installing them.
 tempfile.workspace = true
+
+[target.'cfg(target_os = "linux")'.dependencies]
+libc = "0.2"
+
+[target.'cfg(windows)'.dependencies]
+windows-sys = { version = "0.61", features = ["Win32_Globalization"] }
 
 # What build.rs packs Twemoji's pictures into a font with.
 [build-dependencies]

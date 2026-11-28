@@ -103,11 +103,13 @@ impl Settings {
                 }
                 let pick = widget::Id::unique();
                 let id = pick.clone();
+                let title = crate::i18n::tr!(cx.i18n, "Choose a custom sound").to_owned();
+                let filter = crate::i18n::tr!(cx.i18n, "Audio").to_owned();
                 let (task, handle) = Task::perform(
                     async move {
                         let picked = rfd::AsyncFileDialog::new()
-                            .set_title("Choose a custom sound")
-                            .add_filter("Audio", &SOUND_EXTENSIONS)
+                            .set_title(title)
+                            .add_filter(filter, &SOUND_EXTENSIONS)
                             .pick_file()
                             .await?;
                         Some(
@@ -213,13 +215,13 @@ impl<'a> Page<'a> {
         let volume = u32::from(voice.sound_volume.unwrap_or(100));
         let custom = voice.uses_custom_sounds();
         let mut parts = vec![
-            form::title(theme, "Sounds"),
+            form::title(theme, crate::i18n::tr!(self.cx.i18n, "Sounds")),
             form::note(
                 theme,
                 "Call tones and sounds for messages, voice and streams play on the speakers chosen for calls.",
             ),
             form::group([
-                form::heading(theme, "SOUND SET"),
+                form::heading(theme, crate::i18n::tr!(self.cx.i18n, "SOUND SET")),
                 crate::controls::choices_within(theme, &SOUND_SETS, set, 520.0, |index| {
                     pref(Pref::SoundSet(index))
                 }),

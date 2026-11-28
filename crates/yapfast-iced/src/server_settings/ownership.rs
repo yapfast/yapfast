@@ -90,7 +90,7 @@ impl<'a> View<'a> {
                 ask.sending,
             ),
             Ownership::Transfer(ask) => (
-                text("Transfer Ownership"),
+                text(crate::i18n::tr!(self.cx.i18n, "Transfer Ownership")),
                 self.transfer_body(server, ask),
                 ask.sending,
             ),
@@ -132,26 +132,33 @@ impl<'a> View<'a> {
                     .on_input(|typed| answer(OwnershipInput::Type(typed)))
                     .on_submit(answer(OwnershipInput::Confirm));
             }
-            let mut name = column![form::heading(theme, "ENTER SERVER NAME"), field].spacing(6);
+            let mut name = column![
+                form::heading(theme, crate::i18n::tr!(self.cx.i18n, "ENTER SERVER NAME")),
+                field
+            ]
+            .spacing(6);
             if ask.wrong {
                 name = name.push(
-                    text("You didn't enter the server name correctly")
-                        .size(12)
-                        .color(theme.danger),
+                    text(crate::i18n::tr!(
+                        self.cx.i18n,
+                        "You didn't enter the server name correctly"
+                    ))
+                    .size(12)
+                    .color(theme.danger),
                 );
             }
             body.push(name.into());
         }
         if let Some(error) = &ask.error {
-            body.push(form::error(theme, error.as_str()).into());
+            body.push(form::error(theme, self.cx.i18n.text(error)).into());
         }
         body.push(answers(
             theme,
             (!ask.sending).then(|| answer(OwnershipInput::Cancel)),
             if ask.sending {
-                "Deleting..."
+                crate::i18n::tr!(self.cx.i18n, "Deleting...")
             } else {
-                "Delete Server"
+                crate::i18n::tr!(self.cx.i18n, "Delete Server")
             },
             Kind::Danger,
             (!ask.sending).then(|| answer(OwnershipInput::Confirm)),
@@ -170,7 +177,7 @@ impl<'a> View<'a> {
         let mut body = Vec::new();
         if let Some(code) = &ask.code {
             body.push(
-                text("Check your email: we sent you a verification code. Enter it here to verify you’re really you.")
+                text(crate::i18n::tr!(self.cx.i18n, "Check your email: we sent you a verification code. Enter it here to verify you’re really you."))
                     .size(15)
                     .color(theme.secondary)
                     .into(),
@@ -181,23 +188,33 @@ impl<'a> View<'a> {
                     .on_input(|typed| answer(OwnershipInput::Type(typed)))
                     .on_submit(answer(OwnershipInput::Confirm));
             }
-            let mut part = column![form::heading(theme, "VERIFICATION CODE"), field].spacing(6);
+            let mut part = column![
+                form::heading(theme, crate::i18n::tr!(self.cx.i18n, "VERIFICATION CODE")),
+                field
+            ]
+            .spacing(6);
             if let Some(error) = &ask.error {
-                part = part.push(text(error.as_str()).size(12).color(theme.danger));
+                part = part.push(text(self.cx.i18n.text(error)).size(12).color(theme.danger));
             }
             let resend: Element<'a, Message> = if ask.resent {
-                text("Verification code sent.")
+                text(crate::i18n::tr!(self.cx.i18n, "Verification code sent."))
                     .size(13)
                     .color(theme.live)
                     .into()
             } else {
-                button(text("Didn’t receive a code or it expired? Resend it.").size(13))
-                    .padding(0)
-                    .on_press_maybe(
-                        (!ask.sending && !ask.resending).then(|| answer(OwnershipInput::Resend)),
-                    )
-                    .style(ink_style(theme.link, theme.accent_hover))
-                    .into()
+                button(
+                    text(crate::i18n::tr!(
+                        self.cx.i18n,
+                        "Didn’t receive a code or it expired? Resend it."
+                    ))
+                    .size(13),
+                )
+                .padding(0)
+                .on_press_maybe(
+                    (!ask.sending && !ask.resending).then(|| answer(OwnershipInput::Resend)),
+                )
+                .style(ink_style(theme.link, theme.accent_hover))
+                .into()
             };
             body.push(part.push(resend).into());
         } else {
@@ -236,7 +253,7 @@ impl<'a> View<'a> {
                 let ground = faded(theme.danger, 0.12);
                 body.push(
                     container(
-                        text("Partnered or Verified servers must reach out to the Community team for ownership transfer requests. However, our Partner and Verified Server Programs are currently paused and not able to handle any requests.")
+                        text(crate::i18n::tr!(self.cx.i18n, "Partnered or Verified servers must reach out to the Community team for ownership transfer requests. However, our Partner and Verified Server Programs are currently paused and not able to handle any requests."))
                             .size(13)
                             .color(theme.text),
                     )
@@ -281,16 +298,16 @@ impl<'a> View<'a> {
                     .into(),
             );
             if let Some(error) = &ask.error {
-                body.push(form::error(theme, error.as_str()).into());
+                body.push(form::error(theme, self.cx.i18n.text(error)).into());
             }
         }
         body.push(answers(
             theme,
             (!ask.sending).then(|| answer(OwnershipInput::Cancel)),
             if ask.sending {
-                "Transferring..."
+                crate::i18n::tr!(self.cx.i18n, "Transferring...")
             } else {
-                "Transfer Ownership"
+                crate::i18n::tr!(self.cx.i18n, "Transfer Ownership")
             },
             Kind::Danger,
             ask.ready().then(|| answer(OwnershipInput::Confirm)),

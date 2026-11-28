@@ -79,8 +79,8 @@ recording. Each change is kept at once in
   text field captures the key (but Ctrl+E a field took stays the
   field's, which opens the picker for it); chat actions wait while a dialog takes keys,
   and all built-ins rest while recording.
-- Messages: a message as the clock and text size show it; the clock and
-  its seconds, the date's order (message times are worked out again for
+- Messages: a message as the clock and text size show it; whether to show
+  seconds, the date's order (message times are worked out again for
   each), link previews (hidden ones leave "A card, hidden while link
   previews are off." where a card was the whole message), long messages
   folding, boost gems in the member list, sharing that this account types
@@ -115,6 +115,26 @@ recording. Each change is kept at once in
   Visual Density, Color & Contrast, Always underline links, its separate
   GIF, emoji and sticker switches and Minimum notification duration aren't
   there; its Display Name Styles is Appearance's Show name styles.
+- Language & Time offers a language and a time format. System language picks the first
+  supported desktop language at startup, matching regional tags to their
+  base language (for example, `de-AT` to `de`). If no supported language is
+  available, Yapfast uses English. An explicit choice is saved as a
+  language tag in `layout.json`. Translated text updates immediately,
+  including Settings navigation, labels and hints in the conversation
+  sidebar and header, the voice dock, message history controls, the
+  friend requests screen, context menus, invite dialogs, and role and
+  channel permissions.
+  File dialogs use the selected language for Yapfast's titles and file
+  type filters. The operating system provides the other dialog text.
+  Settings search
+  matches translated section names. Text outside the catalogs uses its
+  English source string.
+
+  Time format offers Auto, 12-hour and 24-hour. Auto uses the system's
+  regional time setting at startup and falls back to 24-hour if it is
+  unavailable. Existing explicit choices made in Messages carry over.
+  Yapfast saves the selected mode as `time_format` in `layout.json` and
+  updates the displayed clock immediately.
 - Notifications, Sounds and Advanced. Sounds has the sound set (which
   plays a sound when chosen), Event volume, each sound's own volume with
   its play button, and Custom sound set, off until turned on. With it on,
@@ -133,6 +153,24 @@ recording. Each change is kept at once in
   renderer drawing, when it takes effect and Restart Yapfast. Enhanced
   live preview quality lifts the local preview's 720p and 30 fps caps for the
   next stream, up to its own size and frame rate.
+
+  English text lives in the view code, for example
+  `tr!(self.cx.i18n, "Interface language")`. Use `tr_mark!` for a source
+  string stored in a constant and translate it through `Ctx::i18n` when
+  displaying it. The Russian and German catalogs live in
+  `crates/yapfast-iced/assets/i18n/<language>.po`. Missing,
+  empty and fuzzy entries display the English source string.
+
+  Extract a fresh template with a version of GNU gettext that supports
+  Rust. Run this from the repository root and use `msgmerge --update`
+  with the template to refresh each language catalog after editing English
+  strings.
+
+  ```sh
+  git ls-files -- 'crates/yapfast-iced/src/*.rs' |
+    xgettext --language=Rust --from-code=UTF-8 --keyword='tr!:2' \
+      --keyword='tr_mark!:1' --files-from=- --output=interface.pot
+  ```
 - Appearance (`appearance.rs`): each theme as a small window in its own
   colours, as many 150 px or wider across as fit; a click shows one and
   keeps it. New theme opens the editor on a copy of the theme shown (Start

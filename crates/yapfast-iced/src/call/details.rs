@@ -480,7 +480,7 @@ fn privacy_page<'a>(ctx: crate::ctx::Ctx<'a>, code: Vec<String>) -> Element<'a, 
     .small()
     .icon(ctx.look.icon(Icon::Copy, 16, crate::theme::rgb(theme.text)));
     column![
-        text("Voice Privacy Code")
+        text(crate::i18n::tr!(ctx.i18n, "Voice Privacy Code"))
             .size(15)
             .font(BOLD)
             .color(theme.text),

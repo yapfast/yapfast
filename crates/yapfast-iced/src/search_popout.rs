@@ -824,7 +824,7 @@ fn row_view<'a>(ctx: Ctx<'a>, row: &Row, index: usize, lit: bool) -> Element<'a,
             container(label("More filters".to_owned()))
                 .width(Length::Fill)
                 .clip(true),
-            text("dates, author type, and more")
+            text(crate::i18n::tr!(ctx.i18n, "dates, author type, and more"))
                 .size(13)
                 .color(theme.muted)
                 .wrapping(text::Wrapping::None),

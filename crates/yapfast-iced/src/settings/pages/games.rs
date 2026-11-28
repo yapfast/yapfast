@@ -184,7 +184,10 @@ pub fn open_detected_games_menu(app: &mut App, at: iced::Point) -> iced::Task<Me
     let rows = if names.is_empty() {
         vec![MenuRow {
             disabled: true,
-            ..MenuRow::plain(MenuAct::BlockGame, "No game detected right now")
+            ..MenuRow::plain(
+                MenuAct::BlockGame,
+                crate::i18n::tr_mark!("No game detected right now"),
+            )
         }]
     } else {
         names
@@ -219,7 +222,7 @@ impl<'a> Page<'a> {
         let draft = &settings.game;
         let shown = state.discord_show_game;
         let mut parts = vec![
-            form::title(theme, "Game activity"),
+            form::title(theme, crate::i18n::tr!(self.cx.i18n, "Game activity")),
             switch(
                 "Share the game you play",
                 shown,
@@ -228,7 +231,7 @@ impl<'a> Page<'a> {
             .description("Yapfast looks for games among the programs running, and on Linux takes the Rich Presence games send. Your Discord account keeps this setting, so it's the same in Discord's apps.")
             .locked("Link a Discord account first.")
             .view(self.cx.look),
-            form::heading(theme, "CUSTOM GAMES"),
+            form::heading(theme, crate::i18n::tr!(self.cx.i18n, "CUSTOM GAMES")),
             form::note(
                 theme,
                 "Name a game by its executable, a file name or a full path, and what to show after Playing. These come before the games Yapfast knows, but a game's Rich Presence comes first.",
@@ -319,7 +322,10 @@ impl<'a> Page<'a> {
             );
         }
         parts.push(form::buttons(buttons));
-        parts.push(form::heading(theme, "NEVER SHOW AS A GAME"));
+        parts.push(form::heading(
+            theme,
+            crate::i18n::tr!(self.cx.i18n, "NEVER SHOW AS A GAME"),
+        ));
         parts.push(form::note(
             theme,
             "Some programs Yapfast takes for games aren't. Name one by its executable, a file name or a full path, or by the name shown after Playing, and it isn't shown as the game you play.",

@@ -36,6 +36,10 @@ fn start(folder: &tempfile::TempDir, preview: bool) -> App {
         client.dispatch(Action::Preview);
     }
     let mut app = App::new(client, (1120, 760)).0;
+    // Text-driven tests use English regardless of the runner's desktop language.
+    if app.layout.prefs.language.is_none() {
+        app.i18n.select(Some("en"));
+    }
     // As the window opens, in front.
     app.shell.window = Some(iced::window::Id::unique());
     app.shell.focused = true;

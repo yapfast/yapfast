@@ -84,7 +84,10 @@ impl<'a> Page<'a> {
             .spacing(16)
             .align_y(Alignment::Center),
         );
-        let mut parts = vec![form::title(theme, "My account"), card];
+        let mut parts = vec![
+            form::title(theme, crate::i18n::tr!(self.cx.i18n, "My account")),
+            card,
+        ];
         if let Some(storage) = state.storage {
             parts.push(form::note(theme, storage));
         }

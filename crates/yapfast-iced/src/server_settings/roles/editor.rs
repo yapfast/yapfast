@@ -64,7 +64,9 @@ impl<'a> View<'a> {
             container(
                 row![
                     self.cx.look.glyph(Icon::ChevronLeft, 16, theme.secondary),
-                    text("Back").size(14).font(SEMIBOLD)
+                    text(crate::i18n::tr!(self.cx.i18n, "Back"))
+                        .size(14)
+                        .font(SEMIBOLD)
                 ]
                 .spacing(4)
                 .align_y(Alignment::Center),
@@ -77,16 +79,22 @@ impl<'a> View<'a> {
         .on_press(input(RoleInput::Open(None)))
         .style(controls::ink_style(secondary, ink));
         let title = if everyone {
-            "Default Permissions".to_owned()
+            crate::i18n::tr!(self.cx.i18n, "Default Permissions").to_owned()
         } else {
-            format!("Edit Role — {}", role.name)
+            crate::i18n::tr!(self.cx.i18n, "Edit Role — {name}").replace("{name}", &role.name)
         };
         let notice = match (lock, role.managed) {
-            (Some(_), _) => lock_text(lock),
+            (Some(_), _) => self.cx.i18n.text(lock_text(lock)),
             (None, Some(RoleManager::Booster)) => {
-                "This role is automatically managed by Discord for Server Boosting. It cannot be manually assigned to members or deleted."
+                crate::i18n::tr!(
+                    self.cx.i18n,
+                    "This role is automatically managed by Discord for Server Boosting. It cannot be manually assigned to members or deleted."
+                )
             }
-            (None, Some(_)) => "This role is automatically managed by an integration.",
+            (None, Some(_)) => crate::i18n::tr!(
+                self.cx.i18n,
+                "This role is automatically managed by an integration."
+            ),
             (None, None) => "",
         };
         let mut parts: Vec<Element<'a, Message>> = vec![back.into(), form::title(theme, title)];
@@ -109,10 +117,19 @@ impl<'a> View<'a> {
         };
         parts.push(
             row![
-                tab("Display".into(), RoleTab::Display, !everyone),
-                tab("Permissions".into(), RoleTab::Permissions, true),
                 tab(
-                    format!("Manage Members ({})", role.members),
+                    crate::i18n::tr!(self.cx.i18n, "Display").into(),
+                    RoleTab::Display,
+                    !everyone
+                ),
+                tab(
+                    crate::i18n::tr!(self.cx.i18n, "Permissions").into(),
+                    RoleTab::Permissions,
+                    true
+                ),
+                tab(
+                    crate::i18n::tr!(self.cx.i18n, "Manage Members ({count})")
+                        .replace("{count}", &role.members.to_string()),
                     RoleTab::Members,
                     !everyone
                 ),
@@ -202,9 +219,9 @@ impl<'a> View<'a> {
         let name = form::entry(theme, NAME, "", &draft.name)
             .on_input_maybe(editable.then_some(|text| input(RoleInput::Name(text))));
         column![
-            form::group([form::heading(theme, "ROLE NAME"), name.into()]),
+            form::group([form::heading(theme, crate::i18n::tr!(self.cx.i18n, "ROLE NAME")), name.into()]),
             form::group([
-                form::heading(theme, "ROLE COLOR"),
+                form::heading(theme, crate::i18n::tr!(self.cx.i18n, "ROLE COLOR")),
                 form::note(
                     theme,
                     "Members use the color of the highest role they have on the roles list."
@@ -365,10 +382,16 @@ impl<'a> View<'a> {
         let sunken = theme.sunken;
         let mut side = column![].spacing(form::TIGHT);
         if !unlocked {
-            side = side.push(form::note(theme, "Unlocks at Level 2"));
+            side = side.push(form::note(
+                theme,
+                crate::i18n::tr!(self.cx.i18n, "Unlocks at Level 2"),
+            ));
         }
         if reading {
-            side = side.push(form::note(theme, "Reading the picture..."));
+            side = side.push(form::note(
+                theme,
+                crate::i18n::tr!(self.cx.i18n, "Reading the picture..."),
+            ));
         }
         let mut buttons = vec![
             action(
@@ -415,7 +438,7 @@ impl<'a> View<'a> {
             .into(),
         ]));
         form::group([
-            form::heading(theme, "ROLE ICON"),
+            form::heading(theme, crate::i18n::tr!(self.cx.i18n, "ROLE ICON")),
             form::note(
                 theme,
                 "Upload an image under 256 KB or use an emoji. We recommend at least 64x64 pixels. Members will see the icon for their highest role if they have multiple roles.",
@@ -441,7 +464,7 @@ impl<'a> View<'a> {
         rules: &RoleRules,
         editable: bool,
         locked: bool,
-        notice: &'static str,
+        notice: &'a str,
     ) -> Element<'a, Message> {
         let theme = self.cx.look.theme;
         let Some(draft) = &page.open else {
@@ -454,7 +477,7 @@ impl<'a> View<'a> {
         let may_clear = draft.permissions != 0 && clearable;
         let clear: Element<'a, Message> = action(
             theme,
-            "Clear permissions",
+            crate::i18n::tr!(self.cx.i18n, "Clear permissions"),
             Kind::Ghost,
             (editable && may_clear).then(|| input(RoleInput::ClearPermissions)),
         )
@@ -466,13 +489,14 @@ impl<'a> View<'a> {
                 clear,
                 controls::tip(
                     theme,
-                    "You cannot clear permissions because it would remove one or more permissions from you.",
+                    crate::i18n::tr!(self.cx.i18n, "You cannot clear permissions because it would remove one or more permissions from you."),
                 ),
                 tooltip::Position::Top,
             )
             .into()
         };
         let query = page.permission_search.to_lowercase();
+        let i18n = self.cx.i18n;
         let mut rows = column![].padding(Padding {
             right: 12.0,
             ..Padding::ZERO
@@ -487,6 +511,8 @@ impl<'a> View<'a> {
                     query.is_empty()
                         || info.title.to_lowercase().contains(&query)
                         || info.description.to_lowercase().contains(&query)
+                        || i18n.text(info.title).to_lowercase().contains(&query)
+                        || i18n.text(info.description).to_lowercase().contains(&query)
                 })
                 .collect();
             if shown.is_empty() {
@@ -494,7 +520,11 @@ impl<'a> View<'a> {
             }
             any = true;
             rows = rows.push(
-                container(form::heading(theme, group.heading.to_uppercase())).padding(Padding {
+                container(form::heading(
+                    theme,
+                    i18n.text(group.heading).to_uppercase(),
+                ))
+                .padding(Padding {
                     top: 16.0,
                     bottom: 8.0,
                     ..Padding::ZERO
@@ -505,23 +535,34 @@ impl<'a> View<'a> {
                 let on = draft.permissions & bit != 0;
                 let why = match rules.permission_lock(&role.id, bit, on) {
                     Some(PermissionLock::NotHeld) => {
-                        "You cannot modify this permission because none of your roles have it."
+                        crate::i18n::tr!(
+                            self.cx.i18n,
+                            "You cannot modify this permission because none of your roles have it."
+                        )
                     }
                     Some(PermissionLock::WouldLose) => {
-                        "You cannot modify this permission because removing it would remove it from you."
+                        crate::i18n::tr!(
+                            self.cx.i18n,
+                            "You cannot modify this permission because removing it would remove it from you."
+                        )
                     }
                     None => "",
                 };
                 let switch = form::switch(
-                    info.title,
+                    i18n.text(info.title),
                     on,
                     (editable && why.is_empty()).then(|| input(RoleInput::Permission(bit))),
                 )
-                .description(info.description)
+                .description(i18n.text(info.description))
                 .locked(if locked { notice } else { why });
                 let mut entry = column![switch.view(self.cx.look)].spacing(4);
                 if let Some(warning) = info.warning {
-                    entry = entry.push(text(warning).size(14).font(BOLD).color(theme.text));
+                    entry = entry.push(
+                        text(i18n.text(warning))
+                            .size(14)
+                            .font(BOLD)
+                            .color(theme.text),
+                    );
                 }
                 entry = entry.push(form::rule(theme));
                 rows = rows.push(container(entry).padding(Padding {
@@ -537,14 +578,17 @@ impl<'a> View<'a> {
                 .height(Length::Fill)
                 .into()
         } else {
-            form::note(theme, "No permissions found")
+            form::note(
+                theme,
+                crate::i18n::tr!(self.cx.i18n, "No permissions found"),
+            )
         };
         column![
             row![
                 search(
                     theme,
                     PERMISSION_SEARCH,
-                    "Search permissions",
+                    crate::i18n::tr!(self.cx.i18n, "Search permissions"),
                     &page.permission_search,
                     RoleInput::PermissionSearch
                 ),

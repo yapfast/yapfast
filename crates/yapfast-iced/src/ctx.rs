@@ -23,6 +23,7 @@ use crate::{
 #[derive(Clone, Copy)]
 pub struct Ctx<'a> {
     pub look: Look<'a>,
+    pub i18n: &'a crate::i18n::I18n,
     /// The pictures made to draw, and the moving ones playing.
     pub pictures: &'a Pictures,
     /// The core, and its state.
@@ -192,6 +193,7 @@ pub enum Screen {
 /// A preference others show, changed.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Pref {
+    Language,
     /// Message times read on another clock.
     Clock,
     /// The timeline's rows look otherwise: text size, link previews,
@@ -219,6 +221,7 @@ pub struct Cx<'a> {
     pub client: &'a mut Client,
     pub layout: &'a mut Layout,
     pub themes: &'a mut Themes,
+    pub i18n: &'a crate::i18n::I18n,
     /// The theme shown, to read.
     pub theme: &'a Theme,
     /// The window's pixels to the display's.
@@ -268,6 +271,7 @@ macro_rules! cx {
             client: &mut $app.client,
             layout: &mut $app.layout,
             themes: &mut $app.themes,
+            i18n: &$app.i18n,
             theme: &$app.theme,
             scale,
             window: $app.window,

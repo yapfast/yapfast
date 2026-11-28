@@ -21,6 +21,7 @@ impl App {
     pub fn ctx(&self) -> Ctx<'_> {
         Ctx {
             look: self.look(),
+            i18n: &self.i18n,
             pictures: &self.win.pictures,
             app: &self.client.app,
             state: self.client.state(),
@@ -309,6 +310,12 @@ impl App {
     fn changed(&mut self, pref: Pref) -> Task<Message> {
         let mut task = Task::none();
         match pref {
+            Pref::Language => {
+                self.i18n.select(self.layout.prefs.language.as_deref());
+                if let Some(menu) = &mut self.win.menu {
+                    menu.fits.take();
+                }
+            }
             Pref::Clock | Pref::Rows => {
                 let none = super::Messages::default();
                 self.measure(&none, true);

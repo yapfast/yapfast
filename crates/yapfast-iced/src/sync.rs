@@ -622,7 +622,7 @@ impl App {
         let revealed = &self.timeline.revealed;
         let prefs = &self.layout.prefs;
         let clock = timeline::Clock {
-            twelve_hour: prefs.twelve_hour_clock,
+            twelve_hour: prefs.twelve_hour_clock(),
             seconds: prefs.clock_seconds,
         };
         let looks = timeline::row_looks(

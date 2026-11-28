@@ -130,13 +130,15 @@ pub struct Drop {
 /// The system's file dialog for files to attach: `to` the files chosen,
 /// or `cancelled`.
 pub fn pick_files(
+    i18n: &crate::i18n::I18n,
     to: impl Fn(Vec<PathBuf>) -> Message + Send + 'static,
     cancelled: Message,
 ) -> Task<Message> {
+    let title = crate::i18n::tr!(i18n, "Attach files").to_owned();
     Task::perform(
-        async {
+        async move {
             rfd::AsyncFileDialog::new()
-                .set_title("Attach files")
+                .set_title(title)
                 .pick_files()
                 .await
                 .map(|files| files.iter().map(|file| file.path().to_owned()).collect())
@@ -364,6 +366,7 @@ pub fn attach(app: &App) -> Task<Message> {
         return Task::none();
     }
     pick_files(
+        &app.i18n,
         |files| Message::Write(Write::Uploads(Event::Chosen(files))),
         Message::Nothing,
     )
@@ -669,7 +672,9 @@ pub fn drop_view<'a>(ctx: crate::ctx::Ctx<'a>) -> Option<Element<'a, Message>> {
         lines = lines
             .push(
                 row![
-                    text("Upload to ").size(20).color(ink),
+                    text(crate::i18n::tr!(ctx.i18n, "Upload to "))
+                        .size(20)
+                        .color(ink),
                     // The form's files are its channel's until the thread
                     // starts, as Discord keeps them.
                     text(match place {
@@ -687,10 +692,13 @@ pub fn drop_view<'a>(ctx: crate::ctx::Ctx<'a>) -> Option<Element<'a, Message>> {
                 .width(Length::Shrink),
             )
             .push(
-                text("You can add comments before uploading.")
-                    .size(15)
-                    .color(ink)
-                    .align_x(Alignment::Center),
+                text(crate::i18n::tr!(
+                    ctx.i18n,
+                    "You can add comments before uploading."
+                ))
+                .size(15)
+                .color(ink)
+                .align_x(Alignment::Center),
             );
     } else if let Some((title, help)) = &ctx.uploads.drop.refusal {
         lines = lines

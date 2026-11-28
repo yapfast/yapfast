@@ -235,7 +235,7 @@ pub fn update(app: &mut App, event: Event) -> Task<Message> {
         Event::CommandOption(index) => {
             Task::batch([crate::commands::focus_option(app, index), refocus(app)])
         }
-        Event::CommandFile(index) => crate::commands::command_file(index),
+        Event::CommandFile(index) => crate::commands::command_file(index, &app.i18n),
         Event::CommandFileChosen(index, value) => {
             app.client
                 .dispatch(Action::SetCommandOption { index, value });
@@ -550,14 +550,22 @@ fn plus(app: &mut App) -> Task<Message> {
         disabled: !look.attach,
         subtitle: None,
         check: crate::controls::Check::None,
-        ..MenuRow::new(MenuAct::Upload, "Upload a File", Icon::File)
+        ..MenuRow::new(
+            MenuAct::Upload,
+            crate::i18n::tr_mark!("Upload a File"),
+            Icon::File,
+        )
     }];
     if app.client.app.can_start_threads() {
         rows.push(MenuRow {
             disabled: false,
             subtitle: None,
             check: crate::controls::Check::None,
-            ..MenuRow::new(MenuAct::NewThread, "Create Thread", Icon::Thread)
+            ..MenuRow::new(
+                MenuAct::NewThread,
+                crate::i18n::tr_mark!("Create Thread"),
+                Icon::Thread,
+            )
         });
     }
     if app.client.app.can_create_polls() {
@@ -565,7 +573,11 @@ fn plus(app: &mut App) -> Task<Message> {
             disabled: false,
             subtitle: None,
             check: crate::controls::Check::None,
-            ..MenuRow::new(MenuAct::NewPoll, "Create Poll", Icon::ChartBar)
+            ..MenuRow::new(
+                MenuAct::NewPoll,
+                crate::i18n::tr_mark!("Create Poll"),
+                Icon::ChartBar,
+            )
         });
     }
     let at = iced::Point::new(
@@ -730,7 +742,7 @@ pub fn composer_look(ctx: crate::ctx::Ctx<'_>) -> Look {
         .map(|until| {
             format!(
                 "You're timed out in this server until {}.",
-                crate::place_menus::until(until / 1000, ctx.layout.prefs.twelve_hour_clock)
+                crate::place_menus::until(until / 1000, ctx.layout.prefs.twelve_hour_clock())
             )
         });
     let request = room.filter(|room| room.request).map(|room| {
@@ -750,37 +762,64 @@ pub fn composer_look(ctx: crate::ctx::Ctx<'_>) -> Look {
     // Each with whether it only informs, as the lines on encryption do,
     // rather than saying why this account can't send.
     let (hint, note) = if room.is_none() {
-        ("Choose a DM or server channel to write a message.", false)
+        (
+            crate::i18n::tr!(
+                ctx.i18n,
+                "Choose a DM or server channel to write a message."
+            ),
+            false,
+        )
     } else if state.preview {
         ("", false)
     } else if request.is_some() {
         if discord_only {
             ("", false)
         } else {
-            ("Discord · not end-to-end encrypted.", true)
+            (
+                crate::i18n::tr!(ctx.i18n, "Discord · not end-to-end encrypted."),
+                true,
+            )
         }
     } else if let Some(timed_out) = &timed_out {
         (timed_out.as_str(), false)
     } else if locked {
         ("", false)
     } else if discord && !state.discord_online {
-        ("Discord is disconnected. Yapfast is reconnecting.", false)
+        (
+            crate::i18n::tr!(
+                ctx.i18n,
+                "Discord is disconnected. Yapfast is reconnecting."
+            ),
+            false,
+        )
     } else if discord_only {
         ("", false)
     } else if discord {
         (
-            "Discord · not end-to-end encrypted. Enter to send, Shift+Enter for a new line.",
+            crate::i18n::tr!(
+                ctx.i18n,
+                "Discord · not end-to-end encrypted. Enter to send, Shift+Enter for a new line."
+            ),
             true,
         )
     } else if !state.trusted {
-        ("Sending is locked until this device is verified.", false)
+        (
+            crate::i18n::tr!(ctx.i18n, "Sending is locked until this device is verified."),
+            false,
+        )
     } else if room.is_some_and(|room| room.encrypted) {
         (
-            "End-to-end encrypted. Enter to send, Shift+Enter for a new line.",
+            crate::i18n::tr!(
+                ctx.i18n,
+                "End-to-end encrypted. Enter to send, Shift+Enter for a new line."
+            ),
             true,
         )
     } else {
-        ("Unencrypted room. Reading only in this build.", false)
+        (
+            crate::i18n::tr!(ctx.i18n, "Unencrypted room. Reading only in this build."),
+            false,
+        )
     };
     let hint = hint.to_owned();
     Look {
@@ -818,7 +857,7 @@ pub fn composer_button(
         .style(lit_style(None, ctx.look.theme.wash(0.1), 6.0));
     tooltip(
         face,
-        controls::tip(ctx.look.theme, label),
+        controls::tip(ctx.look.theme, ctx.i18n.text(label).to_owned()),
         tooltip::Position::Top,
     )
     .gap(6)
@@ -913,7 +952,7 @@ fn keyed_button(
     let face = crate::widgets::Wrap::new(face, KeyCap { key, hover });
     tooltip(
         face,
-        controls::tip(ctx.look.theme, label),
+        controls::tip(ctx.look.theme, ctx.i18n.text(label).to_owned()),
         tooltip::Position::Top,
     )
     .gap(6)
@@ -1025,12 +1064,16 @@ fn composer_box<'a>(ctx: crate::ctx::Ctx<'a>, look: &Look) -> Element<'a, Messag
     // channel, and a group's or thread's own name as it is.
     let name = &header.name;
     let placeholder = if replying {
-        "Write a reply".to_owned()
+        crate::i18n::tr!(ctx.i18n, "Write a reply").to_owned()
     } else {
         match (header.direct, header.one_to_one, header.thread) {
-            (true, true, _) => format!("Message @{name}"),
-            (false, _, false) => format!("Message #{name}"),
-            _ => format!("Message {name}"),
+            (true, true, _) => {
+                crate::i18n::tr!(ctx.i18n, "Message @{name}").replace("{name}", name)
+            }
+            (false, _, false) => {
+                crate::i18n::tr!(ctx.i18n, "Message #{name}").replace("{name}", name)
+            }
+            _ => crate::i18n::tr!(ctx.i18n, "Message {name}").replace("{name}", name),
         }
     };
     let placeholder = if replying {
@@ -1092,9 +1135,9 @@ fn composer_box<'a>(ctx: crate::ctx::Ctx<'a>, look: &Look) -> Element<'a, Messag
         KeySlot::Plus,
         Icon::Add,
         if look.plus {
-            "More options"
+            crate::i18n::tr_mark!("More options")
         } else {
-            "Attach files"
+            crate::i18n::tr_mark!("Attach files")
         },
         27,
         theme.secondary,
@@ -1117,7 +1160,7 @@ fn composer_box<'a>(ctx: crate::ctx::Ctx<'a>, look: &Look) -> Element<'a, Messag
             ctx,
             KeySlot::Gif,
             Icon::Gif,
-            "Open GIF picker",
+            crate::i18n::tr_mark!("Open GIF picker"),
             22,
             tint(Tab::Gifs),
             opens(Tab::Gifs).filter(|_| state.can_pick_gifs()),
@@ -1128,7 +1171,7 @@ fn composer_box<'a>(ctx: crate::ctx::Ctx<'a>, look: &Look) -> Element<'a, Messag
             ctx,
             KeySlot::Sticker,
             Icon::Sticker,
-            "Open sticker picker",
+            crate::i18n::tr_mark!("Open sticker picker"),
             22,
             tint(Tab::Stickers),
             opens(Tab::Stickers).filter(|_| state.can_pick_stickers()),
@@ -1138,7 +1181,7 @@ fn composer_box<'a>(ctx: crate::ctx::Ctx<'a>, look: &Look) -> Element<'a, Messag
         ctx,
         KeySlot::Emoji,
         Icon::Smile,
-        "Add an emoji",
+        crate::i18n::tr_mark!("Add an emoji"),
         22,
         tint(Tab::Emoji),
         opens(Tab::Emoji),
@@ -1292,7 +1335,10 @@ pub fn reply_bar_for<'a>(
     .style(lit_style(None, theme.hover, 6.0));
     let toggle = tooltip(
         container(toggle).height(28).align_y(Alignment::Center),
-        controls::tip(theme, "Mention the person you reply to"),
+        controls::tip(
+            theme,
+            crate::i18n::tr!(ctx.i18n, "Mention the person you reply to"),
+        ),
         tooltip::Position::Top,
     )
     .gap(6);
@@ -1315,7 +1361,7 @@ pub fn reply_bar_for<'a>(
             .clip(true),
             toggle,
             ctx.look
-                .icon_button(Icon::X, "Cancel reply", cancel)
+                .icon_button(Icon::X, crate::i18n::tr!(ctx.i18n, "Cancel reply"), cancel)
                 .size(28.0, 16),
         ]
         .spacing(8)
@@ -1335,10 +1381,13 @@ fn locked_bar<'a>(ctx: crate::ctx::Ctx<'a>) -> Element<'a, Message> {
     let theme = ctx.look.theme;
     let (ground, edge) = (theme.field, theme.outline_field);
     container(
-        text("You do not have permission to send messages in this channel.")
-            .size(16)
-            .color(theme.muted)
-            .wrapping(text::Wrapping::None),
+        text(crate::i18n::tr!(
+            ctx.i18n,
+            "You do not have permission to send messages in this channel."
+        ))
+        .size(16)
+        .color(theme.muted)
+        .wrapping(text::Wrapping::None),
     )
     .padding(Padding::ZERO.left(16).right(16))
     .width(Length::Fill)
@@ -1359,10 +1408,13 @@ fn request_bar<'a>(ctx: crate::ctx::Ctx<'a>, title: &str) -> Element<'a, Message
             .font(BOLD)
             .color(theme.text)
             .wrapping(text::Wrapping::None),
-        text("Accept to reply. Ignoring removes it without telling them.")
-            .size(14)
-            .color(theme.secondary)
-            .wrapping(text::Wrapping::None),
+        text(crate::i18n::tr!(
+            ctx.i18n,
+            "Accept to reply. Ignoring removes it without telling them."
+        ))
+        .size(14)
+        .color(theme.secondary)
+        .wrapping(text::Wrapping::None),
     ]
     .spacing(2)
     .width(Length::Fill)
@@ -1372,13 +1424,13 @@ fn request_bar<'a>(ctx: crate::ctx::Ctx<'a>, title: &str) -> Element<'a, Message
             words,
             controls::action(
                 theme,
-                "Ignore",
+                crate::i18n::tr!(ctx.i18n, "Ignore"),
                 controls::Kind::Plain,
                 Some(Message::Write(Event::Answer(false)))
             ),
             controls::action(
                 theme,
-                "Accept",
+                crate::i18n::tr!(ctx.i18n, "Accept"),
                 controls::Kind::Primary,
                 Some(Message::Write(Event::Answer(true)))
             ),
