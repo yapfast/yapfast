@@ -99,6 +99,29 @@ pub fn account_activity_view<'a>(
     card_view(ctx, activity, inks, None, false, false)
 }
 
+fn activity_heading<'a>(
+    heading: &'a str,
+    i18n: &'a crate::i18n::I18n,
+) -> std::borrow::Cow<'a, str> {
+    for (prefix, template) in [
+        (
+            "Listening to ",
+            crate::i18n::tr_mark!("Listening to {name}"),
+        ),
+        ("Watching ", crate::i18n::tr_mark!("Watching {name}")),
+        ("Streaming ", crate::i18n::tr_mark!("Streaming {name}")),
+        (
+            "Competing in ",
+            crate::i18n::tr_mark!("Competing in {name}"),
+        ),
+    ] {
+        if let Some(name) = heading.strip_prefix(prefix) {
+            return i18n.text(template).replace("{name}", name).into();
+        }
+    }
+    i18n.text(heading).into()
+}
+
 fn card_view<'a>(
     ctx: crate::ctx::Ctx<'a>,
     activity: &'a ActivityLook,
@@ -110,7 +133,7 @@ fn card_view<'a>(
     // The heading ends with "…" short of the more button, never under it.
     let mut head = row![
         container(
-            elide(activity.heading.as_str())
+            elide(activity_heading(&activity.heading, ctx.i18n))
                 .size(12)
                 .font(MEDIUM)
                 .color(inks.ink)

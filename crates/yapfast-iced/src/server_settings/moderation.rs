@@ -151,18 +151,23 @@ pub(super) fn face<'a>(app: Ctx<'a>, url: &str, name: &str, size: f32) -> Elemen
 
 /// Safety Setup's choices as the kit's options, in Discord's words for
 /// those a Community server can't make.
-fn choices(list: &[Level], offered: impl Fn(u8) -> bool) -> Vec<form::Choice<'static>> {
+fn choices<'a>(
+    list: &[Level],
+    offered: impl Fn(u8) -> bool,
+    i18n: &'a crate::i18n::I18n,
+) -> Vec<form::Choice<'a>> {
     list.iter()
         .map(|&(value, title, description, colour)| {
             let offered = offered(value);
             form::Choice {
-                title: title.into(),
-                description: if offered {
-                    description
-                } else {
-                    NOT_FOR_COMMUNITY
-                }
-                .into(),
+                title: i18n.text(title).into(),
+                description: i18n
+                    .text(if offered {
+                        description
+                    } else {
+                        NOT_FOR_COMMUNITY
+                    })
+                    .into(),
                 colour: colour.map(hex),
                 offered,
             }
@@ -186,7 +191,11 @@ impl<'a> View<'a> {
         let verification = page.verification();
         let levels = form::options(
             theme,
-            choices(&LEVELS, |value| page.offers_verification(value)),
+            choices(
+                &LEVELS,
+                |value| page.offers_verification(value),
+                self.cx.i18n,
+            ),
             LEVELS.iter().position(|level| level.0 == verification),
             ready,
             |index| safety(SafetyChoice::Verification(LEVELS[index].0)),
@@ -194,22 +203,38 @@ impl<'a> View<'a> {
         let filter = page.content_filter();
         let filters = form::options(
             theme,
-            choices(&FILTERS, |value| page.offers_filter(value)),
+            choices(&FILTERS, |value| page.offers_filter(value), self.cx.i18n),
             FILTERS.iter().position(|level| level.0 == filter),
             ready,
             |index| safety(SafetyChoice::ContentFilter(FILTERS[index].0)),
         );
+        let moderators = self.cx.i18n.text(MODERATORS);
         let only_owner = format!(
-            "{MODERATORS} Only the server owner can change this setting if they have 2FA enabled."
+            "{} {}",
+            moderators,
+            crate::i18n::tr!(
+                self.cx.i18n,
+                "Only the server owner can change this setting if they have 2FA enabled."
+            )
         );
         let (mfa_text, mfa_note) = match (community, rule) {
             (false, MfaRule::OwnerWithoutMfa) => (
                 only_owner,
-                "In order to change this setting, you must have 2FA enabled on your account.",
+                crate::i18n::tr!(
+                    self.cx.i18n,
+                    "In order to change this setting, you must have 2FA enabled on your account."
+                ),
             ),
-            (true, MfaRule::May) => (MODERATORS.to_owned(), ""),
+            (true, MfaRule::May) => (moderators.to_owned(), ""),
             (true, MfaRule::OwnerWithoutMfa) => (
-                format!("{MODERATORS} To change this setting, first enable 2FA on your account."),
+                format!(
+                    "{} {}",
+                    moderators,
+                    crate::i18n::tr!(
+                        self.cx.i18n,
+                        "To change this setting, first enable 2FA on your account."
+                    )
+                ),
                 "",
             ),
             (_, _) => (only_owner, ""),
@@ -223,7 +248,7 @@ impl<'a> View<'a> {
         )
         .description(mfa_text);
         if let Some(lock) = lock {
-            switch = switch.locked(lock);
+            switch = switch.locked(self.cx.i18n.text(lock));
         }
         let mut mfa = vec![switch.view(self.cx.look)];
         if !mfa_note.is_empty() {
@@ -243,9 +268,15 @@ impl<'a> View<'a> {
                 form::note(
                     theme,
                     if community {
-                        "Members of the server must meet the following criteria before they can send messages. If a member has an assigned role and server onboarding is not enabled, this does not apply."
+                        crate::i18n::tr!(
+                            self.cx.i18n,
+                            "Members of the server must meet the following criteria before they can send messages. If a member has an assigned role and server onboarding is not enabled, this does not apply."
+                        )
                     } else {
-                        "Members of the server must meet the following criteria before they can send messages in text channels or initiate a direct message conversation. If a member has an assigned role and server onboarding is not enabled, this does not apply. We recommend setting a verification level for a Community Server."
+                        crate::i18n::tr!(
+                            self.cx.i18n,
+                            "Members of the server must meet the following criteria before they can send messages in text channels or initiate a direct message conversation. If a member has an assigned role and server onboarding is not enabled, this does not apply. We recommend setting a verification level for a Community Server."
+                        )
                     },
                 ),
                 levels,
@@ -279,7 +310,7 @@ impl<'a> View<'a> {
         let field = crate::controls::field(
             theme,
             "bans-search",
-            "Search Bans by User Id or Username",
+            crate::i18n::tr!(self.cx.i18n, "Search Bans by User Id or Username"),
             &page.query,
             false,
             true,
@@ -327,7 +358,7 @@ impl<'a> View<'a> {
             form::title(theme, crate::i18n::tr!(self.cx.i18n, "Server Ban List")),
             form::note(
                 theme,
-                "Bans by default are by account and IP.\nA user can circumvent an IP ban by using a proxy.\nBan circumvention can be made very hard by enabling phone verification in Safety Setup.",
+                crate::i18n::tr!(self.cx.i18n, "Bans by default are by account and IP.\nA user can circumvent an IP ban by using a proxy.\nBan circumvention can be made very hard by enabling phone verification in Safety Setup."),
             ),
             search,
             list,
@@ -470,9 +501,10 @@ impl<'a> View<'a> {
         let theme = self.cx.look.theme;
         // Discord's client ignores a filter while it's fetching.
         let fetching = page.fetching();
-        let users: Vec<String> = std::iter::once("All Users".to_owned())
-            .chain(page.actors.iter().map(|(_, user)| user.name.clone()))
-            .collect();
+        let users: Vec<String> =
+            std::iter::once(crate::i18n::tr!(self.cx.i18n, "All Users").to_owned())
+                .chain(page.actors.iter().map(|(_, user)| user.name.clone()))
+                .collect();
         let user = page
             .user
             .as_ref()
@@ -492,9 +524,14 @@ impl<'a> View<'a> {
         )
         .enabled(!fetching)
         .view(self.cx.look);
-        let actions: Vec<String> = std::iter::once("All Actions".to_owned())
-            .chain(AUDIT_ACTIONS.iter().map(|(_, name)| (*name).to_owned()))
-            .collect();
+        let actions: Vec<String> =
+            std::iter::once(crate::i18n::tr!(self.cx.i18n, "All Actions").to_owned())
+                .chain(
+                    AUDIT_ACTIONS
+                        .iter()
+                        .map(|(_, name)| self.cx.i18n.text(name).to_owned()),
+                )
+                .collect();
         let chosen = page
             .action
             .and_then(|chosen| {
@@ -534,8 +571,11 @@ impl<'a> View<'a> {
                 crate::i18n::tr!(self.cx.i18n, "Audit Log")
             ))
             .width(Length::Fill),
-            filter("Filter by User", by_user),
-            filter("Filter by Action", by_action),
+            filter(crate::i18n::tr!(self.cx.i18n, "Filter by User"), by_user),
+            filter(
+                crate::i18n::tr!(self.cx.i18n, "Filter by Action"),
+                by_action
+            ),
         ]
         .spacing(form::GAP)
         .align_y(Alignment::Center);
@@ -606,7 +646,7 @@ impl<'a> View<'a> {
         let entry = &page.rows[index];
         let twelve_hour = self.cx.layout.prefs.twelve_hour_clock();
         let now = clock::now_ms() / 1000;
-        let when = |seconds: u64| clock::calendar(seconds, now, twelve_hour);
+        let when = |seconds: u64| audit_time(seconds, now, twelve_hour, self.cx.i18n);
         let (start, end) = (when(entry.start), when(entry.end));
         // A row of several entries gives when the first and the last
         // were, as Discord's does.
@@ -717,11 +757,11 @@ impl<'a> View<'a> {
         let spans: Vec<Span<'a, (), iced::Font>> = words
             .spans()
             .filter_map(|piece| match piece {
-                AuditSpan::Text(words) => Some(span(words).color(ink)),
+                AuditSpan::Text(words) => Some(span(self.cx.i18n.text(words)).color(ink)),
                 AuditSpan::Bold("") => None,
                 AuditSpan::Bold(words) => Some(span(words).font(BOLD).color(strong)),
                 AuditSpan::Time(seconds) => Some(
-                    span(clock::calendar(seconds, now, twelve_hour))
+                    span(audit_time(seconds, now, twelve_hour, self.cx.i18n))
                         .font(BOLD)
                         .color(strong),
                 ),
@@ -729,6 +769,23 @@ impl<'a> View<'a> {
             .collect();
         rich_text(spans).size(size).into()
     }
+}
+
+fn audit_time(seconds: u64, now: u64, twelve_hour: bool, i18n: &crate::i18n::I18n) -> String {
+    let calendar = clock::calendar(seconds, now, twelve_hour);
+    let Some((day, time)) = calendar.split_once(" at ") else {
+        return calendar;
+    };
+    let (template, day) = match day {
+        "Today" => (crate::i18n::tr!(i18n, "Today at {time}"), ""),
+        "Yesterday" => (crate::i18n::tr!(i18n, "Yesterday at {time}"), ""),
+        "Tomorrow" => (crate::i18n::tr!(i18n, "Tomorrow at {time}"), ""),
+        day if day.starts_with("Last ") => {
+            (crate::i18n::tr!(i18n, "Last {day} at {time}"), &day[5..])
+        }
+        day => (crate::i18n::tr!(i18n, "{day} at {time}"), day),
+    };
+    yapfast_core::themes::chrome::fill(template, &[("day", i18n.text(day)), ("time", time)])
 }
 
 /// A list's empty state, as Discord's: a heading and what it means,

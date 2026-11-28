@@ -238,7 +238,10 @@ pub fn update(app: &mut App, shortcut: Shortcut) -> Task<Message> {
 
 /// The list's own shortcut, which Discord shows on its own above the
 /// groups.
-pub const HELP: (&str, &str) = ("Show Keyboard Shortcuts List", "Ctrl + /");
+pub const HELP: (&str, &str) = (
+    crate::i18n::tr_mark!("Show Keyboard Shortcuts List"),
+    "Ctrl + /",
+);
 
 /// A group of the list: its heading, what it says under it, and its
 /// shortcuts' words and keys.
@@ -252,62 +255,90 @@ pub type Group = (
 /// words (its `TOGGLE_HOTKEYS` list), keeping those the app has.
 pub const GROUPS: &[Group] = &[
     (
-        "Messages",
-        Some(
-            "These shortcuts work when focused on a message. Alt + Up from the composer focuses messages.",
-        ),
+        crate::i18n::tr_mark!("Messages"),
+        Some(crate::i18n::tr_mark!(
+            "These shortcuts work when focused on a message. Alt + Up from the composer focuses messages."
+        )),
         &[
-            ("Edit Message", "E"),
-            ("Delete Message", "Backspace"),
-            ("Pin Message", "P"),
-            ("Add Reaction", "+"),
-            ("Reply", "R"),
-            ("Forward Message", "F"),
-            ("Copy Text", "Ctrl + C"),
-            ("Mark Unread", "Alt + Enter"),
-            ("Focus text area", "Esc"),
+            (crate::i18n::tr_mark!("Edit Message"), "E"),
+            (crate::i18n::tr_mark!("Delete Message"), "Backspace"),
+            (crate::i18n::tr_mark!("Pin Message"), "P"),
+            (crate::i18n::tr_mark!("Add Reaction"), "+"),
+            (crate::i18n::tr_mark!("Reply"), "R"),
+            (crate::i18n::tr_mark!("Forward Message"), "F"),
+            (crate::i18n::tr_mark!("Copy Text"), "Ctrl + C"),
+            (crate::i18n::tr_mark!("Mark Unread"), "Alt + Enter"),
+            (crate::i18n::tr_mark!("Focus text area"), "Esc"),
         ],
     ),
     (
-        "Navigation",
+        crate::i18n::tr_mark!("Navigation"),
         None,
         &[
-            ("Navigate between servers", "Ctrl + Alt + Up / Down"),
             (
-                "Navigate forward and backward in page history",
+                crate::i18n::tr_mark!("Navigate between servers"),
+                "Ctrl + Alt + Up / Down",
+            ),
+            (
+                crate::i18n::tr_mark!("Navigate forward and backward in page history"),
                 "Alt + Left / Right",
             ),
-            ("Navigate to current call", "Ctrl + Shift + Alt + V"),
-            ("Toggle QuickSwitcher", "Ctrl + K"),
-            ("Create or join a server", "Ctrl + Shift + N"),
+            (
+                crate::i18n::tr_mark!("Navigate to current call"),
+                "Ctrl + Shift + Alt + V",
+            ),
+            (crate::i18n::tr_mark!("Toggle QuickSwitcher"), "Ctrl + K"),
+            (
+                crate::i18n::tr_mark!("Create or join a server"),
+                "Ctrl + Shift + N",
+            ),
         ],
     ),
     (
-        "Chat",
+        crate::i18n::tr_mark!("Chat"),
         None,
         &[
-            ("Toggle pins popout", "Ctrl + P"),
-            ("Toggle inbox popout", "Ctrl + I"),
-            ("Toggle channel member list or voice text chat", "Ctrl + U"),
-            ("Toggle emoji picker", "Ctrl + E"),
-            ("Toggle GIF picker", "Ctrl + G"),
-            ("Toggle sticker picker", "Ctrl + S"),
-            ("Focus text area", "Type anywhere"),
-            ("Upload a file", "Ctrl + Shift + U"),
-            ("Copy channel link", "Ctrl + Shift + L"),
+            (crate::i18n::tr_mark!("Toggle pins popout"), "Ctrl + P"),
+            (crate::i18n::tr_mark!("Toggle inbox popout"), "Ctrl + I"),
+            (
+                crate::i18n::tr_mark!("Toggle channel member list or voice text chat"),
+                "Ctrl + U",
+            ),
+            (crate::i18n::tr_mark!("Toggle emoji picker"), "Ctrl + E"),
+            (crate::i18n::tr_mark!("Toggle GIF picker"), "Ctrl + G"),
+            (crate::i18n::tr_mark!("Toggle sticker picker"), "Ctrl + S"),
+            (
+                crate::i18n::tr_mark!("Focus text area"),
+                crate::i18n::tr_mark!("Type anywhere"),
+            ),
+            (crate::i18n::tr_mark!("Upload a file"), "Ctrl + Shift + U"),
+            (
+                crate::i18n::tr_mark!("Copy channel link"),
+                "Ctrl + Shift + L",
+            ),
         ],
     ),
     (
-        "Voice and Video",
+        crate::i18n::tr_mark!("Voice and Video"),
         None,
         &[
-            ("Toggle mute", "Ctrl + Shift + M"),
-            ("Toggle deafen", "Ctrl + Shift + D"),
-            ("Answer incoming call", "Ctrl + Enter"),
-            ("Start call in private message or group", "Ctrl + '"),
+            (crate::i18n::tr_mark!("Toggle mute"), "Ctrl + Shift + M"),
+            (crate::i18n::tr_mark!("Toggle deafen"), "Ctrl + Shift + D"),
+            (
+                crate::i18n::tr_mark!("Answer incoming call"),
+                "Ctrl + Enter",
+            ),
+            (
+                crate::i18n::tr_mark!("Start call in private message or group"),
+                "Ctrl + '",
+            ),
         ],
     ),
-    ("Miscellaneous", None, &[("Search", "Ctrl + F")]),
+    (
+        crate::i18n::tr_mark!("Miscellaneous"),
+        None,
+        &[(crate::i18n::tr_mark!("Search"), "Ctrl + F")],
+    ),
 ];
 
 #[cfg(test)]

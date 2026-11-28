@@ -236,20 +236,41 @@ fn role_chip<'a>(
 
 /// How long ago, as Discord's Members words it: `account` for Joined
 /// Discord, which counts in days at least.
-fn ago(seconds: u64, account: bool) -> String {
+fn ago(seconds: u64, account: bool, i18n: &crate::i18n::I18n) -> String {
     let plural = |count: u64, one: &str, other: &str| {
-        format!("{count} {} ago", if count == 1 { one } else { other })
+        i18n.text(if count == 1 { one } else { other })
+            .replace("{count}", &count.to_string())
     };
     const DAY: u64 = 86_400;
     match seconds {
-        0..DAY if account => "<1 day ago".to_owned(),
-        0..60 => "just now".to_owned(),
-        60..3_600 => plural(seconds / 60, "min", "mins"),
-        3_600..DAY => plural(seconds / 3_600, "hr", "hrs"),
+        0..DAY if account => crate::i18n::tr!(i18n, "<1 day ago").to_owned(),
+        0..60 => crate::i18n::tr!(i18n, "just now").to_owned(),
+        60..3_600 => plural(
+            seconds / 60,
+            crate::i18n::tr_mark!("{count} min ago"),
+            crate::i18n::tr_mark!("{count} mins ago"),
+        ),
+        3_600..DAY => plural(
+            seconds / 3_600,
+            crate::i18n::tr_mark!("{count} hr ago"),
+            crate::i18n::tr_mark!("{count} hrs ago"),
+        ),
         // Discord's months are 30 days, and its years 360.
-        DAY..2_592_000 => plural(seconds / DAY, "day", "days"),
-        2_592_000..31_104_000 => plural(seconds / 2_592_000, "month", "months"),
-        _ => plural(seconds / 31_104_000, "year", "years"),
+        DAY..2_592_000 => plural(
+            seconds / DAY,
+            crate::i18n::tr_mark!("{count} day ago"),
+            crate::i18n::tr_mark!("{count} days ago"),
+        ),
+        2_592_000..31_104_000 => plural(
+            seconds / 2_592_000,
+            crate::i18n::tr_mark!("{count} month ago"),
+            crate::i18n::tr_mark!("{count} months ago"),
+        ),
+        _ => plural(
+            seconds / 31_104_000,
+            crate::i18n::tr_mark!("{count} year ago"),
+            crate::i18n::tr_mark!("{count} years ago"),
+        ),
     }
 }
 
@@ -287,21 +308,23 @@ fn countdown(expires: Option<u64>, now: u64) -> String {
 
 /// How a member joined, as Members' Join Method names it, and whether
 /// Discord doesn't say.
-fn join_method(joined: &JoinMethod) -> (String, bool) {
+fn join_method(joined: &JoinMethod, i18n: &crate::i18n::I18n) -> (String, bool) {
     let label = match joined {
-        JoinMethod::Unknown => return ("Unknown".to_owned(), true),
-        JoinMethod::Bot => "Bot Invite".to_owned(),
+        JoinMethod::Unknown => return (crate::i18n::tr!(i18n, "Unknown").to_owned(), true),
+        JoinMethod::Bot => crate::i18n::tr!(i18n, "Bot Invite").to_owned(),
         JoinMethod::Integration(kind) => match kind.as_deref() {
-            Some("twitch") => "Twitch (Integration)".to_owned(),
-            Some("youtube") => "YouTube (Integration)".to_owned(),
-            _ => "Integration".to_owned(),
+            Some("twitch") => crate::i18n::tr!(i18n, "Twitch (Integration)").to_owned(),
+            Some("youtube") => crate::i18n::tr!(i18n, "YouTube (Integration)").to_owned(),
+            _ => crate::i18n::tr!(i18n, "Integration").to_owned(),
         },
-        JoinMethod::Discovery => "Server Discovery".to_owned(),
-        JoinMethod::Hub => "Student Hub".to_owned(),
+        JoinMethod::Discovery => crate::i18n::tr!(i18n, "Server Discovery").to_owned(),
+        JoinMethod::Hub => crate::i18n::tr!(i18n, "Student Hub").to_owned(),
         JoinMethod::Invite(code) | JoinMethod::Vanity(code) => code.clone(),
-        JoinMethod::Manual(Some(code)) => format!("Manual Verification ({code})"),
-        JoinMethod::Manual(None) => "Manual Verification".to_owned(),
-        JoinMethod::LinkedChannel => "Linked Channel".to_owned(),
+        JoinMethod::Manual(Some(code)) => {
+            crate::i18n::tr!(i18n, "Manual Verification ({code})").replace("{code}", code)
+        }
+        JoinMethod::Manual(None) => crate::i18n::tr!(i18n, "Manual Verification").to_owned(),
+        JoinMethod::LinkedChannel => crate::i18n::tr!(i18n, "Linked Channel").to_owned(),
     };
     (label, false)
 }
@@ -359,7 +382,7 @@ impl<'a> View<'a> {
         let search = controls::field(
             theme,
             "members-search",
-            "Search by username or id",
+            crate::i18n::tr!(self.cx.i18n, "Search by username or id"),
             &screen.people.typed,
             false,
             true,
@@ -370,7 +393,10 @@ impl<'a> View<'a> {
         .on_input(|typed| local(Event::Type(typed)))
         .on_submit(local(Event::Enter));
         let sort = form::dropdown(
-            MEMBER_SORTS.iter().map(|name| (*name).to_owned()).collect(),
+            MEMBER_SORTS
+                .iter()
+                .map(|name| self.cx.i18n.text(name).to_owned())
+                .collect(),
             Some(usize::from(page.sort.max(1) - 1)),
             screen.open == Some(Drop::MembersSort),
             message(Settings::Drop(Drop::MembersSort)),
@@ -384,7 +410,7 @@ impl<'a> View<'a> {
                 text(if page.searched() {
                     "Search Results"
                 } else {
-                    "Recent Members"
+                    crate::i18n::tr!(self.cx.i18n, "Recent Members")
                 })
                 .size(16)
                 .font(BOLD)
@@ -401,7 +427,7 @@ impl<'a> View<'a> {
                 .iter()
                 .enumerate()
                 .filter(|(index, _)| *index != JOIN_COLUMN || join_method)
-                .map(|(_, (words, share))| heading(theme, words, 11, *share))
+                .map(|(_, (words, share))| heading(theme, self.cx.i18n.text(words), 11, *share))
                 .collect(),
             Space::new().width(BUTTON).into(),
         );
@@ -508,20 +534,24 @@ impl<'a> View<'a> {
             .width(Length::FillPortion(MEMBER_COLUMNS[0].1))
             .into(),
             cell(
-                ago(now.saturating_sub(listed.joined) / 1000, false),
+                ago(
+                    now.saturating_sub(listed.joined) / 1000,
+                    false,
+                    self.cx.i18n,
+                ),
                 13,
                 theme.secondary,
                 MEMBER_COLUMNS[1].1,
             ),
             cell(
-                ago(now.saturating_sub(created) / 1000, true),
+                ago(now.saturating_sub(created) / 1000, true, self.cx.i18n),
                 13,
                 theme.secondary,
                 MEMBER_COLUMNS[2].1,
             ),
         ];
         if join_method {
-            let (join, unknown) = self::join_method(&listed.joined_by);
+            let (join, unknown) = self::join_method(&listed.joined_by, self.cx.i18n);
             cells.push(cell(
                 join,
                 13,

@@ -4230,3 +4230,567 @@ msgstr "Ausgewogen"
 
 msgid "Reduce motion"
 msgstr "Bewegung reduzieren"
+
+msgid "Show Keyboard Shortcuts List"
+msgstr "Tastenkürzel anzeigen"
+
+msgid "These shortcuts work when focused on a message. Alt + Up from the composer focuses messages."
+msgstr "Diese Kürzel funktionieren, wenn eine Nachricht fokussiert ist. Alt + ↑ wechselt vom Eingabefeld zu den Nachrichten."
+
+msgid "Edit Message"
+msgstr "Nachricht bearbeiten"
+
+msgid "Pin Message"
+msgstr "Nachricht anheften"
+
+msgid "Add Reaction"
+msgstr "Reaktion hinzufügen"
+
+msgid "Forward Message"
+msgstr "Nachricht weiterleiten"
+
+msgid "Copy Text"
+msgstr "Text kopieren"
+
+msgid "Focus text area"
+msgstr "Eingabefeld fokussieren"
+
+msgid "Navigation"
+msgstr "Navigation"
+
+msgid "Navigate between servers"
+msgstr "Zwischen Servern wechseln"
+
+msgid "Navigate forward and backward in page history"
+msgstr "Im Seitenverlauf vor- und zurückgehen"
+
+msgid "Navigate to current call"
+msgstr "Zum aktuellen Anruf wechseln"
+
+msgid "Toggle QuickSwitcher"
+msgstr "Schnellwechsel ein- oder ausblenden"
+
+msgid "Create or join a server"
+msgstr "Server erstellen oder beitreten"
+
+msgid "Chat"
+msgstr "Chat"
+
+msgid "Toggle pins popout"
+msgstr "Angeheftete Nachrichten ein- oder ausblenden"
+
+msgid "Toggle inbox popout"
+msgstr "Posteingang ein- oder ausblenden"
+
+msgid "Toggle channel member list or voice text chat"
+msgstr "Mitgliederliste oder Sprachkanal-Chat ein- oder ausblenden"
+
+msgid "Toggle emoji picker"
+msgstr "Emoji-Auswahl ein- oder ausblenden"
+
+msgid "Toggle GIF picker"
+msgstr "GIF-Auswahl ein- oder ausblenden"
+
+msgid "Toggle sticker picker"
+msgstr "Sticker-Auswahl ein- oder ausblenden"
+
+msgid "Type anywhere"
+msgstr "An beliebiger Stelle tippen"
+
+msgid "Upload a file"
+msgstr "Datei hochladen"
+
+msgid "Copy channel link"
+msgstr "Kanallink kopieren"
+
+msgid "Voice and Video"
+msgstr "Sprache und Video"
+
+msgid "Toggle mute"
+msgstr "Mikrofon ein- oder ausschalten"
+
+msgid "Toggle deafen"
+msgstr "Ton ein- oder ausschalten"
+
+msgid "Answer incoming call"
+msgstr "Eingehenden Anruf annehmen"
+
+msgid "Start call in private message or group"
+msgstr "Anruf im Direkt- oder Gruppenchat starten"
+
+msgid "Miscellaneous"
+msgstr "Sonstiges"
+
+msgid "Search Bans by User Id or Username"
+msgstr "Sperren nach Benutzer-ID oder Benutzername suchen"
+
+msgid "All Users"
+msgstr "Alle Benutzer"
+
+msgid "All Actions"
+msgstr "Alle Aktionen"
+
+msgid "Filter by User"
+msgstr "Nach Benutzer filtern"
+
+msgid "Filter by Action"
+msgstr "Nach Aktion filtern"
+
+msgid "In order to change this setting, you must have 2FA enabled on your account."
+msgstr "Aktiviere zuerst die Zwei-Faktor-Authentifizierung in deinem Konto, um diese Einstellung zu ändern."
+
+msgid "Members of the server must meet the following criteria before they can send messages. If a member has an assigned role and server onboarding is not enabled, this does not apply."
+msgstr "Mitglieder müssen die ausgewählten Anforderungen erfüllen, bevor sie Nachrichten senden können. Ist das Server-Onboarding aus, gilt dies nicht für Mitglieder mit einer Rolle."
+
+msgid "Members of the server must meet the following criteria before they can send messages in text channels or initiate a direct message conversation. If a member has an assigned role and server onboarding is not enabled, this does not apply. We recommend setting a verification level for a Community Server."
+msgstr "Mitglieder müssen die ausgewählten Anforderungen erfüllen, bevor sie in Textkanälen schreiben oder Direktnachrichten beginnen können. Ist das Server-Onboarding aus, gilt dies nicht für Mitglieder mit einer Rolle. Für Community-Server empfehlen wir eine Verifizierungsstufe."
+
+msgid "Search by username or id"
+msgstr "Nach Benutzername oder ID suchen"
+
+msgid "Recent Members"
+msgstr "Neue Mitglieder"
+
+msgid "SERVER BANNER BACKGROUND"
+msgstr "SERVERBANNER-HINTERGRUND"
+
+msgid "SERVER INVITE BACKGROUND"
+msgstr "SERVER-EINLADUNGSHINTERGRUND"
+
+msgid "Free Slots"
+msgstr "Freie Plätze"
+
+msgid "IMAGE"
+msgstr "BILD"
+
+msgid "UPLOADED BY"
+msgstr "HOCHGELADEN VON"
+
+msgid "Unrestricted"
+msgstr "Keine Einschränkungen"
+
+msgid "Low"
+msgstr "Niedrig"
+
+msgid "Must have a verified email on their Discord account."
+msgstr "Die E-Mail-Adresse des Discord-Kontos muss bestätigt sein."
+
+msgid "Must also be registered on Discord for longer than 5 minutes."
+msgstr "Die Registrierung bei Discord muss außerdem länger als 5 Minuten zurückliegen."
+
+msgid "High"
+msgstr "Hoch"
+
+msgid "Must also be a member of this server for longer than 10 minutes."
+msgstr "Das Mitglied muss außerdem seit mehr als 10 Minuten auf diesem Server sein."
+
+msgid "Highest"
+msgstr "Höchste Stufe"
+
+msgid "Must have a verified phone on their Discord account."
+msgstr "Die Telefonnummer des Discord-Kontos muss bestätigt sein."
+
+msgid "Filter messages from all members"
+msgstr "Nachrichten aller Mitglieder filtern"
+
+msgid "All messages will be filtered for sensitive image-based media."
+msgstr "Bilder in allen Nachrichten werden auf sensible Inhalte geprüft."
+
+msgid "Filter messages from server members without roles"
+msgstr "Nachrichten von Mitgliedern ohne Rollen filtern"
+
+msgid "Messages from server members without a role will be filtered for sensitive image-based media."
+msgstr "Bilder in Nachrichten von Mitgliedern ohne Rolle werden auf sensible Inhalte geprüft."
+
+msgid "Do not filter"
+msgstr "Nicht filtern"
+
+msgid "Messages will not be filtered for sensitive image-based media."
+msgstr "Bilder in Nachrichten werden nicht auf sensible Inhalte geprüft."
+
+msgid "Moderators must have two-factor authentication enabled to ban, kick, or timeout members and delete messages."
+msgstr "Moderatoren benötigen Zwei-Faktor-Authentifizierung, um Mitglieder zu bannen, auszuschließen oder ihnen eine Auszeit zu geben und Nachrichten zu löschen."
+
+msgid "Only the server owner can change this setting if they have 2FA enabled."
+msgstr "Nur der Serverinhaber kann diese Einstellung ändern, wenn die Zwei-Faktor-Authentifizierung aktiv ist."
+
+msgid "This option is not available for Community Servers."
+msgstr "Diese Option ist für Community-Server nicht verfügbar."
+
+msgid "MEMBER SINCE"
+msgstr "SERVERBEITRITT"
+
+msgid "JOINED DISCORD"
+msgstr "DISCORD-BEITRITT"
+
+msgid "JOIN METHOD"
+msgstr "BEITRITTSMETHODE"
+
+msgid "SIGNALS"
+msgstr "SIGNALE"
+
+msgid "Member Since (Newest first)"
+msgstr "Serverbeitritt (neueste zuerst)"
+
+msgid "Member Since (Oldest first)"
+msgstr "Serverbeitritt (älteste zuerst)"
+
+msgid "Joined Discord (Newest first)"
+msgstr "Discord-Beitritt (neueste zuerst)"
+
+msgid "Joined Discord (Oldest first)"
+msgstr "Discord-Beitritt (älteste zuerst)"
+
+msgid "Manual Verification"
+msgstr "Manuelle Verifizierung"
+
+msgid "Manual Verification ({code})"
+msgstr "Manuelle Verifizierung ({code})"
+
+msgid "just now"
+msgstr "Gerade eben"
+
+msgid "<1 day ago"
+msgstr "Vor weniger als einem Tag"
+
+msgid "{count} min ago"
+msgstr "Vor {count} Min."
+
+msgid "{count} mins ago"
+msgstr "Vor {count} Min."
+
+msgid "{count} hr ago"
+msgstr "Vor {count} Std."
+
+msgid "{count} hrs ago"
+msgstr "Vor {count} Std."
+
+msgid "{count} day ago"
+msgstr "Vor {count} Tag"
+
+msgid "{count} days ago"
+msgstr "Vor {count} Tagen"
+
+msgid "{count} month ago"
+msgstr "Vor {count} Monat"
+
+msgid "{count} months ago"
+msgstr "Vor {count} Monaten"
+
+msgid "{count} year ago"
+msgstr "Vor {count} Jahr"
+
+msgid "{count} years ago"
+msgstr "Vor {count} Jahren"
+
+msgid "no slots available"
+msgstr "Keine Plätze frei"
+
+msgid "1 slot available"
+msgstr "1 Platz frei"
+
+msgid "{count} slots available"
+msgstr "Freie Plätze: {count}"
+
+msgid "{free} of {total} slot available"
+msgstr "{free} von {total} Platz frei"
+
+msgid "{free} of {total} slots available"
+msgstr "{free} von {total} Plätzen frei"
+
+msgid "{count} Boosts"
+msgstr "{count} Boosts"
+
+msgid "Level {level}"
+msgstr "Stufe {level}"
+
+msgid "Add up to {count} custom emojis that anyone can use in this server. Animated GIF emojis may be used by members with Discord Nitro. Emoji names must be at least 2 characters long and can only contain alphanumeric characters and underscores. Emoji must be under 256 KB in size."
+msgstr "Füge bis zu {count} eigene Emojis hinzu, die alle auf dem Server verwenden können. Animierte GIF-Emojis sind mit Discord Nitro verfügbar. Namen müssen mindestens zwei Zeichen lang sein und dürfen nur Buchstaben, Zahlen und Unterstriche enthalten. Jede Datei muss kleiner als 256 KB sein."
+
+msgid "Today at {time}"
+msgstr "Heute um {time}"
+
+msgid "Yesterday at {time}"
+msgstr "Gestern um {time}"
+
+msgid "Tomorrow at {time}"
+msgstr "Morgen um {time}"
+
+msgid "Last {day} at {time}"
+msgstr "Vergangener {day}, {time}"
+
+msgid "{day} at {time}"
+msgstr "{day} um {time}"
+
+msgid "Monday"
+msgstr "Montag"
+
+msgid "Tuesday"
+msgstr "Dienstag"
+
+msgid "Wednesday"
+msgstr "Mittwoch"
+
+msgid "Thursday"
+msgstr "Donnerstag"
+
+msgid "Friday"
+msgstr "Freitag"
+
+msgid "Saturday"
+msgstr "Samstag"
+
+msgid "Sunday"
+msgstr "Sonntag"
+
+msgid " removed "
+msgstr " entfernte "
+
+msgid " updated channel overrides for "
+msgstr " änderte Kanalberechtigungen für "
+
+msgid " created a voice channel "
+msgstr " erstellte den Sprachkanal "
+
+msgid " updated the role "
+msgstr " änderte die Rolle "
+
+msgid " created the role "
+msgstr " erstellte die Rolle "
+
+msgid "Playing on Xbox"
+msgstr "Spielt auf Xbox"
+
+msgid "Playing on PlayStation"
+msgstr "Spielt auf PlayStation"
+
+msgid "Streaming"
+msgstr "Streamt"
+
+msgid "Listening to"
+msgstr "Hört"
+
+msgid "Watching"
+msgstr "Schaut"
+
+msgid "Competing in"
+msgstr "Tritt an"
+
+msgid "Bans by default are by account and IP.\nA user can circumvent an IP ban by using a proxy.\nBan circumvention can be made very hard by enabling phone verification in Safety Setup."
+msgstr "Sperren gelten standardmäßig für das Konto und die IP-Adresse.\nEine IP-Sperre kann mit einem Proxy umgangen werden.\nDie Telefonverifizierung in den Sicherheitseinstellungen erschwert die Umgehung."
+
+msgid "Update Channel"
+msgstr "Kanal geändert"
+
+msgid "Update Channel Permissions"
+msgstr "Kanalberechtigungen geändert"
+
+msgid "Update Role"
+msgstr "Rolle geändert"
+
+msgid "Kick Member"
+msgstr "Mitglied ausgeschlossen"
+
+msgid "Unban Member"
+msgstr "Sperre aufgehoben"
+
+msgid " kicked "
+msgstr " schloss aus: "
+
+msgid " removed the ban for "
+msgstr " hob die Sperre auf für "
+
+msgid "Bot Invite"
+msgstr "Bot-Einladung"
+
+msgid "Integration"
+msgstr "Integration"
+
+msgid "Twitch (Integration)"
+msgstr "Twitch (Integration)"
+
+msgid "YouTube (Integration)"
+msgstr "YouTube (Integration)"
+
+msgid "Server Discovery"
+msgstr "Serversuche"
+
+msgid "Student Hub"
+msgstr "Studierenden-Hub"
+
+msgid "Linked Channel"
+msgstr "Verknüpfter Kanal"
+
+msgid "Unknown"
+msgstr "Unbekannt"
+
+msgid "Update Server"
+msgstr "Server geändert"
+
+msgid "Create Channel Permissions"
+msgstr "Kanalberechtigungen erstellt"
+
+msgid "Delete Channel Permissions"
+msgstr "Kanalberechtigungen gelöscht"
+
+msgid "Move Channel"
+msgstr "Kanal verschoben"
+
+msgid "Prune Members"
+msgstr "Inaktive Mitglieder entfernt"
+
+msgid "Ban Member"
+msgstr "Mitglied gesperrt"
+
+msgid "Update Member"
+msgstr "Mitglied geändert"
+
+msgid "Update Member Roles"
+msgstr "Mitgliedsrollen geändert"
+
+msgid "Move Member"
+msgstr "Mitglied verschoben"
+
+msgid "Disconnect Member"
+msgstr "Mitglied getrennt"
+
+msgid "Add Bot"
+msgstr "Bot hinzugefügt"
+
+msgid "Update Thread"
+msgstr "Thread geändert"
+
+msgid "Delete Thread"
+msgstr "Thread gelöscht"
+
+msgid "Delete Role"
+msgstr "Rolle gelöscht"
+
+msgid "Move Role"
+msgstr "Rolle verschoben"
+
+msgid "Create Customization Question"
+msgstr "Anpassungsfrage erstellt"
+
+msgid "Update Customization Question"
+msgstr "Anpassungsfrage geändert"
+
+msgid "Delete Customization Question"
+msgstr "Anpassungsfrage gelöscht"
+
+msgid "Create Onboarding"
+msgstr "Onboarding erstellt"
+
+msgid "Update Onboarding"
+msgstr "Onboarding geändert"
+
+msgid "Create Server Guide"
+msgstr "Server-Leitfaden erstellt"
+
+msgid "Update Server Guide"
+msgstr "Server-Leitfaden geändert"
+
+msgid "Update Invite"
+msgstr "Einladung geändert"
+
+msgid "Delete Invite"
+msgstr "Einladung gelöscht"
+
+msgid "Create Webhook"
+msgstr "Webhook erstellt"
+
+msgid "Update Webhook"
+msgstr "Webhook geändert"
+
+msgid "Delete Webhook"
+msgstr "Webhook gelöscht"
+
+msgid "Create Emoji"
+msgstr "Emoji erstellt"
+
+msgid "Update Emoji"
+msgstr "Emoji geändert"
+
+msgid "Delete Emoji"
+msgstr "Emoji gelöscht"
+
+msgid "Delete Messages"
+msgstr "Nachrichten gelöscht"
+
+msgid "Bulk Delete Messages"
+msgstr "Nachrichten gesammelt gelöscht"
+
+msgid "Unpin Message"
+msgstr "Nachricht losgelöst"
+
+msgid "Create Integration"
+msgstr "Integration erstellt"
+
+msgid "Update Integration"
+msgstr "Integration geändert"
+
+msgid "Delete Integration"
+msgstr "Integration gelöscht"
+
+msgid "Create Sticker"
+msgstr "Sticker erstellt"
+
+msgid "Update Sticker"
+msgstr "Sticker geändert"
+
+msgid "Delete Sticker"
+msgstr "Sticker gelöscht"
+
+msgid "Start Stage"
+msgstr "Bühne gestartet"
+
+msgid "Update Stage"
+msgstr "Bühne geändert"
+
+msgid "End Stage"
+msgstr "Bühne beendet"
+
+msgid "Create Event"
+msgstr "Event erstellt"
+
+msgid "Update Event"
+msgstr "Event geändert"
+
+msgid "Cancel Event"
+msgstr "Event abgesagt"
+
+msgid "Update Command Permissions"
+msgstr "Befehlsberechtigungen geändert"
+
+msgid "AutoMod Block Message"
+msgstr "Nachricht durch AutoMod blockiert"
+
+msgid "Create AutoMod Rule"
+msgstr "AutoMod-Regel erstellt"
+
+msgid "Update AutoMod Rule"
+msgstr "AutoMod-Regel geändert"
+
+msgid "Cancel AutoMod Rule"
+msgstr "AutoMod-Regel aufgehoben"
+
+msgid "Feature Item on Home"
+msgstr "Auf der Startseite hervorgehoben"
+
+msgid "Remove Item from Home"
+msgstr "Von der Startseite entfernt"
+
+msgid "Create Soundboard Sound"
+msgstr "Soundboard-Ton hinzugefügt"
+
+msgid "Update Soundboard Sound"
+msgstr "Soundboard-Ton geändert"
+
+msgid "Delete Soundboard Sound"
+msgstr "Soundboard-Ton gelöscht"
+
+msgid "Create Voice Channel Status"
+msgstr "Sprachkanalstatus erstellt"
+
+msgid "Delete Voice Channel Status"
+msgstr "Sprachkanalstatus gelöscht"

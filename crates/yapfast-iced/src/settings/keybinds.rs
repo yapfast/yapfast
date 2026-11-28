@@ -201,24 +201,30 @@ impl<'a> Page<'a> {
         }
         let defaults = column![
             form::title(theme, crate::i18n::tr!(self.cx.i18n, "Default Keybinds")),
-            shortcut_card(theme, &[crate::shortcuts::HELP]),
+            shortcut_card(theme, &[crate::shortcuts::HELP], self.cx.i18n),
         ]
         .spacing(24);
         let mut parts = column![custom, defaults].spacing(40);
         for &(heading, description, shortcuts) in crate::shortcuts::GROUPS {
             let mut group = column![
-                text(heading)
+                text(self.cx.i18n.text(heading))
                     .size(18)
                     .font(crate::fonts::SEMIBOLD)
                     .color(theme.text)
             ]
             .spacing(8);
             if let Some(description) = description {
-                group = group.push(text(description).size(13).color(theme.secondary));
+                group = group.push(
+                    text(self.cx.i18n.text(description))
+                        .size(13)
+                        .color(theme.secondary),
+                );
             }
-            group = group
-                .push(Space::new().height(8))
-                .push(shortcut_card(theme, shortcuts));
+            group = group.push(Space::new().height(8)).push(shortcut_card(
+                theme,
+                shortcuts,
+                self.cx.i18n,
+            ));
             parts = parts.push(group);
         }
         parts.width(Length::Fill).into()
@@ -370,15 +376,22 @@ impl<'a> Page<'a> {
     }
 }
 
-fn shortcut_card<'a>(theme: &Theme, shortcuts: &[(&'a str, &'a str)]) -> Element<'a, Message> {
+fn shortcut_card<'a>(
+    theme: &Theme,
+    shortcuts: &[(&'a str, &'a str)],
+    i18n: &'a crate::i18n::I18n,
+) -> Element<'a, Message> {
     let mut rows = column![];
     for (index, &(label, keys)) in shortcuts.iter().enumerate() {
         if index > 0 {
             rows = rows.push(crate::controls::bar(theme.line, Length::Fill, 1));
         }
-        let mut chords = column![keycaps(theme, keys.split(" / ").next().unwrap_or(keys))]
-            .spacing(5)
-            .align_x(Alignment::End);
+        let mut chords = column![keycaps(
+            theme,
+            i18n.text(keys.split(" / ").next().unwrap_or(keys))
+        )]
+        .spacing(5)
+        .align_x(Alignment::End);
         if let Some((first, second)) = keys.split_once(" / ") {
             // "Ctrl + Alt + Up / Down" shows the modifiers on both lines.
             let alternative = first.rsplit_once(" + ").map_or_else(
@@ -390,7 +403,7 @@ fn shortcut_card<'a>(theme: &Theme, shortcuts: &[(&'a str, &'a str)]) -> Element
         rows = rows.push(
             container(
                 row![
-                    text(label)
+                    text(i18n.text(label))
                         .size(15)
                         .color(theme.secondary)
                         .width(Length::Fill),

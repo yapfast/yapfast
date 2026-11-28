@@ -992,9 +992,9 @@ impl<'a> Page<'a> {
         let tint = build_tint(theme, build.tone);
         let mut second = row![
             text(if copied {
-                "Copied"
+                crate::i18n::tr!(self.cx.i18n, "Copied")
             } else {
-                build.channel.as_str()
+                self.cx.i18n.text(&build.channel)
             })
             .size(12)
             .font(BOLD)

@@ -122,8 +122,9 @@ recording. Each change is kept at once in
   language tag in `layout.json`. Translated text updates immediately,
   including Settings navigation, labels and hints in the conversation
   sidebar and header, the voice dock, message history controls, the
-  friend requests screen, context menus, invite dialogs, and role and
-  channel permissions.
+  friend requests screen, context menus, invite dialogs, keyboard shortcut
+  descriptions, and labels in server settings, including safety options
+  and the member list.
   File dialogs use the selected language for Yapfast's titles and file
   type filters. The operating system provides the other dialog text.
   Settings search

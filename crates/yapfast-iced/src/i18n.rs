@@ -164,6 +164,29 @@ mod tests {
     }
 
     #[test]
+    fn translated_catalogs_cover_audit_filters_and_member_sort_options() {
+        use yapfast_core::application::{AUDIT_ACTIONS, MEMBER_SORTS};
+
+        for language in LANGUAGES {
+            let Some(source) = language.source else {
+                continue;
+            };
+            let translations = catalog(source).unwrap();
+            for label in AUDIT_ACTIONS
+                .iter()
+                .map(|(_, label)| *label)
+                .chain(MEMBER_SORTS)
+            {
+                assert!(
+                    translations.contains_key(label),
+                    "{}: {label}",
+                    language.tag
+                );
+            }
+        }
+    }
+
+    #[test]
     fn translated_catalogs_cover_role_and_channel_permissions() {
         use yapfast_core::{
             application::{ROLE_PERMISSIONS, channel_groups, channel_permission},

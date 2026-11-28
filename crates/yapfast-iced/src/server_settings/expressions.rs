@@ -190,11 +190,13 @@ pub(super) fn dialog_field(page: &EmojiPage) -> Option<&'static str> {
 }
 
 /// How many slots are left, in Discord's words.
-fn slots(free: usize) -> String {
+fn slots(free: usize, i18n: &crate::i18n::I18n) -> String {
     match free {
-        0 => "no slots available".to_owned(),
-        1 => "1 slot available".to_owned(),
-        free => format!("{free} slots available"),
+        0 => crate::i18n::tr!(i18n, "no slots available").to_owned(),
+        1 => crate::i18n::tr!(i18n, "1 slot available").to_owned(),
+        free => {
+            crate::i18n::tr!(i18n, "{count} slots available").replace("{count}", &free.to_string())
+        }
     }
 }
 
@@ -284,10 +286,7 @@ impl<'a> View<'a> {
             form::title(theme, crate::i18n::tr!(self.cx.i18n, "Emoji")),
             form::note(
                 theme,
-                format!(
-                    "Add up to {} custom emojis that anyone can use in this server. Animated GIF emojis may be used by members with Discord Nitro. Emoji names must be at least 2 characters long and can only contain alphanumeric characters and underscores. Emoji must be under 256 KB in size.",
-                    page.slots()
-                ),
+                crate::i18n::tr!(self.cx.i18n, "Add up to {count} custom emojis that anyone can use in this server. Animated GIF emojis may be used by members with Discord Nitro. Emoji names must be at least 2 characters long and can only contain alphanumeric characters and underscores. Emoji must be under 256 KB in size.").replace("{count}", &page.slots().to_string()),
             ),
         ]
         .spacing(form::GAP)
@@ -363,7 +362,7 @@ impl<'a> View<'a> {
                     .size(16)
                     .font(BOLD)
                     .color(theme.text),
-                text(format!("– {}", slots(free)))
+                text(format!("– {}", slots(free, self.cx.i18n)))
                     .size(16)
                     .color(theme.secondary)
             ]
@@ -371,14 +370,14 @@ impl<'a> View<'a> {
             // The spare height goes between the title and the columns' names.
             Space::new().height(Length::Fill),
             row![
-                container(name("IMAGE")).width(IMAGE_COLUMN),
+                container(name(crate::i18n::tr!(self.cx.i18n, "IMAGE"))).width(IMAGE_COLUMN),
                 container(name(crate::i18n::tr!(self.cx.i18n, "NAME")))
                     .padding(Padding {
                         left: 8.0,
                         ..Padding::ZERO
                     })
                     .width(Length::Fill),
-                container(name("UPLOADED BY")).width(Length::Fill),
+                container(name(crate::i18n::tr!(self.cx.i18n, "UPLOADED BY"))).width(Length::Fill),
                 Space::new().width(BUTTON),
             ]
             .spacing(16),
@@ -612,15 +611,27 @@ impl<'a> View<'a> {
             head = head.push(self.cx.look.glyph(Icon::Lock, 16, theme.secondary));
         }
         let title = match card.level {
-            0 => "Free Slots".to_owned(),
-            level => format!("Level {level}"),
+            0 => crate::i18n::tr!(self.cx.i18n, "Free Slots").to_owned(),
+            level => crate::i18n::tr!(self.cx.i18n, "Level {level}")
+                .replace("{level}", &level.to_string()),
         };
         let status = if card.unlocked {
             let free = card.slots.saturating_sub(card.stickers.len());
-            let word = if card.slots == 1 { "slot" } else { "slots" };
-            format!("{free} of {} {word} available", card.slots)
+            let template = if card.slots == 1 {
+                crate::i18n::tr!(self.cx.i18n, "{free} of {total} slot available")
+            } else {
+                crate::i18n::tr!(self.cx.i18n, "{free} of {total} slots available")
+            };
+            yapfast_core::themes::chrome::fill(
+                template,
+                &[
+                    ("free", &free.to_string()),
+                    ("total", &card.slots.to_string()),
+                ],
+            )
         } else {
-            format!("{} Boosts", LEVEL_BOOSTS[card.level])
+            crate::i18n::tr!(self.cx.i18n, "{count} Boosts")
+                .replace("{count}", &LEVEL_BOOSTS[card.level].to_string())
         };
         head = head
             .push(

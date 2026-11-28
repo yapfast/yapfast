@@ -527,6 +527,11 @@ fn audit_log_shows_rows_that_open_their_numbered_lines() {
     };
     assert_eq!(log(&app).rows.len(), 2);
     assert!(shows(&app, "All Users") && shows(&app, "All Actions"));
+    app.i18n.select(Some("ru"));
+    assert!(shows(&app, "Все пользователи") && shows(&app, "Все действия"));
+    app.i18n.select(Some("de"));
+    assert!(shows(&app, "Alle Benutzer") && shows(&app, "Alle Aktionen"));
+    app.i18n.select(Some("en"));
     // A minute ago: yesterday's in the first minute after midnight. The
     // kick is the newest, the first row.
     let when = |app: &mut App| {

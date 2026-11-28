@@ -353,9 +353,12 @@ impl<'a> View<'a> {
         } else if let Some(playing) = &state.discord_playing {
             body = body.push(self.playing_card(playing));
         }
-        let mut first =
-            column![self.popover_row("Edit Profile", Icon::Pencil, message(Event::EditProfile))]
-                .spacing(4);
+        let mut first = column![self.popover_row(
+            crate::i18n::tr!(self.cx.i18n, "Edit Profile"),
+            Icon::Pencil,
+            message(Event::EditProfile)
+        )]
+        .spacing(4);
         let line = theme.line;
         first = first.push(
             container(Space::new())

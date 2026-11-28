@@ -2414,7 +2414,7 @@ msgid "Manage Accounts"
 msgstr "Управление аккаунтами"
 
 msgid "Playing"
-msgstr "Играет в"
+msgstr "Играет"
 
 msgid "CLEAR AFTER"
 msgstr "УБРАТЬ ЧЕРЕЗ"
@@ -4230,3 +4230,567 @@ msgstr "Сбалансированный"
 
 msgid "Reduce motion"
 msgstr "Уменьшить движение"
+
+msgid "Show Keyboard Shortcuts List"
+msgstr "Показать список сочетаний клавиш"
+
+msgid "These shortcuts work when focused on a message. Alt + Up from the composer focuses messages."
+msgstr "Эти сочетания работают, когда выбрано сообщение. Нажмите Alt + ↑ в поле ввода, чтобы перейти к сообщениям."
+
+msgid "Edit Message"
+msgstr "Редактировать сообщение"
+
+msgid "Pin Message"
+msgstr "Закрепить сообщение"
+
+msgid "Add Reaction"
+msgstr "Добавить реакцию"
+
+msgid "Forward Message"
+msgstr "Переслать сообщение"
+
+msgid "Copy Text"
+msgstr "Копировать текст"
+
+msgid "Focus text area"
+msgstr "Перейти в поле ввода"
+
+msgid "Navigation"
+msgstr "Навигация"
+
+msgid "Navigate between servers"
+msgstr "Переключаться между серверами"
+
+msgid "Navigate forward and backward in page history"
+msgstr "Перейти вперёд или назад по истории страниц"
+
+msgid "Navigate to current call"
+msgstr "Перейти к текущему звонку"
+
+msgid "Toggle QuickSwitcher"
+msgstr "Открыть или закрыть быстрый поиск"
+
+msgid "Create or join a server"
+msgstr "Создать сервер или присоединиться к нему"
+
+msgid "Chat"
+msgstr "Чат"
+
+msgid "Toggle pins popout"
+msgstr "Показать или скрыть закреплённые сообщения"
+
+msgid "Toggle inbox popout"
+msgstr "Показать или скрыть входящие"
+
+msgid "Toggle channel member list or voice text chat"
+msgstr "Показать или скрыть участников канала либо чат звонка"
+
+msgid "Toggle emoji picker"
+msgstr "Открыть или закрыть выбор эмодзи"
+
+msgid "Toggle GIF picker"
+msgstr "Открыть или закрыть выбор GIF"
+
+msgid "Toggle sticker picker"
+msgstr "Открыть или закрыть выбор стикеров"
+
+msgid "Type anywhere"
+msgstr "Начните печатать"
+
+msgid "Upload a file"
+msgstr "Загрузить файл"
+
+msgid "Copy channel link"
+msgstr "Копировать ссылку на канал"
+
+msgid "Voice and Video"
+msgstr "Голос и видео"
+
+msgid "Toggle mute"
+msgstr "Включить или выключить микрофон"
+
+msgid "Toggle deafen"
+msgstr "Включить или выключить звук"
+
+msgid "Answer incoming call"
+msgstr "Ответить на звонок"
+
+msgid "Start call in private message or group"
+msgstr "Позвонить в личной или групповой переписке"
+
+msgid "Miscellaneous"
+msgstr "Прочее"
+
+msgid "Search Bans by User Id or Username"
+msgstr "Поиск блокировок по ID или имени пользователя"
+
+msgid "All Users"
+msgstr "Все пользователи"
+
+msgid "All Actions"
+msgstr "Все действия"
+
+msgid "Filter by User"
+msgstr "Фильтр по пользователю"
+
+msgid "Filter by Action"
+msgstr "Фильтр по действию"
+
+msgid "In order to change this setting, you must have 2FA enabled on your account."
+msgstr "Чтобы изменить эту настройку, включите двухфакторную аутентификацию в аккаунте."
+
+msgid "Members of the server must meet the following criteria before they can send messages. If a member has an assigned role and server onboarding is not enabled, this does not apply."
+msgstr "Чтобы отправлять сообщения, участники должны соответствовать выбранным требованиям. Если у участника есть роль и знакомство с сервером отключено, требования на него не распространяются."
+
+msgid "Members of the server must meet the following criteria before they can send messages in text channels or initiate a direct message conversation. If a member has an assigned role and server onboarding is not enabled, this does not apply. We recommend setting a verification level for a Community Server."
+msgstr "Чтобы писать в текстовых каналах или начинать личные переписки, участники должны соответствовать выбранным требованиям. Если у участника есть роль и знакомство с сервером отключено, требования на него не распространяются. Для серверов сообщества рекомендуется выбрать уровень проверки."
+
+msgid "Search by username or id"
+msgstr "Поиск по имени пользователя или ID"
+
+msgid "Recent Members"
+msgstr "Недавние участники"
+
+msgid "SERVER BANNER BACKGROUND"
+msgstr "ФОН БАННЕРА СЕРВЕРА"
+
+msgid "SERVER INVITE BACKGROUND"
+msgstr "ФОН ПРИГЛАШЕНИЯ НА СЕРВЕР"
+
+msgid "Free Slots"
+msgstr "Свободные места"
+
+msgid "IMAGE"
+msgstr "ИЗОБРАЖЕНИЕ"
+
+msgid "UPLOADED BY"
+msgstr "КТО ЗАГРУЗИЛ"
+
+msgid "Unrestricted"
+msgstr "Без ограничений"
+
+msgid "Low"
+msgstr "Низкий"
+
+msgid "Must have a verified email on their Discord account."
+msgstr "В аккаунте Discord должна быть подтверждена электронная почта."
+
+msgid "Must also be registered on Discord for longer than 5 minutes."
+msgstr "Также с регистрации в Discord должно пройти больше 5 минут."
+
+msgid "High"
+msgstr "Высокий"
+
+msgid "Must also be a member of this server for longer than 10 minutes."
+msgstr "Также с момента вступления на сервер должно пройти больше 10 минут."
+
+msgid "Highest"
+msgstr "Наивысший"
+
+msgid "Must have a verified phone on their Discord account."
+msgstr "В аккаунте Discord должен быть подтверждён номер телефона."
+
+msgid "Filter messages from all members"
+msgstr "Проверять сообщения всех участников"
+
+msgid "All messages will be filtered for sensitive image-based media."
+msgstr "Изображения во всех сообщениях проверяются на деликатный контент."
+
+msgid "Filter messages from server members without roles"
+msgstr "Проверять сообщения участников без ролей"
+
+msgid "Messages from server members without a role will be filtered for sensitive image-based media."
+msgstr "Изображения в сообщениях участников без ролей проверяются на деликатный контент."
+
+msgid "Do not filter"
+msgstr "Не фильтровать"
+
+msgid "Messages will not be filtered for sensitive image-based media."
+msgstr "Изображения в сообщениях не проверяются на деликатный контент."
+
+msgid "Moderators must have two-factor authentication enabled to ban, kick, or timeout members and delete messages."
+msgstr "Для блокировки, исключения, ограничения общения и удаления сообщений модераторам нужна двухфакторная аутентификация."
+
+msgid "Only the server owner can change this setting if they have 2FA enabled."
+msgstr "Изменить эту настройку может только владелец сервера с включённой двухфакторной аутентификацией."
+
+msgid "This option is not available for Community Servers."
+msgstr "Этот вариант недоступен для серверов сообщества."
+
+msgid "MEMBER SINCE"
+msgstr "НА СЕРВЕРЕ С"
+
+msgid "JOINED DISCORD"
+msgstr "В DISCORD С"
+
+msgid "JOIN METHOD"
+msgstr "СПОСОБ ВСТУПЛЕНИЯ"
+
+msgid "SIGNALS"
+msgstr "СИГНАЛЫ"
+
+msgid "Member Since (Newest first)"
+msgstr "На сервере (сначала новые)"
+
+msgid "Member Since (Oldest first)"
+msgstr "На сервере (сначала давние)"
+
+msgid "Joined Discord (Newest first)"
+msgstr "В Discord (сначала новые)"
+
+msgid "Joined Discord (Oldest first)"
+msgstr "В Discord (сначала давние)"
+
+msgid "Manual Verification"
+msgstr "Ручная проверка"
+
+msgid "Manual Verification ({code})"
+msgstr "Ручная проверка ({code})"
+
+msgid "just now"
+msgstr "Только что"
+
+msgid "<1 day ago"
+msgstr "Менее суток назад"
+
+msgid "{count} min ago"
+msgstr "{count} мин назад"
+
+msgid "{count} mins ago"
+msgstr "{count} мин назад"
+
+msgid "{count} hr ago"
+msgstr "{count} ч назад"
+
+msgid "{count} hrs ago"
+msgstr "{count} ч назад"
+
+msgid "{count} day ago"
+msgstr "{count} день назад"
+
+msgid "{count} days ago"
+msgstr "{count} дн. назад"
+
+msgid "{count} month ago"
+msgstr "{count} месяц назад"
+
+msgid "{count} months ago"
+msgstr "{count} мес. назад"
+
+msgid "{count} year ago"
+msgstr "{count} год назад"
+
+msgid "{count} years ago"
+msgstr "{count} г. назад"
+
+msgid "no slots available"
+msgstr "Свободных мест нет"
+
+msgid "1 slot available"
+msgstr "Свободно 1 место"
+
+msgid "{count} slots available"
+msgstr "Свободных мест: {count}"
+
+msgid "{free} of {total} slot available"
+msgstr "Свободно: {free} из {total}"
+
+msgid "{free} of {total} slots available"
+msgstr "Свободно: {free} из {total}"
+
+msgid "{count} Boosts"
+msgstr "Бустов: {count}"
+
+msgid "Level {level}"
+msgstr "Уровень {level}"
+
+msgid "Add up to {count} custom emojis that anyone can use in this server. Animated GIF emojis may be used by members with Discord Nitro. Emoji names must be at least 2 characters long and can only contain alphanumeric characters and underscores. Emoji must be under 256 KB in size."
+msgstr "Добавьте до {count} эмодзи, доступных всем участникам сервера. Анимированные GIF-эмодзи доступны с Discord Nitro. Название должно содержать не менее двух символов и может включать только буквы, цифры и подчёркивания. Размер файла должен быть меньше 256 КБ."
+
+msgid "Today at {time}"
+msgstr "Сегодня в {time}"
+
+msgid "Yesterday at {time}"
+msgstr "Вчера в {time}"
+
+msgid "Tomorrow at {time}"
+msgstr "Завтра в {time}"
+
+msgid "Last {day} at {time}"
+msgstr "Ранее: {day}, {time}"
+
+msgid "{day} at {time}"
+msgstr "{day}, {time}"
+
+msgid "Monday"
+msgstr "Понедельник"
+
+msgid "Tuesday"
+msgstr "Вторник"
+
+msgid "Wednesday"
+msgstr "Среда"
+
+msgid "Thursday"
+msgstr "Четверг"
+
+msgid "Friday"
+msgstr "Пятница"
+
+msgid "Saturday"
+msgstr "Суббота"
+
+msgid "Sunday"
+msgstr "Воскресенье"
+
+msgid " removed "
+msgstr " удаляет: "
+
+msgid " updated channel overrides for "
+msgstr " меняет права доступа к каналу "
+
+msgid " created a voice channel "
+msgstr " создаёт голосовой канал "
+
+msgid " updated the role "
+msgstr " меняет роль "
+
+msgid " created the role "
+msgstr " создаёт роль "
+
+msgid "Playing on Xbox"
+msgstr "Играет на Xbox"
+
+msgid "Playing on PlayStation"
+msgstr "Играет на PlayStation"
+
+msgid "Streaming"
+msgstr "Ведёт трансляцию"
+
+msgid "Listening to"
+msgstr "Слушает"
+
+msgid "Watching"
+msgstr "Смотрит"
+
+msgid "Competing in"
+msgstr "Соревнуется"
+
+msgid "Bans by default are by account and IP.\nA user can circumvent an IP ban by using a proxy.\nBan circumvention can be made very hard by enabling phone verification in Safety Setup."
+msgstr "По умолчанию блокировка применяется к аккаунту и IP-адресу.\nБлокировку по IP можно обойти с помощью прокси.\nПодтверждение номера телефона в настройках безопасности усложняет обход блокировки."
+
+msgid "Update Channel"
+msgstr "Изменение канала"
+
+msgid "Update Channel Permissions"
+msgstr "Изменение прав канала"
+
+msgid "Update Role"
+msgstr "Изменение роли"
+
+msgid "Kick Member"
+msgstr "Исключение участника"
+
+msgid "Unban Member"
+msgstr "Снятие блокировки участника"
+
+msgid " kicked "
+msgstr " исключает участника "
+
+msgid " removed the ban for "
+msgstr " снимает блокировку с "
+
+msgid "Bot Invite"
+msgstr "Приглашение бота"
+
+msgid "Integration"
+msgstr "Интеграция"
+
+msgid "Twitch (Integration)"
+msgstr "Twitch (интеграция)"
+
+msgid "YouTube (Integration)"
+msgstr "YouTube (интеграция)"
+
+msgid "Server Discovery"
+msgstr "Каталог серверов"
+
+msgid "Student Hub"
+msgstr "Студенческий центр"
+
+msgid "Linked Channel"
+msgstr "Связанный канал"
+
+msgid "Unknown"
+msgstr "Неизвестно"
+
+msgid "Update Server"
+msgstr "Изменение сервера"
+
+msgid "Create Channel Permissions"
+msgstr "Создание прав канала"
+
+msgid "Delete Channel Permissions"
+msgstr "Удаление прав канала"
+
+msgid "Move Channel"
+msgstr "Перемещение канала"
+
+msgid "Prune Members"
+msgstr "Удаление неактивных участников"
+
+msgid "Ban Member"
+msgstr "Блокировка участника"
+
+msgid "Update Member"
+msgstr "Изменение участника"
+
+msgid "Update Member Roles"
+msgstr "Изменение ролей участника"
+
+msgid "Move Member"
+msgstr "Перемещение участника"
+
+msgid "Disconnect Member"
+msgstr "Отключение участника"
+
+msgid "Add Bot"
+msgstr "Добавление бота"
+
+msgid "Update Thread"
+msgstr "Изменение ветки"
+
+msgid "Delete Thread"
+msgstr "Удаление ветки"
+
+msgid "Delete Role"
+msgstr "Удаление роли"
+
+msgid "Move Role"
+msgstr "Перемещение роли"
+
+msgid "Create Customization Question"
+msgstr "Создание вопроса настройки"
+
+msgid "Update Customization Question"
+msgstr "Изменение вопроса настройки"
+
+msgid "Delete Customization Question"
+msgstr "Удаление вопроса настройки"
+
+msgid "Create Onboarding"
+msgstr "Создание знакомства с сервером"
+
+msgid "Update Onboarding"
+msgstr "Изменение знакомства с сервером"
+
+msgid "Create Server Guide"
+msgstr "Создание путеводителя по серверу"
+
+msgid "Update Server Guide"
+msgstr "Изменение путеводителя по серверу"
+
+msgid "Update Invite"
+msgstr "Изменение приглашения"
+
+msgid "Delete Invite"
+msgstr "Удаление приглашения"
+
+msgid "Create Webhook"
+msgstr "Создание вебхука"
+
+msgid "Update Webhook"
+msgstr "Изменение вебхука"
+
+msgid "Delete Webhook"
+msgstr "Удаление вебхука"
+
+msgid "Create Emoji"
+msgstr "Создание эмодзи"
+
+msgid "Update Emoji"
+msgstr "Изменение эмодзи"
+
+msgid "Delete Emoji"
+msgstr "Удаление эмодзи"
+
+msgid "Delete Messages"
+msgstr "Удаление сообщений"
+
+msgid "Bulk Delete Messages"
+msgstr "Массовое удаление сообщений"
+
+msgid "Unpin Message"
+msgstr "Открепление сообщения"
+
+msgid "Create Integration"
+msgstr "Создание интеграции"
+
+msgid "Update Integration"
+msgstr "Изменение интеграции"
+
+msgid "Delete Integration"
+msgstr "Удаление интеграции"
+
+msgid "Create Sticker"
+msgstr "Создание стикера"
+
+msgid "Update Sticker"
+msgstr "Изменение стикера"
+
+msgid "Delete Sticker"
+msgstr "Удаление стикера"
+
+msgid "Start Stage"
+msgstr "Запуск сцены"
+
+msgid "Update Stage"
+msgstr "Изменение сцены"
+
+msgid "End Stage"
+msgstr "Завершение сцены"
+
+msgid "Create Event"
+msgstr "Создание события"
+
+msgid "Update Event"
+msgstr "Изменение события"
+
+msgid "Cancel Event"
+msgstr "Отмена события"
+
+msgid "Update Command Permissions"
+msgstr "Изменение прав команды"
+
+msgid "AutoMod Block Message"
+msgstr "Блокировка сообщения AutoMod"
+
+msgid "Create AutoMod Rule"
+msgstr "Создание правила AutoMod"
+
+msgid "Update AutoMod Rule"
+msgstr "Изменение правила AutoMod"
+
+msgid "Cancel AutoMod Rule"
+msgstr "Отмена правила AutoMod"
+
+msgid "Feature Item on Home"
+msgstr "Добавление на главную страницу"
+
+msgid "Remove Item from Home"
+msgstr "Удаление с главной страницы"
+
+msgid "Create Soundboard Sound"
+msgstr "Добавление звука в звуковую панель"
+
+msgid "Update Soundboard Sound"
+msgstr "Изменение звука звуковой панели"
+
+msgid "Delete Soundboard Sound"
+msgstr "Удаление звука звуковой панели"
+
+msgid "Create Voice Channel Status"
+msgstr "Создание статуса голосового канала"
+
+msgid "Delete Voice Channel Status"
+msgstr "Удаление статуса голосового канала"
