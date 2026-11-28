@@ -412,7 +412,7 @@ impl Icon {
     fn svg(self) -> &'static str {
         macro_rules! icon {
             ($file:literal) => {
-                include_str!(concat!("../icons/", $file))
+                include_str!(concat!("../../../assets/icons/ui/", $file))
             };
         }
         match self {

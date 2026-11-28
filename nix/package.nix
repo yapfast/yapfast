@@ -20,8 +20,7 @@ rustPlatform.buildRustPackage {
     root = ../.;
     fileset = lib.fileset.unions [
       ../Cargo.toml ../Cargo.lock ../build.rs ../src ../crates ../vendor ../packaging
-      # Built into yapfast-core for `yapfast theme new`.
-      ../themes/template
+      ../assets/fonts ../assets/icons ../assets/keybinds ../assets/sounds ../assets/themes ../assets/twemoji
       # A workspace member, which cargo reads even though the build leaves it out.
       ../testing/hosts/Cargo.toml ../testing/tray_host.rs ../testing/record_host.rs
     ];
@@ -62,7 +61,7 @@ rustPlatform.buildRustPackage {
   # tables were 55 MB of the binary.
   stripAllList = [ "bin" ];
   postInstall = ''
-    install -Dm644 packaging/icon.svg "$out/share/icons/hicolor/scalable/apps/${id}.svg"
+    install -Dm644 assets/icons/app/icon.svg "$out/share/icons/hicolor/scalable/apps/${id}.svg"
     install -Dm644 packaging/linux/${id}.desktop -t "$out/share/applications"
     install -Dm644 packaging/linux/${id}.metainfo.xml -t "$out/share/metainfo"
     # The GPU, audio and screen capture libraries are loaded at runtime, and

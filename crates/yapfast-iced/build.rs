@@ -1,4 +1,4 @@
-//! Makes Twemoji's pictures (vendor/twemoji) a font for the window to carry.
+//! Makes Twemoji's pictures (assets/twemoji) a font for the window to carry.
 
 use std::{
     env, fs,
@@ -9,7 +9,7 @@ use std::{
 mod emoji_font_tables;
 
 fn main() {
-    println!("cargo:rerun-if-changed=../../vendor/twemoji/72x72");
+    println!("cargo:rerun-if-changed=../../assets/twemoji/72x72");
     println!("cargo:rerun-if-changed=src/emoji_font_tables.rs");
     pack_twemoji();
 }
@@ -19,7 +19,7 @@ fn main() {
 /// transparent margin the font's bitmaps have; `emoji_font_tables::TWEMOJI_MARGIN`
 /// says why.
 fn pack_twemoji() {
-    let folder = Path::new("../../vendor/twemoji/72x72");
+    let folder = Path::new("../../assets/twemoji/72x72");
     let mut pictures: Vec<(String, Vec<u8>)> = fs::read_dir(folder)
         .unwrap_or_else(|error| panic!("could not read {}: {error}", folder.display()))
         .filter_map(Result::ok)
@@ -38,7 +38,7 @@ fn pack_twemoji() {
         .collect();
     assert!(
         !pictures.is_empty(),
-        "vendor/twemoji/72x72 holds no pictures"
+        "assets/twemoji/72x72 holds no pictures"
     );
     // Each picture is a few milliseconds' work, so they share the machine's threads.
     let threads = std::thread::available_parallelism().map_or(1, usize::from);

@@ -1,4 +1,4 @@
-exclude = '^(vendor/|target/|\.local/|\.venv/|node_modules/)|(^|/)(Cargo|flake)\.lock$|\.(patch|svg)$|^ui/fonts/LICENSE'
+exclude = '^(vendor/|assets/twemoji/|target/|\.local/|\.venv/)|(^|/)(Cargo|flake)\.lock$|\.(patch|svg)$|^ui/fonts/LICENSE'
 
 [[repos]]
 repo = "builtin"

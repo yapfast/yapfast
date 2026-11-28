@@ -18,7 +18,7 @@ use crate::icon::APP_ID;
 
 /// The entry a package installs, whose Exec line names the AppImage instead.
 const ENTRY: &str = include_str!("../packaging/linux/io.github.yapfast.Yapfast.desktop");
-const ICON: &[u8] = include_bytes!("../packaging/icon.svg");
+const ICON: &[u8] = include_bytes!("../assets/icons/app/icon.svg");
 
 /// The AppImage this Yapfast runs from. An AppImage runs from a temporary
 /// mount, APPDIR, and names its file in APPIMAGE. Programs it starts inherit

@@ -5,28 +5,26 @@ fn font(file: &str) -> Option<&'static [u8]> {
     Some(match file {
         "AtkinsonHyperlegibleNext-Regular.ttf" => {
             include_bytes!(
-                "../../../../../crates/yapfast-iced-kit/fonts/AtkinsonHyperlegibleNext-Regular.ttf"
+                "../../../../../assets/fonts/atkinson-hyperlegible-next/AtkinsonHyperlegibleNext-Regular.ttf"
             )
         }
         "DisplayName-Tempo.ttf" => {
-            include_bytes!("../../../../../crates/yapfast-iced-kit/fonts/DisplayName-Tempo.ttf")
+            include_bytes!("../../../../../assets/fonts/display-names/DisplayName-Tempo.ttf")
         }
         "DisplayName-Modern.ttf" => {
-            include_bytes!("../../../../../crates/yapfast-iced-kit/fonts/DisplayName-Modern.ttf")
+            include_bytes!("../../../../../assets/fonts/display-names/DisplayName-Modern.ttf")
         }
         "DisplayName-MonkeyBars.ttf" => {
-            include_bytes!(
-                "../../../../../crates/yapfast-iced-kit/fonts/DisplayName-MonkeyBars.ttf"
-            )
+            include_bytes!("../../../../../assets/fonts/display-names/DisplayName-MonkeyBars.ttf")
         }
         "DisplayName-Journal.ttf" => {
-            include_bytes!("../../../../../crates/yapfast-iced-kit/fonts/DisplayName-Journal.ttf")
+            include_bytes!("../../../../../assets/fonts/display-names/DisplayName-Journal.ttf")
         }
         "DisplayName-8Bit.ttf" => {
-            include_bytes!("../../../../../crates/yapfast-iced-kit/fonts/DisplayName-8Bit.ttf")
+            include_bytes!("../../../../../assets/fonts/display-names/DisplayName-8Bit.ttf")
         }
         "DisplayName-Mainframe.ttf" => {
-            include_bytes!("../../../../../crates/yapfast-iced-kit/fonts/DisplayName-Mainframe.ttf")
+            include_bytes!("../../../../../assets/fonts/display-names/DisplayName-Mainframe.ttf")
         }
         _ => return None,
     })
@@ -439,9 +437,9 @@ fn a_font_is_read_for_its_name_licence_and_letters() {
         !facts.partial,
         "Atkinson Hyperlegible Next draws all of basic Latin"
     );
-    // Néo-castel has no ^ or ~ (crates/yapfast-iced-kit/fonts/README.md).
+    // Néo-castel has no ^ or ~ (docs/third-party/fonts.md).
     let medieval =
-        include_bytes!("../../../../../crates/yapfast-iced-kit/fonts/DisplayName-Medieval.otf");
+        include_bytes!("../../../../../assets/fonts/display-names/DisplayName-Medieval.otf");
     let facts = inspect_font(medieval).expect("a font");
     assert!(facts.partial);
     assert_eq!(facts.extension, "otf");
@@ -451,7 +449,7 @@ fn a_font_is_read_for_its_name_licence_and_letters() {
 fn an_imported_font_is_copied_into_the_theme_and_carried_by_it() {
     let folder = tempfile::tempdir().expect("a temporary folder");
     let bytes =
-        include_bytes!("../../../../../crates/yapfast-iced-kit/fonts/DisplayName-Medieval.otf");
+        include_bytes!("../../../../../assets/fonts/display-names/DisplayName-Medieval.otf");
     let imported = store_font(folder.path(), bytes).expect("kept");
     assert!(
         imported.file.starts_with("fonts/") && imported.file.ends_with(".otf"),

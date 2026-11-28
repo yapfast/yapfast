@@ -278,7 +278,7 @@ A theme is a folder: `theme.json` and the files it names. Four commands work
 on one with no window (`crates/yapfast-iced/src/theme_cli.rs`):
 
 - `yapfast theme new NAME [--light] [--from THEME] [--author NAME] [--id ID]
-  [--dir FOLDER] [--data-dir PATH]` makes `NAME`'s folder from `themes/template/`, or with
+  [--dir FOLDER] [--data-dir PATH]` makes `NAME`'s folder from `assets/themes/template/`, or with
   `--from` from a built-in theme, one of the person's own or an installed
   one, checks it and says what to do next.
 - `yapfast --theme-dev FOLDER` shows the theme in `FOLDER` over the theme

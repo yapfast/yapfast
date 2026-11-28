@@ -703,8 +703,8 @@ mod tests {
             ("selection", 0x59ff_9e64),
         ];
         let font: &[u8] =
-            include_bytes!("../../../../crates/yapfast-iced-kit/fonts/DisplayName-Journal.ttf");
-        let picture: &[u8] = include_bytes!("../../../../themes/template/preview.png");
+            include_bytes!("../../../../assets/fonts/display-names/DisplayName-Journal.ttf");
+        let picture: &[u8] = include_bytes!("../../../../assets/themes/template/preview.png");
         // The custom theme's own folder, as a theme creator keeps it: an
         // imported font, a background picture and their licences.
         let directory = tempfile::tempdir().unwrap();

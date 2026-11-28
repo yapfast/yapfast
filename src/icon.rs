@@ -121,7 +121,7 @@ impl Artwork {
 
     #[cfg(any(target_os = "linux", windows))]
     pub fn window(&self, size: u32) -> Option<Rgba> {
-        let svg = include_str!("../packaging/icon.svg");
+        let svg = include_str!("../assets/icons/app/icon.svg");
         match self {
             Self::Default => rasterize(svg.as_bytes(), size),
             Self::Theme(theme) => {
@@ -154,7 +154,7 @@ impl Artwork {
                 return Some(rgba(pixels));
             }
         };
-        let mut svg = include_str!("../crates/yapfast-iced-kit/icons/logo.svg").replacen(
+        let mut svg = include_str!("../assets/icons/ui/logo.svg").replacen(
             r##"fill="#fff" mask"##,
             &format!("fill=\"#{accent:06x}\" mask"),
             1,

@@ -5,6 +5,7 @@ use std::{env, fs, path::PathBuf, process::Command};
 
 fn main() {
     println!("cargo:rerun-if-changed=packaging/windows");
+    println!("cargo:rerun-if-changed=assets/icons/app/yapfast.ico");
     build_info();
     if env::var("CARGO_CFG_TARGET_OS").as_deref() == Ok("windows") {
         windows_resources();

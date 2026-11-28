@@ -199,15 +199,22 @@ impl<'a> Page<'a> {
         for (row, binding) in self.cx.layout.keybinds.iter().enumerate() {
             custom = custom.push(self.keybind_row(row, binding));
         }
-        let defaults = column![
+        let defaults = &*crate::shortcuts::DEFAULTS;
+        let help = &defaults.help;
+        let heading = column![
             form::title(theme, "Default Keybinds"),
-            shortcut_card(theme, &[crate::shortcuts::HELP]),
+            shortcut_card(theme, [(help.0.as_str(), help.1.as_str())]),
         ]
         .spacing(24);
-        let mut parts = column![custom, defaults].spacing(40);
-        for &(heading, description, shortcuts) in crate::shortcuts::GROUPS {
+        let mut parts = column![custom, heading].spacing(40);
+        for group in &defaults.groups {
+            let shortcuts = group
+                .shortcuts
+                .iter()
+                .map(|(label, keys)| (label.as_str(), keys.as_str()));
+            let description = group.description.as_deref();
             let mut group = column![
-                text(heading)
+                text(group.heading.as_str())
                     .size(18)
                     .font(crate::fonts::SEMIBOLD)
                     .color(theme.text)
@@ -370,9 +377,12 @@ impl<'a> Page<'a> {
     }
 }
 
-fn shortcut_card<'a>(theme: &Theme, shortcuts: &[(&'a str, &'a str)]) -> Element<'a, Message> {
+fn shortcut_card<'a>(
+    theme: &Theme,
+    shortcuts: impl IntoIterator<Item = (&'a str, &'a str)>,
+) -> Element<'a, Message> {
     let mut rows = column![];
-    for (index, &(label, keys)) in shortcuts.iter().enumerate() {
+    for (index, (label, keys)) in shortcuts.into_iter().enumerate() {
         if index > 0 {
             rows = rows.push(crate::controls::bar(theme.line, Length::Fill, 1));
         }

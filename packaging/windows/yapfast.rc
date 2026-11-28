@@ -1,6 +1,6 @@
 // Yapfast's icon, which Explorer shows for yapfast.exe and its shortcuts, and the
 // window loads by its number (src/icon.rs). scripts/make-windows-icon draws it.
-1 ICON "yapfast.ico"
+1 ICON "../../assets/icons/app/yapfast.ico"
 
 // Windows displays FileDescription in the Task Manager Processes tab.
 1 VERSIONINFO

@@ -196,17 +196,18 @@ fn find_clang_cl() -> Option<PathBuf> {
         })
 }
 
-/// Lists `themes/template/` for `yapfast theme new`, which writes a new
+/// Lists `assets/themes/template/` for `yapfast theme new`, which writes a new
 /// theme's folder from it: `OUT_DIR/theme_template.rs` holds each file's
 /// path in the folder and its bytes.
 fn theme_template() {
-    let root = PathBuf::from(env::var("CARGO_MANIFEST_DIR").unwrap()).join("../../themes/template");
+    let root =
+        PathBuf::from(env::var("CARGO_MANIFEST_DIR").unwrap()).join("../../assets/themes/template");
     println!("cargo:rerun-if-changed={}", root.display());
     let mut files = Vec::new();
     let mut folders = vec![root.clone()];
     while let Some(folder) = folders.pop() {
-        for entry in std::fs::read_dir(&folder).expect("themes/template is there") {
-            let path = entry.expect("themes/template reads").path();
+        for entry in std::fs::read_dir(&folder).expect("assets/themes/template is there") {
+            let path = entry.expect("assets/themes/template reads").path();
             if path
                 .file_name()
                 .is_some_and(|name| name.to_string_lossy().starts_with('.'))
@@ -229,8 +230,9 @@ fn theme_template() {
         }
     }
     files.sort();
-    let mut out =
-        String::from("/// `themes/template/`'s files: each path in the folder and its bytes.\n");
+    let mut out = String::from(
+        "/// `assets/themes/template/`'s files: each path in the folder and its bytes.\n",
+    );
     out.push_str("pub(crate) const TEMPLATE: &[(&str, &[u8])] = &[\n");
     for (relative, path) in &files {
         let _ = writeln!(

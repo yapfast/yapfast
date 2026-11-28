@@ -436,26 +436,26 @@ fn font_bytes(file: &str) -> Option<&'static [u8]> {
     Some(match file {
         "AtkinsonHyperlegibleNext-Regular.ttf" => {
             include_bytes!(
-                "../../../../crates/yapfast-iced-kit/fonts/AtkinsonHyperlegibleNext-Regular.ttf"
+                "../../../../assets/fonts/atkinson-hyperlegible-next/AtkinsonHyperlegibleNext-Regular.ttf"
             )
         }
         "DisplayName-Tempo.ttf" => {
-            include_bytes!("../../../../crates/yapfast-iced-kit/fonts/DisplayName-Tempo.ttf")
+            include_bytes!("../../../../assets/fonts/display-names/DisplayName-Tempo.ttf")
         }
         "DisplayName-Modern.ttf" => {
-            include_bytes!("../../../../crates/yapfast-iced-kit/fonts/DisplayName-Modern.ttf")
+            include_bytes!("../../../../assets/fonts/display-names/DisplayName-Modern.ttf")
         }
         "DisplayName-MonkeyBars.ttf" => {
-            include_bytes!("../../../../crates/yapfast-iced-kit/fonts/DisplayName-MonkeyBars.ttf")
+            include_bytes!("../../../../assets/fonts/display-names/DisplayName-MonkeyBars.ttf")
         }
         "DisplayName-Journal.ttf" => {
-            include_bytes!("../../../../crates/yapfast-iced-kit/fonts/DisplayName-Journal.ttf")
+            include_bytes!("../../../../assets/fonts/display-names/DisplayName-Journal.ttf")
         }
         "DisplayName-8Bit.ttf" => {
-            include_bytes!("../../../../crates/yapfast-iced-kit/fonts/DisplayName-8Bit.ttf")
+            include_bytes!("../../../../assets/fonts/display-names/DisplayName-8Bit.ttf")
         }
         "DisplayName-Mainframe.ttf" => {
-            include_bytes!("../../../../crates/yapfast-iced-kit/fonts/DisplayName-Mainframe.ttf")
+            include_bytes!("../../../../assets/fonts/display-names/DisplayName-Mainframe.ttf")
         }
         _ => return None,
     })

@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="packaging/icon.svg" width="96" height="96" alt="">
+  <img src="assets/icons/app/icon.svg" width="96" height="96" alt="">
 </p>
 
 <h1 align="center">Yapfast</h1>
@@ -29,7 +29,7 @@
 </p>
 
 <p align="center">
-  <img src="docs/images/yapfast.png" alt="Yapfast showing a group DM, with the server list on the left, the conversation in the middle and its members on the right"><br>
+  <img src="assets/images/yapfast.png" alt="Yapfast showing a group DM, with the server list on the left, the conversation in the middle and its members on the right"><br>
   <sub>A test account on a fake Discord server. Nobody in there said any of this, or endorses Yapfast (sadly).</sub>
 </p>
 
@@ -100,7 +100,7 @@ My favorite part :p Your favorites live on disk as 40 KB clips, so they're
 there the moment it opens, and you're done sitting there cringing while the
 GOATed GIF loads.
 
-<img src="docs/images/features/gif-picker.webp" alt="The GIF picker opening on its favorites over #general, and one of them sent to the channel.">
+<img src="assets/images/features/gif-picker.webp" alt="The GIF picker opening on its favorites over #general, and one of them sent to the channel.">
 
 ### Voice, cameras and Go Live
 
@@ -117,7 +117,7 @@ whose camera is on.
 The noise suppression could be better, though. Know an open source one that
 does a better job? PLEASE tell me.
 
-<img src="docs/images/features/voice.webp" alt="A voice channel of seven people, two with their cameras on. One person's stream opens large, then the grid comes back.">
+<img src="assets/images/features/voice.webp" alt="A voice channel of seven people, two with their cameras on. One person's stream opens large, then the grid comes back.">
 
 ### Forums and polls
 
@@ -125,10 +125,10 @@ Browse a forum's posts as cards, with their tags, first message, top reaction
 and thumbnail, search them, post in them, and read one beside the forum. Vote
 in polls, watch the votes come in, make your own and end them early.
 
-<img src="docs/images/features/forum.webp" alt="A help forum's posts as cards; one opens beside the list with its replies, then closes.">
+<img src="assets/images/features/forum.webp" alt="A help forum's posts as cards; one opens beside the list with its replies, then closes.">
 
 <p align="center">
-  <img src="docs/images/features/poll.webp" width="640" alt="A movie night poll: an answer is picked and voted for, and the results fill in.">
+  <img src="assets/images/features/poll.webp" width="640" alt="A movie night poll: an answer is picked and voted for, and the results fill in.">
 </p>
 
 ### Themes
@@ -137,7 +137,7 @@ Ten of them, Catppuccin and Tokyo Night among them, and Bonfire, which is
 Discord's own colors. Or make your own in the editor, and watch the window
 change as you type each color.
 
-<img src="docs/images/features/themes.webp" alt="The same channel in each of the ten built-in themes, one after another.">
+<img src="assets/images/features/themes.webp" alt="The same channel in each of the ten built-in themes, one after another.">
 
 ### Games on your profile
 
@@ -156,7 +156,7 @@ Yapfast open, from any player, as Discord's own "Display Spotify as your status"
 setting says. See [Spotify](docs/discord/people.md#listening-to-spotify).
 
 <p align="center">
-  <img src="docs/images/features/playing.webp" width="260" alt="A profile card saying Playing Deadlock, with the game's icon.">
+  <img src="assets/images/features/playing.webp" width="260" alt="A profile card saying Playing Deadlock, with the game's icon.">
 </p>
 
 ### Running a server
@@ -171,7 +171,7 @@ link in chat, and open a scheduled event from its link to mark yourself
 interested. Folders show up as they do in Discord.
 
 <p align="center">
-  <img src="docs/images/features/server-settings.webp" width="640" alt="Server Settings on a role's Display page: its name, a gold color picked, and its icon.">
+  <img src="assets/images/features/server-settings.webp" width="640" alt="Server Settings on a role's Display page: its name, a gold color picked, and its icon.">
 </p>
 
 ### Everything else

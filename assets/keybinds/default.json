@@ -1,0 +1,77 @@
+{
+  "bindings": [
+    { "modifiers": "ctrl", "key": "/", "action": "help" },
+    { "modifiers": "ctrl_shift", "key": "/", "action": "help" },
+    { "modifiers": "ctrl", "key": "'", "action": "start_call" },
+    { "modifiers": "ctrl_shift", "key": "'", "action": "start_call" },
+    { "modifiers": "ctrl", "key": "enter", "action": "answer" },
+    { "modifiers": "ctrl_alt", "key": "arrow_up", "action": "previous_server" },
+    { "modifiers": "ctrl_alt", "key": "arrow_down", "action": "next_server" },
+    { "modifiers": "ctrl", "key": "p", "action": "pins" },
+    { "modifiers": "ctrl", "key": "i", "action": "inbox" },
+    { "modifiers": "ctrl", "key": "u", "action": "members" },
+    { "modifiers": "ctrl", "key": "e", "action": "emoji" },
+    { "modifiers": "ctrl", "key": "s", "action": "stickers" },
+    { "modifiers": "ctrl_shift", "key": "m", "action": "mute" },
+    { "modifiers": "ctrl_shift", "key": "d", "action": "deafen" },
+    { "modifiers": "ctrl_shift", "key": "u", "action": "upload" },
+    { "modifiers": "ctrl_shift", "key": "l", "action": "copy_link" },
+    { "modifiers": "ctrl_shift", "key": "n", "action": "join_server" },
+    { "modifiers": "ctrl_alt_shift", "key": "v", "action": "current_call" }
+  ],
+  "help": ["Show Keyboard Shortcuts List", "Ctrl + /"],
+  "groups": [
+    {
+      "heading": "Messages",
+      "description": "These shortcuts work when focused on a message. Alt + Up from the composer focuses messages.",
+      "shortcuts": [
+        ["Edit Message", "E"],
+        ["Delete Message", "Backspace"],
+        ["Pin Message", "P"],
+        ["Add Reaction", "+"],
+        ["Reply", "R"],
+        ["Forward Message", "F"],
+        ["Copy Text", "Ctrl + C"],
+        ["Mark Unread", "Alt + Enter"],
+        ["Focus text area", "Esc"]
+      ]
+    },
+    {
+      "heading": "Navigation",
+      "shortcuts": [
+        ["Navigate between servers", "Ctrl + Alt + Up / Down"],
+        ["Navigate forward and backward in page history", "Alt + Left / Right"],
+        ["Navigate to current call", "Ctrl + Shift + Alt + V"],
+        ["Toggle QuickSwitcher", "Ctrl + K"],
+        ["Create or join a server", "Ctrl + Shift + N"]
+      ]
+    },
+    {
+      "heading": "Chat",
+      "shortcuts": [
+        ["Toggle pins popout", "Ctrl + P"],
+        ["Toggle inbox popout", "Ctrl + I"],
+        ["Toggle channel member list or voice text chat", "Ctrl + U"],
+        ["Toggle emoji picker", "Ctrl + E"],
+        ["Toggle GIF picker", "Ctrl + G"],
+        ["Toggle sticker picker", "Ctrl + S"],
+        ["Focus text area", "Type anywhere"],
+        ["Upload a file", "Ctrl + Shift + U"],
+        ["Copy channel link", "Ctrl + Shift + L"]
+      ]
+    },
+    {
+      "heading": "Voice and Video",
+      "shortcuts": [
+        ["Toggle mute", "Ctrl + Shift + M"],
+        ["Toggle deafen", "Ctrl + Shift + D"],
+        ["Answer incoming call", "Ctrl + Enter"],
+        ["Start call in private message or group", "Ctrl + '"]
+      ]
+    },
+    {
+      "heading": "Miscellaneous",
+      "shortcuts": [["Search", "Ctrl + F"]]
+    }
+  ]
+}

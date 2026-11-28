@@ -1,3 +1,5 @@
+# Interface icons
+
 Most icons come from Solar, the icon set by 480 Design
 (https://www.figma.com/community/file/1166831539721848736), under CC BY 4.0
 (https://creativecommons.org/licenses/by/4.0/). They were taken from Iconify's
@@ -49,8 +51,9 @@ glyphs such as check, x and chevrons.
   sign (`-warning`), for a private and an age-restricted channel. The
   badges are drawn for Yapfast; the icons under them are the ones above.
 
-The rest are Lucide icons (https://lucide.dev/), under the accompanying
-LICENSE (ISC): calendar, check, chevron-down, chevron-left, chevron-right,
+The rest are Lucide icons (https://lucide.dev/). The accompanying ISC licence
+is in `assets/licenses/icons/LICENSE` and ships as `licenses/icons/LICENSE`.
+These icons include calendar, check, chevron-down, chevron-left, chevron-right,
 hand, maximize, minimize, minus, restore, slash, square and x. restore is
 Lucide's copy icon, which the title bar shows for its restore button. forward
 and reply are Lucide's corner-up-right and corner-up-left.

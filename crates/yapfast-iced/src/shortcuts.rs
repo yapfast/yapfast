@@ -1,10 +1,13 @@
 //! Built-in shortcuts for the focused window. Custom global keybinds
 //! remain the desktop watcher's responsibility.
 
+use std::sync::LazyLock;
+
 use iced::{
     Task,
     keyboard::{Key, Modifiers, key},
 };
+use serde::Deserialize;
 use yapfast_core::application::Navigation;
 
 use crate::{
@@ -12,7 +15,8 @@ use crate::{
     picker::{Tab, Target},
 };
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
 pub enum Shortcut {
     Help,
     Mute,
@@ -28,7 +32,94 @@ pub enum Shortcut {
     CurrentCall,
     Answer,
     StartCall,
-    Server(bool),
+    PreviousServer,
+    NextServer,
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct Keymap {
+    bindings: Vec<Binding>,
+    pub help: (String, String),
+    pub groups: Vec<Group>,
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct Group {
+    pub heading: String,
+    pub description: Option<String>,
+    pub shortcuts: Vec<(String, String)>,
+}
+
+pub static DEFAULTS: LazyLock<Keymap> = LazyLock::new(|| {
+    serde_json::from_str(include_str!("../../../assets/keybinds/default.json"))
+        .expect("assets/keybinds/default.json contains a valid built-in keymap")
+});
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct Binding {
+    #[serde(deserialize_with = "deserialize_modifiers")]
+    modifiers: Modifiers,
+    key: BoundKey,
+    action: Shortcut,
+}
+
+fn deserialize_modifiers<'de, D: serde::Deserializer<'de>>(
+    deserializer: D,
+) -> Result<Modifiers, D::Error> {
+    #[derive(Deserialize)]
+    #[serde(rename_all = "snake_case")]
+    enum Chord {
+        Ctrl,
+        CtrlShift,
+        CtrlAlt,
+        CtrlAltShift,
+    }
+    let ctrl = Modifiers::CTRL;
+    Ok(match Chord::deserialize(deserializer)? {
+        Chord::Ctrl => ctrl,
+        Chord::CtrlShift => ctrl | Modifiers::SHIFT,
+        Chord::CtrlAlt => ctrl | Modifiers::ALT,
+        Chord::CtrlAltShift => ctrl | Modifiers::ALT | Modifiers::SHIFT,
+    })
+}
+
+#[derive(Deserialize)]
+#[serde(untagged)]
+enum BoundKey {
+    Character(char),
+    Named(NamedKey),
+}
+
+#[derive(Clone, Copy, Deserialize)]
+#[serde(rename_all = "snake_case")]
+enum NamedKey {
+    Enter,
+    ArrowUp,
+    ArrowDown,
+}
+
+impl BoundKey {
+    fn matches(&self, key: &Key, latin: Option<char>) -> bool {
+        match *self {
+            Self::Character(character) if character.is_ascii_alphabetic() => {
+                latin == Some(character.to_ascii_lowercase())
+            }
+            Self::Character(character) => {
+                matches!(key, Key::Character(text) if text.chars().eq([character]))
+            }
+            Self::Named(named) => {
+                let expected = match named {
+                    NamedKey::Enter => key::Named::Enter,
+                    NamedKey::ArrowUp => key::Named::ArrowUp,
+                    NamedKey::ArrowDown => key::Named::ArrowDown,
+                };
+                key == &Key::Named(expected)
+            }
+        }
+    }
 }
 
 /// A configured desktop binding has priority, so its toggle cannot run
@@ -91,49 +182,17 @@ pub fn heard(
 
 /// Exact modifiers keep AltGr, text editing and larger chords separate.
 pub fn pressed(key: &Key, physical: key::Physical, modifiers: Modifiers) -> Option<Shortcut> {
-    use Shortcut::*;
-    let ctrl = Modifiers::CTRL;
-    let shift = ctrl | Modifiers::SHIFT;
-    let alt = ctrl | Modifiers::ALT;
-    let call = shift | Modifiers::ALT;
-    // Discord binds Ctrl+/ and Ctrl+' with Shift too, where a layout
-    // needs Shift for the character.
-    if modifiers == ctrl || modifiers == shift {
-        if key.as_ref() == Key::Character("/") {
-            return Some(Help);
-        }
-        if key.as_ref() == Key::Character("'") {
-            return Some(StartCall);
-        }
-    }
-    if modifiers == ctrl && key == &Key::Named(key::Named::Enter) {
-        return Some(Answer);
-    }
-    if modifiers == alt {
-        return match key {
-            Key::Named(key::Named::ArrowUp) => Some(Server(false)),
-            Key::Named(key::Named::ArrowDown) => Some(Server(true)),
-            _ => None,
-        };
-    }
-    if modifiers != ctrl && modifiers != shift && modifiers != call {
+    if !modifiers.control() || modifiers.logo() {
         return None;
     }
-    let letter = key.to_latin(physical)?.to_ascii_lowercase();
-    match (modifiers, letter) {
-        (m, 'p') if m == ctrl => Some(Pins),
-        (m, 'i') if m == ctrl => Some(Inbox),
-        (m, 'u') if m == ctrl => Some(Members),
-        (m, 'e') if m == ctrl => Some(Emoji),
-        (m, 's') if m == ctrl => Some(Stickers),
-        (m, 'm') if m == shift => Some(Mute),
-        (m, 'd') if m == shift => Some(Deafen),
-        (m, 'u') if m == shift => Some(Upload),
-        (m, 'l') if m == shift => Some(CopyLink),
-        (m, 'n') if m == shift => Some(JoinServer),
-        (m, 'v') if m == call => Some(CurrentCall),
-        _ => None,
-    }
+    let latin = key
+        .to_latin(physical)
+        .map(|letter| letter.to_ascii_lowercase());
+    DEFAULTS
+        .bindings
+        .iter()
+        .find(|binding| binding.modifiers == modifiers && binding.key.matches(key, latin))
+        .map(|binding| binding.action)
 }
 
 pub fn update(app: &mut App, shortcut: Shortcut) -> Task<Message> {
@@ -209,7 +268,8 @@ pub fn update(app: &mut App, shortcut: Shortcut) -> Task<Message> {
         StartCall if app.header.can_call && app.header.can_join => {
             crate::call::update(app, crate::call::Event::Start(false))
         }
-        Server(forward) => {
+        PreviousServer | NextServer => {
+            let forward = shortcut == NextServer;
             // Borrow the existing server order; allocate only the chosen id.
             let state = app.client.state();
             let current = match &state.navigation {
@@ -235,80 +295,6 @@ pub fn update(app: &mut App, shortcut: Shortcut) -> Task<Message> {
         _ => Task::none(),
     }
 }
-
-/// The list's own shortcut, which Discord shows on its own above the
-/// groups.
-pub const HELP: (&str, &str) = ("Show Keyboard Shortcuts List", "Ctrl + /");
-
-/// A group of the list: its heading, what it says under it, and its
-/// shortcuts' words and keys.
-pub type Group = (
-    &'static str,
-    Option<&'static str>,
-    &'static [(&'static str, &'static str)],
-);
-
-/// The shortcuts Settings → Keybinds lists, in Discord's groups, order and
-/// words (its `TOGGLE_HOTKEYS` list), keeping those the app has.
-pub const GROUPS: &[Group] = &[
-    (
-        "Messages",
-        Some(
-            "These shortcuts work when focused on a message. Alt + Up from the composer focuses messages.",
-        ),
-        &[
-            ("Edit Message", "E"),
-            ("Delete Message", "Backspace"),
-            ("Pin Message", "P"),
-            ("Add Reaction", "+"),
-            ("Reply", "R"),
-            ("Forward Message", "F"),
-            ("Copy Text", "Ctrl + C"),
-            ("Mark Unread", "Alt + Enter"),
-            ("Focus text area", "Esc"),
-        ],
-    ),
-    (
-        "Navigation",
-        None,
-        &[
-            ("Navigate between servers", "Ctrl + Alt + Up / Down"),
-            (
-                "Navigate forward and backward in page history",
-                "Alt + Left / Right",
-            ),
-            ("Navigate to current call", "Ctrl + Shift + Alt + V"),
-            ("Toggle QuickSwitcher", "Ctrl + K"),
-            ("Create or join a server", "Ctrl + Shift + N"),
-        ],
-    ),
-    (
-        "Chat",
-        None,
-        &[
-            ("Toggle pins popout", "Ctrl + P"),
-            ("Toggle inbox popout", "Ctrl + I"),
-            ("Toggle channel member list or voice text chat", "Ctrl + U"),
-            ("Toggle emoji picker", "Ctrl + E"),
-            ("Toggle GIF picker", "Ctrl + G"),
-            ("Toggle sticker picker", "Ctrl + S"),
-            ("Focus text area", "Type anywhere"),
-            ("Upload a file", "Ctrl + Shift + U"),
-            ("Copy channel link", "Ctrl + Shift + L"),
-        ],
-    ),
-    (
-        "Voice and Video",
-        None,
-        &[
-            ("Toggle mute", "Ctrl + Shift + M"),
-            ("Toggle deafen", "Ctrl + Shift + D"),
-            ("Answer incoming call", "Ctrl + Enter"),
-            ("Start call in private message or group", "Ctrl + '"),
-        ],
-    ),
-    ("Miscellaneous", None, &[("Search", "Ctrl + F")]),
-];
 
 #[cfg(test)]
 mod tests {

@@ -96,7 +96,7 @@ build() {
 package() {
   cd "$pkgname"
   install -Dm755 target/release/yapfast -t "$pkgdir/usr/bin"
-  install -Dm644 packaging/icon.svg "$pkgdir/usr/share/icons/hicolor/scalable/apps/$_id.svg"
+  install -Dm644 assets/icons/app/icon.svg "$pkgdir/usr/share/icons/hicolor/scalable/apps/$_id.svg"
   install -Dm644 "packaging/linux/$_id.desktop" -t "$pkgdir/usr/share/applications"
   install -Dm644 "packaging/linux/$_id.metainfo.xml" -t "$pkgdir/usr/share/metainfo"
 }

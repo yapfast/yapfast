@@ -172,9 +172,11 @@ pub(crate) mod tests {
     use std::io::Write;
 
     /// A TrueType font, 41 KB.
-    const REGULAR: &[u8] = include_bytes!("../fonts/DisplayName-Journal.ttf");
+    const REGULAR: &[u8] =
+        include_bytes!("../../../assets/fonts/display-names/DisplayName-Journal.ttf");
     /// An OpenType font with CFF outlines, 17 KB.
-    const MEDIEVAL: &[u8] = include_bytes!("../fonts/DisplayName-Medieval.otf");
+    const MEDIEVAL: &[u8] =
+        include_bytes!("../../../assets/fonts/display-names/DisplayName-Medieval.otf");
 
     /// The tables of an sfnt by tag, read strictly: the directory must be in
     /// order and every table inside the file.

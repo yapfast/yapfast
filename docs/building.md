@@ -27,6 +27,21 @@ It also builds the AppDir that the [AppImage](packaging.md#linux-appimage) is pa
 in `outputHashes`. Moving a Git dependency to another commit needs a new
 hash there; a `nix build` with the old one prints it.
 
+## App assets
+
+The repository's `assets/` directory holds the app icons in `icons/app/`
+and the interface icons in `icons/ui/`. The `fonts/` directory is split into
+`dm-sans/`, `atkinson-hyperlegible-next/` and `display-names/`.
+Screenshots for the README and AppStream are in `images/`, recorded
+instruments in `sounds/instruments/`, Twemoji artwork in `twemoji/`,
+and the built-in template for `yapfast theme new` in `themes/template/`.
+Third-party licences are in `licenses/`. The window embeds
+`keybinds/default.json` for its [built-in shortcuts](keybinds.md).
+The `settings/` directory is reserved for data files.
+See the attribution
+for [fonts](third-party/fonts.md), [icons](third-party/icons.md) and
+[Twemoji](third-party/twemoji.md).
+
 ## Dependencies
 
 Yapfast pins Rust 1.100 and iced 0.14.0. Cargo.lock pins the complete Rust
@@ -38,18 +53,18 @@ The Matrix SDK revision follows the pinned MatrixRTC revision. Keep those two
 sources together when upgrading.
 
 Every emoji Yapfast draws, in the picker, reactions, suggestions, names and
-message text, is drawn from Twemoji's pictures, the artwork Discord's client uses: `vendor/twemoji` is
+message text, is drawn from Twemoji's pictures, the artwork Discord's client
+uses. `assets/twemoji` contains
 `assets/72x72` from https://github.com/discord/twemoji at the revision
-`vendor/twemoji/REVISION` names, under CC-BY 4.0, which asks for the attribution
-`vendor/twemoji/README.yapfast.md` gives. `crates/yapfast-iced/build.rs` makes them
+`assets/twemoji/REVISION` names, under CC-BY 4.0. The [Twemoji attribution](third-party/twemoji.md)
+lists the source and credits. `crates/yapfast-iced/build.rs` makes them
 one font the window loads (`emoji_font_tables.rs` beside it writes the font's
 tables). The font maps each single emoji's own code point and joins each sequence
 of several, such as a flag or a skin tone, into its picture with GSUB ligatures, so
 text draws Twemoji's picture for an emoji as typed; no system emoji font is used,
 and the picker lists only the emoji Twemoji has a picture for. `scripts/release_package.py` copies the
-licences and attribution into each package and `THIRD-PARTY.json`. Update by
-taking the new commit's files over these, as `vendor/twemoji/README.yapfast.md`
-says.
+licences and attribution into each package and lists Twemoji in `THIRD-PARTY.json`.
+See [how to update the artwork](third-party/twemoji.md#updating).
 
 LiveKit's Rust crates must stay on the mutually compatible versions in
 Cargo.lock. The manifests pin the LiveKit API, protocol and WebRTC build

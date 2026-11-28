@@ -1435,7 +1435,7 @@ fn a_theme_cuts_peoples_names_only_once_let() {
     let face = |name: &str| {
         std::fs::read(
             std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
-                .join("../yapfast-iced-kit/fonts")
+                .join("../../assets/fonts/display-names")
                 .join(name),
         )
         .expect("a face")

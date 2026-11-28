@@ -897,10 +897,9 @@ text draws no gradients or strokes.
 - **Fonts**, by `font_id`: 11 is the usual font, then Sakura 3, Jellybean 4,
   Modern 6, Medieval 7, 8Bit 8, Vampyre 10, Tempo 12, Monkey Bars 13,
   Mainframe 14, Headbang 15 and Journal 16, bundled in
-  `crates/yapfast-iced-kit/fonts` (see [its
-  README](../../crates/yapfast-iced-kit/fonts/README.md) for where each
-  came from and its
-  licence). A name in a script the font lacks shows in the usual font.
+  `assets/fonts/display-names`. See the [font attribution](../third-party/fonts.md)
+  for each font's source and licence. A name in a script the font lacks shows in
+  the usual font.
 - **Effects**, by `effect_id`: solid 1, gradient 2 (the colours across the
   name from 10% to 90%), neon 3 (white letters edged in a lighter shade of
   the colour, with a halo), toon 4 (light bands edged in the dark shade),
@@ -1021,7 +1020,7 @@ Toon, Pop, Gummy or Prism) and its colours, from Discord's presets or one's
 own, with the name on a profile card, a message and a member row, in light or
 dark, and Surprise Me. The window draws each name as names are drawn
 everywhere else (`looks::name_look`, `paint::styled_name`), and
-offers Discord's eleven fonts, bundled in `crates/yapfast-iced-kit/fonts`.
+offers Discord's eleven fonts, bundled in `assets/fonts`.
 The usual font in
 Discord's usual white is no style at all. The server tag's chip beside the
 pronouns lists the servers this account is in that offer a tag, from their
