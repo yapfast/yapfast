@@ -359,9 +359,23 @@ pub fn timeline_row<'a>(ctx: crate::ctx::Ctx<'a>, index: usize) -> Element<'a, M
     let content = if carded {
         content.into()
     } else {
+        let mark_inset = match inset {
+            Some((across, down)) => Padding {
+                top: if head { 0.0 } else { top_space(look, spacing) } + down,
+                bottom: message_gap + down,
+                left: across,
+                right: across,
+            },
+            None => Padding::ZERO.top(gap),
+        };
         // As Slint's: a theme's row highlighter marks a plain row, not a
         // bubble's (Bubblegum's band ran the row's width under its pill).
-        crate::theme_effects::message_row(content, ctx, pointed && !bubbled(ctx, message))
+        crate::theme_effects::message_row(
+            content,
+            ctx,
+            pointed && !bubbled(ctx, message),
+            mark_inset,
+        )
     };
     whole = whole.push(
         mouse_area(content)

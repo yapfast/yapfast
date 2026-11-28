@@ -141,6 +141,7 @@ struct Effects {
     /// bar stands over the row's top edge, as Slint's, and isn't cut off
     /// there. The effects themselves stay inside the bounds.
     room: f32,
+    mark_inset: iced::Padding,
 }
 
 #[derive(Default)]
@@ -276,9 +277,27 @@ impl Hooks<Message> for Effects {
                 } else {
                     1.0
                 };
+                let area = Rectangle::new(
+                    Point::new(
+                        bounds.x + self.mark_inset.left,
+                        bounds.y + self.mark_inset.top,
+                    ),
+                    iced::Size::new(
+                        (bounds.width - (self.mark_inset.left + self.mark_inset.right)).max(0.0),
+                        (bounds.height - (self.mark_inset.top + self.mark_inset.bottom)).max(0.0),
+                    ),
+                );
+                let inset_y = if self.room > 0.0 {
+                    0.0
+                } else {
+                    area.height * 0.18
+                };
                 let mark = Rectangle::new(
-                    Point::new(bounds.x + 2.0, bounds.y + bounds.height * 0.18),
-                    iced::Size::new((bounds.width - 4.0).max(0.0) * amount, bounds.height * 0.64),
+                    Point::new(area.x + 2.0, area.y + inset_y),
+                    iced::Size::new(
+                        (area.width - 4.0).max(0.0) * amount,
+                        (area.height - inset_y * 2.0).max(0.0),
+                    ),
                 );
                 quad(
                     renderer,
@@ -398,6 +417,7 @@ pub fn message_row<'a>(
     content: impl Into<Element<'a, Message>>,
     ctx: crate::ctx::Ctx<'a>,
     hovered: bool,
+    mark_inset: iced::Padding,
 ) -> Element<'a, Message> {
     decorated_with_room(
         content,
@@ -405,6 +425,7 @@ pub fn message_row<'a>(
         Some((EventSlot::Row, hovered, false)),
         None,
         ROW_ROOM,
+        mark_inset,
     )
 }
 
@@ -437,7 +458,14 @@ fn decorated<'a>(
     highlighter: Option<(EventSlot, bool, bool)>,
     foil_surface: Option<FoilSurface>,
 ) -> Element<'a, Message> {
-    decorated_with_room(content, ctx, highlighter, foil_surface, 0.0)
+    decorated_with_room(
+        content,
+        ctx,
+        highlighter,
+        foil_surface,
+        0.0,
+        iced::Padding::ZERO,
+    )
 }
 
 fn decorated_with_room<'a>(
@@ -446,6 +474,7 @@ fn decorated_with_room<'a>(
     highlighter: Option<(EventSlot, bool, bool)>,
     foil_surface: Option<FoilSurface>,
     room: f32,
+    mark_inset: iced::Padding,
 ) -> Element<'a, Message> {
     let id = &ctx.look.theme.id;
     let click = ctx.themes.event_effect(id, EventSlot::Click);
@@ -480,6 +509,7 @@ fn decorated_with_room<'a>(
             running,
             fps,
             room,
+            mark_inset,
         },
     )
     .into()
