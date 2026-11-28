@@ -1149,6 +1149,13 @@ window goes. Leaving the channel lets the window go too, and only the
 newest go to disk. Pages loading for a window that a newer jump or the
 present replaced are dropped when they come.
 
+Scrolling up by hand makes a window too, as Discord's client does once it
+holds more than 120 messages: past the 200 a channel keeps, an earlier page
+leaves the oldest 200 showing as a window, and those after them wait beside
+it as above, so the pill shows. Scrolling down loads them back a page at a
+time; Jump to present, or leaving the channel, shows the newest 200 of the
+window and those beside it together, without asking Discord.
+
 The window holds what was asked for, not every page between it and the
 present. Growing upwards past 200 messages, it lets go of its newest,
 below the screen, which load again; growing downwards it keeps its oldest,

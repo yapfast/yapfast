@@ -161,6 +161,10 @@ pub struct OpenChannel {
     /// and show again when the window reaches them or on returning to the
     /// present, without asking Discord again.
     pub(super) latest: Option<Run>,
+    /// The window is the oldest of the messages that showed, cut from those
+    /// after it as it was scrolled up: it runs straight into
+    /// [`Self::latest`], and goes back with them ([`Self::rejoin`]).
+    cut: bool,
     pub(super) pending: Vec<Pending>,
     /// Nonces of messages sent from here, which keep their row as they arrive.
     pub(super) sent: HashSet<String>,
@@ -260,6 +264,7 @@ impl OpenChannel {
             members_of: channel.to_owned(),
             shown: Run::default(),
             latest: None,
+            cut: false,
             pending: Vec::new(),
             sent: HashSet::new(),
             deleted: HashSet::new(),
@@ -378,12 +383,30 @@ impl OpenChannel {
     /// Shows the channel's newest messages again in place of a window, as
     /// they were kept. A window on its way is dropped.
     pub fn present(&mut self) {
-        if let Some(latest) = self.latest.take() {
+        let window = std::mem::take(&mut self.shown);
+        if let Some(latest) = self.rejoin(window) {
             self.shown = latest;
             self.replaced();
         } else if self.focusing {
             self.replaced();
         }
+    }
+
+    /// Takes the newest messages kept behind `window`: a window cut from
+    /// them goes back in front of them, the newest a closed channel keeps
+    /// of both. Without a window, `window` is what shows, and stays.
+    fn rejoin(&mut self, window: Run) -> Option<Run> {
+        let Some(mut latest) = self.latest.take() else {
+            self.shown = window;
+            return None;
+        };
+        if std::mem::take(&mut self.cut) {
+            latest.complete = window.complete;
+            latest.hidden = window.hidden;
+            latest.messages.extend(window.messages);
+            latest.keep_newest(KEPT_MESSAGES);
+        }
+        Some(latest)
     }
 
     /// What shows is replaced: pages on their way are for what showed before.
@@ -478,6 +501,22 @@ impl OpenChannel {
                 for message in page.messages {
                     self.insert(message);
                 }
+                // Scrolled up past what it keeps, the timeline becomes a
+                // window of its oldest messages, as Discord's client's does
+                // past 120: those after them are kept behind it, following
+                // live events, and show again as it's scrolled down or Jump
+                // to present is clicked, which shows now.
+                if !self.detached()
+                    && let Some(&cut) = self.shown.messages.keys().nth(KEPT_MESSAGES)
+                {
+                    let mut newest = Run {
+                        messages: self.shown.messages.split_off(&cut),
+                        ..Run::default()
+                    };
+                    newest.keep_newest(KEPT_MESSAGES);
+                    self.latest = Some(newest);
+                    self.cut = true;
+                }
                 if self.detached() {
                     while self.shown.messages.len() > KEPT_MESSAGES {
                         self.shown.messages.pop_last();
@@ -499,9 +538,10 @@ impl OpenChannel {
             Load::Around(_) => {
                 self.focusing = false;
                 let shown = std::mem::take(&mut self.shown);
-                if self.latest.is_none() {
-                    self.latest = Some(shown);
-                }
+                self.latest = Some(
+                    self.rejoin(shown)
+                        .unwrap_or_else(|| std::mem::take(&mut self.shown)),
+                );
                 self.shown.started(&Page {
                     messages: vec![],
                     ..page
@@ -538,6 +578,7 @@ impl OpenChannel {
     /// The window reaches the present: the newest messages kept join it,
     /// newer as they are for following live events.
     fn attach(&mut self) {
+        self.cut = false;
         if let Some(latest) = self.latest.take() {
             for (order, message) in latest.messages {
                 self.rendered.remove(&order);

@@ -125,7 +125,9 @@ errors make it taller than the minimum window. SSO and OAuth are still pending.
   sending a message, or a newer page that reaches the newest shows the
   newest again, as Yapfast kept them, and leaving the conversation lets the
   window go. A jump to a conversation that isn't open opens it at the
-  message.
+  message. Scrolling up past the 200 messages a Discord channel keeps makes
+  such a window too, as Discord's client does past 120, so the pill shows
+  there as well.
 - Recover encryption keys or recheck verification performed in another client.
 - Send only from a cross-signed device into a joined encrypted room. Existing
   plaintext rooms are read-only.
