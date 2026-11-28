@@ -689,21 +689,23 @@ impl Sink {
     fn frame(&mut self, picture: &I420Buffer) -> Result<()> {
         let (width, height) = (picture.width(), picture.height());
         if self.local_preview_due(Instant::now()) {
-            let (w, h) = if self.enhanced_preview {
-                (width, height)
-            } else {
-                let (wanted_width, wanted_height) = self
-                    .writer
-                    .wanted()
-                    .unwrap_or((PREVIEW_WIDTH, PREVIEW_HEIGHT));
-                fit(
-                    width,
-                    height,
-                    (
-                        wanted_width.min(PREVIEW_WIDTH),
-                        wanted_height.min(PREVIEW_HEIGHT),
-                    ),
-                )
+            // At the size the window draws it: at most 720p, or the
+            // stream's own size for the enhanced preview.
+            let (w, h) = match self.writer.wanted() {
+                Some(wanted) if self.enhanced_preview => fit(width, height, wanted),
+                None if self.enhanced_preview => (width, height),
+                wanted => {
+                    let (wanted_width, wanted_height) =
+                        wanted.unwrap_or((PREVIEW_WIDTH, PREVIEW_HEIGHT));
+                    fit(
+                        width,
+                        height,
+                        (
+                            wanted_width.min(PREVIEW_WIDTH),
+                            wanted_height.min(PREVIEW_HEIGHT),
+                        ),
+                    )
+                }
             };
             self.writer.write(w, h, |pixels| {
                 i420(picture).to_rgba(&mut self.preview_scratch, pixels, w, h);
@@ -2270,7 +2272,15 @@ mod tests {
         sink.frame(&picture).unwrap();
         assert_eq!(
             frames.take(|w, h, _| (w, h)),
-            Some((share_width, share_height))
+            Some((320, 180)),
+            "at the size the window draws it"
+        );
+        frames.want(2560, 1440);
+        sink.frame(&picture).unwrap();
+        assert_eq!(
+            frames.take(|w, h, _| (w, h)),
+            Some((share_width, share_height)),
+            "past 720p, up to the stream's size"
         );
     }
 
