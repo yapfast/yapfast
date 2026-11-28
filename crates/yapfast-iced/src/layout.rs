@@ -536,6 +536,8 @@ pub struct Voice {
     pub soundboard_muted_people: BTreeSet<String>,
     /// Encoding a shared screen on the GPU; on unless turned off.
     pub gpu_encoding: Option<bool>,
+    /// Shows the local stream preview at the outgoing resolution.
+    pub enhanced_live_preview: bool,
     /// Yapfast's sounds: their instrument, how loud as a slider's
     /// percentage, and each one's own volume while adjusted.
     pub sound_set: yapfast_core::sounds::SoundSet,
@@ -587,6 +589,7 @@ impl Voice {
             volume::mute_soundboard(person, true);
         }
         yapfast_core::stream_worker::set_hardware_encoding(self.gpu_encoding.unwrap_or(true));
+        yapfast_core::stream_worker::set_enhanced_preview(self.enhanced_live_preview);
     }
 
     /// Calls send the microphone and play at the volume sliders' values.

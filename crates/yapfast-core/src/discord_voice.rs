@@ -737,11 +737,14 @@ pub(crate) async fn call(
                                 state.error = Some(format!("Could not change stream audio: {error:#}"));
                             }
                         }
-                        Some(Command::GoLive(quality)) => {
+                        Some(Command::GoLive { quality, effective_resolution }) => {
                             if share.is_none() {
                                 state.quality = quality;
                                 Chosen::write(remembered, state);
-                                match Share::start(state, quality) {
+                                match Share::start(state, StreamQuality {
+                                    resolution: effective_resolution,
+                                    ..quality
+                                }) {
                                     Ok(started) => {
                                         share = Some(started);
                                         state.error = None;

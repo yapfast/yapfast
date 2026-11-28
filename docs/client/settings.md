@@ -123,7 +123,9 @@ recording. Each change is kept at once in
   out, shown off, while the first is off. Advanced also holds Open Discord
   links in Yapfast (outside the preview), Close to tray, saying where
   there's no tray, and the renderer's switch: while it differs from the
-  renderer drawing, when it takes effect and Restart Yapfast.
+  renderer drawing, when it takes effect and Restart Yapfast. Enhanced
+  live preview quality lifts the local preview's 720p and 30 fps caps for the
+  next stream, up to its own size and frame rate.
 - Appearance (`appearance.rs`): each theme as a small window in its own
   colours, as many 150 px or wider across as fit; a click shows one and
   keeps it. New theme opens the editor on a copy of the theme shown (Start

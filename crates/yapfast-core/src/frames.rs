@@ -23,8 +23,8 @@ use std::{
 use anyhow::{Context, Result, ensure};
 use memmap2::MmapMut;
 
-const MAGIC: u32 = u32::from_le_bytes(*b"TKFR");
-const HEADER: usize = 64;
+const MAGIC: u32 = u32::from_le_bytes(*b"TKF2");
+const HEADER: usize = 128;
 const SLOTS: u32 = 3;
 /// Set beside the middle slot's index when the worker put a frame there that
 /// the UI hasn't taken.
@@ -51,6 +51,8 @@ struct Header {
     sizes: [[AtomicU32; 2]; SLOTS as usize],
     /// When each slot's frame shows in a video file, in milliseconds.
     times: [AtomicU64; SLOTS as usize],
+    /// The UI has paused the local preview of an outgoing stream.
+    preview_paused: AtomicU32,
 }
 
 const _: () = assert!(size_of::<Header>() <= HEADER);
@@ -250,6 +252,14 @@ impl Frames {
             .take();
     }
 
+    /// Whether the worker should prepare frames for the local share preview.
+    pub fn set_preview_paused(&self, paused: bool) {
+        self.mapping
+            .header()
+            .preview_paused
+            .store(u32::from(paused), Ordering::Relaxed);
+    }
+
     /// Says the UI draws the frames at `width` by `height` pixels, so the
     /// worker can make them no larger. While another draw of them asked for
     /// more in the last [`WISH_HOLDS`], the larger size stays.
@@ -333,6 +343,12 @@ impl Writer {
     /// The largest frame, in pixels, that fits.
     pub fn fits(&self, width: u32, height: u32) -> bool {
         capacity(width, height) <= self.mapping.capacity
+    }
+
+    /// Whether to skip preparing the local share preview.
+    #[cfg(feature = "discord")]
+    pub(crate) fn preview_paused(&self) -> bool {
+        self.mapping.header().preview_paused.load(Ordering::Relaxed) != 0
     }
 
     /// Whether the UI took the last frame shown, or none was shown yet.

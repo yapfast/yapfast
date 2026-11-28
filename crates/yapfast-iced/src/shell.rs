@@ -217,11 +217,7 @@ impl App {
             Event::CloseRequested(_) => Task::none(),
             Event::Focused(id, focused) if self.shell.window == Some(id) => {
                 self.focus_changed(focused);
-                if !focused {
-                    // Alt may be let go elsewhere.
-                    self.modifiers = iced::keyboard::Modifiers::default();
-                    return crate::peek::follow(self);
-                }
+                crate::call::stage::place_videos(self);
                 if focused {
                     // The desktop's reduced motion may have changed while
                     // Yapfast was in the background.
@@ -232,8 +228,13 @@ impl App {
                     };
                     return Task::batch([window::request_user_attention(id, None), motion]);
                 }
-                window::is_minimized(id)
-                    .map(|min| Message::Bar(crate::window_bar::Event::Minimized(min)))
+                // Alt may be let go elsewhere.
+                self.modifiers = iced::keyboard::Modifiers::default();
+                Task::batch([
+                    crate::peek::follow(self),
+                    window::is_minimized(id)
+                        .map(|min| Message::Bar(crate::window_bar::Event::Minimized(min))),
+                ])
             }
             Event::Focused(..) => Task::none(),
             Event::Closed(id) => {

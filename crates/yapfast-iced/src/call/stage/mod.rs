@@ -264,12 +264,23 @@ pub fn place_videos(app: &mut App) {
                 .push((stream_key(&watching.user), frames.clone()));
         }
     }
-    if (shown || corner == Pip::Shared)
-        && let Some(sharing) = &voice.sharing
-    {
-        sources
-            .mapped
-            .push((OWN_SCREEN.to_owned(), sharing.frames.clone()));
+    if let Some(sharing) = &voice.sharing {
+        let in_sight = shown
+            && stage
+                .slot(&Focus::OwnScreen)
+                .and_then(|place| tiles.get(place))
+                .and_then(|&bounds| shown_at(bounds, scrolled, height, scale))
+                .is_some();
+        let visible = in_sight || corner == Pip::Shared;
+        sharing
+            .frames
+            .set_preview_paused(!visible || !app.shell.focused);
+        // Keep the last frame in the visible tile while the window is unfocused.
+        if visible {
+            sources
+                .mapped
+                .push((OWN_SCREEN.to_owned(), sharing.frames.clone()));
+        }
     }
     // A message's video, wherever it plays.
     let mut clip = false;
@@ -322,6 +333,36 @@ pub fn frame<'a>(
         };
         Element::from(video)
     })
+}
+
+/// Holds the last frame under a note while the outgoing preview is paused,
+/// in the words of Discord's client.
+pub(super) fn paused_share_preview(content: Element<'_, Message>) -> Element<'_, Message> {
+    let note = column![
+        text("Your stream is still running!")
+            .size(14)
+            .color(Color::WHITE)
+            .align_x(Alignment::Center),
+        text("We’ve paused this preview to save your resources.")
+            .size(13)
+            .color(NOTE)
+            .align_x(Alignment::Center),
+    ]
+    .spacing(4)
+    .align_x(Alignment::Center);
+    stack![
+        content,
+        container(note)
+            .padding([0, 12])
+            .center(Length::Fill)
+            .style(|_| container::Style {
+                background: Some(Color::from_rgba(0.07, 0.08, 0.11, 0.85).into()),
+                ..Default::default()
+            }),
+    ]
+    .width(Length::Fill)
+    .height(Length::Fill)
+    .into()
 }
 
 /// A voice channel's view: its header, then its call's stage with the
@@ -721,6 +762,11 @@ fn stage_tile(
             viewers = sharing.and_then(|sharing| stream_viewers(app, &sharing.viewers, None));
             let content =
                 framed.unwrap_or_else(|| tile::note(app.look(), Some(Icon::ScreenShare), status));
+            let content = if live && !app.shell.focused {
+                paused_share_preview(content)
+            } else {
+                content
+            };
             Tile::new(size, content, Some(Color::BLACK)).chip(tile::chip(
                 app.look(),
                 Vec::new(),
