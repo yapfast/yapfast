@@ -207,9 +207,15 @@ errors make it taller than the minimum window. SSO and OAuth are still pending.
   [Discord](discord/messages.md#mark-unread-and-message-links)). View Reactions appears once a message has reactions,
   Copy selection while text is selected, and Edit on your own messages only.
   Delete appears on your own messages, and on anyone's for a Discord moderator
-  with Manage Messages. Until you have reacted, the most used reactions are 👍,
-  ❤️, 😂 and 🎉. Yapfast counts the reactions you add, not the ones you remove,
-  in `layout.json` on this computer. A custom emoji among them shows the
+  with Manage Messages. In a Discord room the quick reactions are the ones
+  your account reacts with most, as all of Discord's clients rank them (an
+  account that never reacted starts from 💯, 👍 and 👎, as Discord seeds it),
+  then those you added in Yapfast, then 💯, 😆 and 💖, as Discord's client
+  fills them. Emoji that can't be used in the room, or that Yapfast can't
+  draw (a custom emoji from a server you left), are left out. Elsewhere,
+  until you have reacted, they are 👍, ❤️, 😂 and 🎉. Yapfast counts the
+  reactions you add, not the ones you remove, in `layout.json` on this
+  computer. A custom emoji among them shows the
   picture the application keeps of it, fetched for the toolbar when it isn't
   there yet, as after a restart, rather than the picker's own, which goes when
   the picker closes. The icons have tooltips and accessible

@@ -131,8 +131,27 @@ const SLOWMODE_MARGIN_MS: u64 = 100;
 
 const STOPPED: &str = "The connection has stopped. Restart Yapfast to restore your session.";
 
-/// Reactions offered before someone has used any, in order.
+/// Reactions offered before someone has used any, in order, outside
+/// Discord.
 pub const DEFAULT_REACTIONS: [&str; 4] = ["👍", "❤️", "😂", "🎉"];
+/// What Discord's client counts an account's reactions from before it has
+/// any, by Discord's names, most first (it adds 100, thumbsup and
+/// thumbsdown twice, the rest once).
+const DISCORD_SEEDED_REACTIONS: [&str; 10] = [
+    "100",
+    "thumbsup",
+    "thumbsdown",
+    "heart",
+    "point_up",
+    "eyes",
+    "weary",
+    "laughing",
+    "white_check_mark",
+    "x",
+];
+/// What Discord's message bar fills its quick reactions with when the
+/// account's own leave room: 💯 😆 💖.
+const DISCORD_FALLBACK_REACTIONS: [&str; 3] = ["💯", "😆", "💖"];
 
 #[derive(Clone, Debug, Default, PartialEq, Eq, Hash)]
 pub enum Navigation {
@@ -5446,21 +5465,70 @@ impl Application {
             .collect()
     }
 
-    /// The `count` reactions this device adds most, then the defaults.
+    /// The `count` reactions to offer first, by picker key. In a Discord
+    /// room, as Discord's client offers them: the account's reaction
+    /// frecency, which all its clients share (Discord seeds an account with
+    /// none), then those this device adds most, which Yapfast doesn't tell
+    /// Discord of, then Discord's 💯 😆 💖. Elsewhere this device's, then
+    /// the defaults. Only emoji that may be used here and that Yapfast draws
+    /// are offered, as Discord's client filters its own; a custom emoji
+    /// from a server this account left would be an empty square.
     pub fn frequent_reactions(&self, count: usize) -> Vec<String> {
         let mut used: Vec<_> = self.reaction_uses.iter().collect();
         used.sort_by(|a, b| b.1.cmp(a.1).then_with(|| a.0.cmp(b.0)));
+        let local = used.into_iter().map(|(key, _)| key.clone());
+        let on_discord = self
+            .state
+            .selected
+            .as_deref()
+            .and_then(discord::parse_room)
+            .is_some();
+        let (synced, fallback): (Vec<String>, &[&str]) = if on_discord {
+            let names = &self.state.discord_emojis.reactions;
+            let names: Vec<String> = if names.is_empty() {
+                DISCORD_SEEDED_REACTIONS.map(str::to_owned).to_vec()
+            } else {
+                names.clone()
+            };
+            (names, &DISCORD_FALLBACK_REACTIONS)
+        } else {
+            (Vec::new(), &DEFAULT_REACTIONS)
+        };
+        // Custom emoji by id, as they may be used in the selected room.
+        let custom_ids: HashSet<&str> = synced
+            .iter()
+            .filter(|name| name.bytes().all(|byte| byte.is_ascii_digit()))
+            .map(String::as_str)
+            .chain(
+                self.reaction_uses
+                    .keys()
+                    .filter_map(|key| key.rsplit_once(':').map(|(_, id)| id)),
+            )
+            .collect();
+        let custom = self.emoji_by_id(&custom_ids);
+        let by_id: HashMap<&str, &chat::CustomEmoji> = custom
+            .iter()
+            .map(|emoji| (emoji.id.as_str(), emoji))
+            .collect();
+        let synced = synced.iter().filter_map(|name| {
+            crate::emoji::discord_key(name, &by_id)
+                .filter(|(_, usable)| *usable)
+                .map(|(key, _)| key)
+        });
+        let usable = |key: &String| match key.rsplit_once(':') {
+            Some((_, id)) => by_id.get(id).is_some_and(|emoji| emoji.usable),
+            None => emojis::get(key).is_some_and(|emoji| crate::emoji::offered(emoji, |_| true)),
+        };
         let mut frequent: Vec<String> = Vec::with_capacity(count);
-        for key in used
-            .into_iter()
-            .map(|(key, _)| key.as_str())
-            .chain(DEFAULT_REACTIONS)
+        for key in synced
+            .chain(local.filter(usable))
+            .chain(fallback.iter().map(|key| (*key).to_owned()))
         {
             if frequent.len() == count {
                 break;
             }
-            if !frequent.iter().any(|known| known == key) {
-                frequent.push(key.to_owned());
+            if !frequent.contains(&key) {
+                frequent.push(key);
             }
         }
         frequent
