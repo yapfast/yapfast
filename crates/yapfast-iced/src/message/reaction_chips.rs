@@ -137,18 +137,10 @@ pub(super) fn reactions<'a>(
         let chip = container(
             row![
                 face,
-                // iced's default size with no theme, as main's; a theme's
-                // chips at Slint's 14 px.
-                {
-                    let count = text(count_words)
-                        .font(theme.font(count_font, BOLD))
-                        .color(count);
-                    if theme.packaged() {
-                        count.size(14)
-                    } else {
-                        count
-                    }
-                }
+                text(count_words)
+                    .size(14)
+                    .font(theme.font(count_font, BOLD))
+                    .color(count)
             ]
             // Main's 4 px with no theme; a theme's chips as Slint drew them.
             .spacing(if theme.packaged() { 6 } else { 4 })
@@ -263,12 +255,16 @@ pub(super) fn reaction_tip<'a>(
     let theme = ctx.look.theme;
     let names = tip_of.names.as_deref().unwrap_or_default();
     let words = reaction_words(&emoji_shortcode(key), names, reaction.count);
-    let picture = emojis::get(key)
-        .map(emojis::Emoji::as_str)
-        .and_then(|key| ctx.emoji_picture(key, 32));
-    let face: Element<'a, Message> = match picture {
-        Some(picture) => Pic::square(picture, 32.0).into(),
-        None => text(key.to_owned()).size(26).into(),
+    let face: Element<'a, Message> = if key.contains(':') {
+        crate::suggest::emoji_face(ctx, key, 32)
+    } else {
+        match emojis::get(key)
+            .map(emojis::Emoji::as_str)
+            .and_then(|key| ctx.emoji_picture(key, 32))
+        {
+            Some(picture) => Pic::square(picture, 32.0).into(),
+            None => text(key.to_owned()).size(26).into(),
+        }
     };
     let tip = container(
         row![

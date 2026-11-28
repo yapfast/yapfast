@@ -49,9 +49,10 @@ scrolls them when the window is shorter than they are.
 - The quick switcher (`switcher.rs`), from Ctrl+K wherever the keys are
   (the key in K's place where the layout has no Latin letters, as every
   shortcut's letter the window takes):
-  the core's `switcher_places` for what's typed (PREVIOUS CHANNELS while
-  nothing is), each with its picture or channel icon, where it is and its
-  mentions; Up, Down and Tab move to the place Enter goes to.
+  the core's `switcher_places` for what's typed (Previous channels while
+  nothing is), each in a 34 px row with its picture or channel icon, its
+  name with the channel's category dim after it, where it is and its
+  mentions; the search is 70 px tall with a plain 1 px edge; Up, Down and Tab move to the place Enter goes to.
 - New message, from the DM list's pencil: the people the core finds for
   what's typed, each with Message, and what the search came to.
 - Create a Poll, from the composer's + menu: the question with its count,
@@ -60,14 +61,19 @@ scrolls them when the window is shorter than they are.
 
 The dialogs a server's and a channel's menus lead to are
 `server_dialogs.rs`'s.
-An opening one's field takes the keys, else nothing under it does, and
-Escape closes it.
+An opening one's field takes the keys, else nothing under it does.
+Escape closes the dialog unless it is waiting for server creation.
 
 - Invite: "Invite friends to" the server and the channel the link lands
   people in, the link with Copy (Copied once copied), how long it lasts
   and how often it works, why it couldn't be made, and Expire after and
   Max number of uses, starting from the link's, for Generate a new link.
-- Join a Server, from the rail's button or a clicked invite link: the
+- Add a server: the rail's plus opens a choice of Basic, Gaming, Friends,
+  Study Group and School Club layouts. The form shows which channels the
+  layout creates and takes a server name and optional icon. Create server
+  sends the request, displays any refusal and opens the server once it
+  appears. Join with an invite opens the invite field from this dialog.
+- Join a Server, from Add a server or a clicked invite link: the
   field (Join's alone; Enter finds the invite), the server once found
   with its icon and who is online, whether it is looking the invite up or
   the account is in the server already, and Find Invite, Join in Browser
@@ -95,3 +101,23 @@ it couldn't, and Close, or Cancel beside its main button.
   for, the server it's added to (a list to choose from, or the one its
   link names), the address Discord sends on to with Copy where Yapfast
   won't open it, and Authorize.
+
+## Boost progress
+
+Clicking Boost Goal under a Discord server's header opens a native Yapfast
+summary (`boost_goal.rs`), with the current server's name, reported level,
+reported boost total, a meter comparing that total with the next standard
+threshold, and the three thresholds. These are comparisons of totals, not
+claims about perk allocations. Server members can view it without management
+permissions; only Discord's own management flow changes allocations.
+
+The screen holds only a server id and reads the shared state on each view.
+Updates appear while it stays open. A hidden count, offline connection,
+unavailable or missing server, or unknown tier has an explicit unavailable
+state. Purchase and management guide always opens Discord's official
+boosting guide in the browser, including when data is unavailable.
+
+Close, Done, Escape and a click on the backdrop close it. Navigating away
+or closing the window drops it too. The frame scrolls in a short window.
+The fixture tests in `tests/boost_goal.rs` cover these paths and the exact
+external link without opening a browser or changing an account.

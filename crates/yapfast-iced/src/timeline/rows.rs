@@ -425,7 +425,7 @@ pub fn row_height(
     }
     let header = message.reply.is_some() || message.used.is_some();
     if header {
-        content += LINE_HEIGHT;
+        content += crate::message::HEADER_LINE;
     }
     if headed {
         content += AUTHOR_LINE + AUTHOR_GAP;
@@ -488,7 +488,11 @@ pub fn row_height(
         content += THREAD_CARD;
     }
     if headed {
-        content = content.max(if header { avatar + 24.0 } else { avatar });
+        content = content.max(if header {
+            crate::message::HEADER_LINE + avatar + 2.0
+        } else {
+            avatar
+        });
     }
     // Whole pixels, as rows are measured, so rows sit on whole pixels.
     (top_space(look, spacing) + edge + content + CONTENT_PAD * 2.0 + bottom_space(look, spacing))

@@ -1,5 +1,5 @@
-//! Joining a Discord server by an invite: Join a Server, from the "+" at the
-//! foot of the server rail, takes a pasted link or code, and a clicked
+//! Joining a Discord server by an invite: Join a Server, from Add a Server,
+//! takes a pasted link or code, and a clicked
 //! invite link opens the same dialog with it. Either looks the invite up
 //! and shows its server before anyone joins; joining waits for the click.
 
@@ -30,7 +30,7 @@ pub struct JoinDialog {
 impl Application {
     /// Opens Join a Server, empty; nothing without a linked Discord account.
     pub(super) fn open_join(&mut self) -> Vec<Effect> {
-        if self.state.discord_online || self.state.preview {
+        if (self.state.discord_online || self.state.preview) && !self.creating_server() {
             self.state.join = Some(JoinDialog::default());
         }
         vec![]
@@ -57,9 +57,10 @@ impl Application {
     /// Opens the dialog for a clicked invite link, by its code, and looks
     /// the invite up.
     pub(super) fn open_invite_link(&mut self, code: String) -> Vec<Effect> {
-        if !self.state.discord_online && !self.state.preview {
+        if (!self.state.discord_online && !self.state.preview) || self.creating_server() {
             return vec![];
         }
+        self.state.server_creation = None;
         self.state.join = Some(JoinDialog {
             code: Some(code.clone()),
             from_link: true,
@@ -193,6 +194,7 @@ impl Application {
                 return vec![];
             }
         };
+        self.state.server_creation = None;
         if joined.form {
             // The server lists once Discord sends it, and the dialog stays
             // to send the form to the web app.
@@ -220,6 +222,7 @@ impl Application {
     /// lists, or else its server.
     fn open_joined(&mut self, server: &str, room: String) -> Vec<Effect> {
         self.state.join = None;
+        self.state.server_creation = None;
         if self.state.rooms.iter().any(|listed| listed.id == room) {
             return self.dispatch(Action::Open(room));
         }

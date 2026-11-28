@@ -166,9 +166,11 @@ the pages your roles let you use, and channel settings with their permissions.
 Make and edit channels and categories, invite people, hand out roles, change
 nicknames, time out, kick and ban. In voice, server mute, deafen and move people
 to another channel, from their menu or by dragging them there. Edit your server
-profile, and leave. Join a server by invite, from the + under your servers or a
-link in chat, and open a scheduled event from its link to mark yourself
-interested. Folders show up as they do in Discord.
+profile, and leave. Use the + under your servers to create one or join by invite.
+You can also join from a link in chat or open a scheduled event from its link
+to mark yourself interested. Folders show up as they do in Discord. The boost
+goal opens a native progress summary, with an official browser guide for
+purchases and management.
 
 <p align="center">
   <img src="docs/images/features/server-settings.webp" width="640" alt="Server Settings on a role's Display page: its name, a gold color picked, and its icon.">
@@ -188,6 +190,9 @@ interested. Folders show up as they do in Discord.
   app's answer says who used which command. Apps' message and user commands
   are under Apps in a message's or a person's menu. Discord's own links to servers, channels, messages and profiles open in
   Yapfast, including one handed to it by the desktop.
+- **Composer tools**: Gift and Apps menus, with a native slash-command picker
+  entry and explicit browser handoffs to Discord for gifting, finding and
+  adding apps, authorization and activities. See [what runs where](docs/discord/composer-tools.md).
 - **Threads**: start one from a message, browse a channel's threads, join or
   leave one, and read it beside its channel.
 - **Search** a whole server with Discord's filters, and browse a channel's pins.
@@ -196,6 +201,11 @@ interested. Folders show up as they do in Discord.
   with their Rich Presence buttons, and the full profile's Board, Wishlist and
   recent activity. Edit Profile changes your own theme, name style and server
   tag.
+- **Account settings**: main and server profile editors in Yapfast, with
+  [official browser workflows](docs/discord/account-settings.md) and clearly
+  labelled help for account details, Connections, Authorized Apps, Devices and
+  Nitro/Billing. The browser action opens Discord's web app; choose the settings
+  page there.
 - **Friends**: requests, adding by username, nicknames, notes, profile cards,
   your status and custom status (custom emoji included). Block and ignore
   people from their menu, block and unblock them from their profile, hide what
@@ -206,7 +216,14 @@ interested. Folders show up as they do in Discord.
 - **Notifications** that follow your Discord settings, muting for channels,
   categories and servers, and unread markers. The inbox lists unread channels
   and your recent mentions, filtered by ping, jumping to their messages.
+- **Nitro, Shop and Quests** as screens of their own on the DM home, as in
+  Discord: the quests with their progress (accept one without leaving
+  Yapfast), the Shop's categories, products and search, and what Nitro gives.
+  Paying, subscribing and claiming a reward open discord.com.
 - **Soft sounds** for joining, leaving, muting and messages, in six sets.
+- **Privacy and accessibility settings** with native controls for supported
+  preferences and explicit [official Discord handoffs](docs/client/privacy.md)
+  for account permissions, Family Center and other Discord-only settings.
 
 ### Not there yet
 

@@ -201,9 +201,10 @@
 // the others there; GET /_control/custom-call-sounds lists those she asked
 // for.
 // The server has two custom emoji, :talk: and the animated :party:, served
-// from /emojis/, and three stickers from /stickers/: Wave, the GIF Bounce and
-// Lottie. GET /sticker-packs lists Discord's default packs, whose stickers
-// come from /stickers/ too, so the sticker picker has both. `--nitro` gives
+// from /emojis/. GET /guilds/{id}/top-emojis gives each its rank in an unsorted list.
+// Its three stickers come from /stickers/: Wave, the GIF Bounce and Lottie.
+// GET /sticker-packs lists Discord's default packs, whose stickers come
+// from /stickers/ too, so the sticker picker has both. `--nitro` gives
 // Alice Nitro,
 // so every server's emoji are hers to use, and `--cdn-delay MS` makes each
 // emoji and sticker take that long, as a round trip to the real CDN does. POST /_control/showcase makes
@@ -258,7 +259,9 @@
 // category leaves its channels outside any, as Discord does. PATCH
 // /guilds/{id}/channels moves channels and categories, as dragging them in
 // the channel list does, and GET /_control/channel-moves lists each body
-// sent. DELETE
+// sent. POST /guilds creates a server Alice owns, with default or supplied
+// channels and a GUILD_CREATE. GET /_control/server-creations lists those
+// requests. DELETE
 // /users/@me/guilds/{id} leaves "Server", owned by Bob, with GUILD_DELETE and
 // GUILD_MEMBER_REMOVE, and READY leaves it out until POST /_control/rejoin
 // brings her back with its GUILD_CREATE. So does joining by an invite: GET
@@ -323,6 +326,14 @@
 // once and sends ENTITLEMENT_CREATE and GIFT_CODE_UPDATE, and GET
 // /_control/gift-redeems lists each redemption. Gift AbCdEfGhIjKlMnOp needs
 // a payment source.
+// Quests and the Shop answer as Discord's pages ask: GET /quests/@me lists
+// three quests (one to accept, one under way, one done), GET
+// /quests/@me/claimed one claimed, POST /quests/{id}/enroll accepts one and
+// GET /_control/quest-enrollments lists those accepted. GET
+// /collectibles-categories lists two categories of products with prices in
+// money and in Orbs, and GET /users/@me/virtual-currency/balance says
+// Alice has 550 Orbs. Their pictures are drawn at /quests/{id}/{name}.png
+// and /shop-assets/{name}.png.
 // A scheduled event in "Server"'s Lounge, which READY lists, resolves from
 // its link the same way: GET /guilds/{id}/scheduled-events/{id} shows it,
 // counting the interested only with ?with_user_count=true, GET
@@ -1060,12 +1071,12 @@ function sunset(width: number, height: number): Uint8Array {
 }
 
 /** An avatar or server icon: two tones split diagonally, picked from its path. */
-// Banners are wide, as Discord's are.
+// Banners are wide, as Discord's are, and so are a quest's hero and a shop banner.
 function picture(path: string): Uint8Array {
   const hue = crc32(new TextEncoder().encode(path));
   const light = [(hue >>> 16) & 255, (hue >>> 8) & 255, hue & 255].map((c) => 96 + (c % 160));
   const dark = light.map((c) => c >> 1);
-  const [width, height] = /\/(banners|splashes)\//.test(path) ? [600, 240] : [128, 128];
+  const [width, height] = /\/(banners|splashes)\/|\/(hero|bar)\.png$|\/shop-assets\/banner/.test(path) ? [600, 240] : [128, 128];
   return png(width, height, (x, y) => [...(x / width + y / height < 1 ? light : dark), 255]);
 }
 
@@ -1645,7 +1656,7 @@ function endPoll(message: Message, origin: string) {
 
 /** The server of a channel as events carry it; DMs have none. */
 function guildOf(channel: string): { guild_id?: string } {
-  return privates.has(channel) ? {} : { guild_id: fillerChannels.get(channel) ?? world?.channelGuild.get(channel)?.id ?? GUILD };
+  return privates.has(channel) ? {} : { guild_id: createdChannels.get(channel)?.guild_id ?? fillerChannels.get(channel) ?? world?.channelGuild.get(channel)?.id ?? GUILD };
 }
 
 /**
@@ -2509,6 +2520,31 @@ const deletedChannels = new Set<string>();
 // Each body of PATCH /guilds/{id}/channels, for GET /_control/channel-moves.
 const channelMoves: unknown[] = [];
 
+// Servers Alice made through POST /guilds. They stay in READY on reconnect.
+const createdServers = new Map<string, ReturnType<typeof createdServer>>();
+const createdChannels = new Map<string, GuildChannel>();
+const serverCreations: unknown[] = [];
+
+function createdServer(id: string, name: string, icon: string | null, channels: GuildChannel[], system: string | null) {
+  return {
+    id, name, icon,
+    owner_id: ALICE,
+    channels,
+    system_channel_id: system,
+    roles: [{ id, name: "@everyone", permissions: String(EVERYONE), position: 0 }],
+    emojis: [],
+    stickers: [],
+    features: [],
+    threads: [],
+    voice_states: [],
+    presences: [],
+    members: [member(users.alice)],
+    member_count: 1,
+    joined_at: new Date().toISOString(),
+    unavailable: false,
+  };
+}
+
 // Each PUT and DELETE on /users/@me/relationships/{id}, with the type its
 // body gave and the location its X-Context-Properties named, for GET
 // /_control/relationship-changes.
@@ -3003,10 +3039,16 @@ function ready(ws: Socket) {
     users: (world ? [...userById.values()] : [...Object.values(users), ...Object.values(strangers), ...fillerPeople])
       .filter((user) => user.id !== ALICE)
       .map(wireUser),
-    guilds: world ? world.guilds.map(envGuild) : [...(leftServer ? [] : [guild()]), ...fillers],
-    merged_members: world
-      ? world.guilds.map((guild) => [own(guild.id)])
-      : [...(leftServer ? [] : [[alice]]), ...fillers.map((filler) => [{ ...alice, roles: [filler.roles[1]!.id, filler.roles[4]!.id] }])],
+    guilds: [
+      ...(world ? world.guilds.map(envGuild) : [...(leftServer ? [] : [guild()]), ...fillers]),
+      ...createdServers.values(),
+    ],
+    merged_members: [
+      ...(world
+        ? world.guilds.map((guild) => [own(guild.id)])
+        : [...(leftServer ? [] : [[alice]]), ...fillers.map((filler) => [{ ...alice, roles: [filler.roles[1]!.id, filler.roles[4]!.id] }])]),
+      ...Array.from(createdServers.values(), () => [{ ...alice, roles: [] }]),
+    ],
     read_state: {
       entries: [...readStates].map(([id, read]) => ({
         id,
@@ -5202,6 +5244,52 @@ const giftRedeems: Record<string, unknown>[] = [];
 const GIFT_CODE = "2CG6SV9QtRxerJTgCYNDnU7M";
 /** A gift of Nitro that needs a payment source to redeem. */
 const PAID_GIFT_CODE = "AbCdEfGhIjKlMnOp";
+/** Each quest Alice accepted, oldest first, for GET /_control/quest-enrollments. */
+const questEnrollments: Record<string, unknown>[] = [];
+/** The quests' status for Alice by quest id, which accepting one changes. */
+const questStatus = new Map<string, Record<string, unknown> | null>([
+  ["9100000000000000001", null],
+  ["9100000000000000002", { user_id: "0", quest_id: "9100000000000000002", enrolled_at: "2026-11-19T10:00:00+00:00", completed_at: null, claimed_at: null, progress: { WATCH_VIDEO: { event_name: "WATCH_VIDEO", value: 20 } } }],
+  ["9100000000000000003", { user_id: "0", quest_id: "9100000000000000003", enrolled_at: "2026-11-18T10:00:00+00:00", completed_at: "2026-11-19T10:00:00+00:00", claimed_at: null, progress: {} }],
+]);
+const ORBS = 550;
+function wireQuest(id: string, name: string, game: string, publisher: string, task: string, target: number, reward: Record<string, unknown>) {
+  return {
+    id,
+    config: {
+      id,
+      config_version: 2,
+      starts_at: "2026-11-01T00:00:00+00:00",
+      expires_at: "2026-12-01T00:00:00+00:00",
+      features: [],
+      application: { id: "1", name: game },
+      assets: {
+        hero: `quests/${id}/hero.png`, quest_bar_hero: `quests/${id}/bar.png`, hero_video: `quests/${id}/hero_720.mp4`,
+        game_tile: "PLACEHOLDER", game_tile_dark: `quests/${id}/tile.png`, game_tile_light: `quests/${id}/tile.png`,
+        logotype: "PLACEHOLDER", logotype_dark: `quests/${id}/logo.png`, logotype_light: `quests/${id}/logo.png`,
+      },
+      colors: { primary: "#E944D4", secondary: "#5318A7" },
+      messages: { quest_name: name, game_title: game, game_publisher: publisher },
+      task_config_v2: { join_operator: "or", tasks: { [task]: { type: task, target } } },
+      rewards_config: { assignment_method: 1, rewards: [reward], rewards_expire_at: null, platforms: [0] },
+      share_policy: "shareable_everywhere",
+      cta_config: { link: "https://example.com/play", button_label: "Play Now" },
+    },
+    user_status: questStatus.get(id) ?? null,
+    targeted_content: [],
+    preview: false,
+  };
+}
+const shopProduct = (sku: string, name: string, type: number, price: Record<string, unknown>, origin: string) => ({
+  sku_id: sku,
+  store_listing_id: sku,
+  type,
+  name,
+  summary: `${name}, in the Shop.`,
+  category_sku_id: "9200000000000000001",
+  items: [{ type, sku_id: sku, assets: { static_image_url: `${origin}/shop-assets/${sku}.png` } }],
+  prices: { "0": { country_prices: { country_code: "DE", prices: [price] } } },
+});
 const empty = () => new Response(null, { status: 204 });
 const notFound = (message = "404: Not Found", code = 0) => json({ message, code }, 404);
 
@@ -6134,6 +6222,14 @@ async function api(req: Request, path: string, origin: string): Promise<Response
   // Discord's default sticker packs, which its client offers beside a
   // server's own; the CDN serves their stickers like any other.
   if (method === "GET" && path === "/sticker-packs") return json(STICKER_PACKS);
+
+  if (method === "GET" && (m = path.match(/^\/guilds\/(\d+)\/top-emojis$/))) {
+    if (m[1] !== GUILD) return notFound("Unknown Guild", 10004);
+    const ranked = expressions.emojis.slice(0, 2);
+    return json({ items: ranked.map(({ id }, index) => ({
+      emoji_id: id, emoji_rank: ranked.length - index,
+    })) });
+  }
 
   // Emoji and Stickers in Server Settings. GET /guilds/{id}/emojis lists
   // "Server"'s emoji with who uploaded each; POST adds one from `{name,
@@ -7386,6 +7482,48 @@ async function api(req: Request, path: string, origin: string): Promise<Response
     }
   }
 
+  if (method === "POST" && path === "/guilds") {
+    const body: any = await req.json().catch(() => ({}));
+    const name = typeof body.name === "string" ? body.name.trim() : "";
+    if ([...name].length < 2 || [...name].length > 100
+      || (body.icon != null && (typeof body.icon !== "string" || !/^data:image\/(png|jpeg|gif);base64,/.test(body.icon)))
+      || (body.channels != null && !Array.isArray(body.channels))) {
+      return json({ message: "Invalid Form Body", code: 50035 }, 400);
+    }
+    const specs: Array<{ id?: number; name: string; type: number; parent_id?: number }> = body.channels ?? [
+      { id: 1, name: "Text Channels", type: 4 },
+      { id: 2, name: "general", type: 0, parent_id: 1 },
+      { id: 3, name: "Voice Channels", type: 4 },
+      { name: "General", type: 2, parent_id: 3 },
+    ];
+    const categories = new Map<number, string>();
+    const textChannels = new Map<number, string>();
+    const id = nextId(Date.now());
+    const channels: GuildChannel[] = [];
+    for (const spec of specs) {
+      if (!spec || typeof spec.name !== "string" || ![0, 2, 4].includes(spec.type)
+        || (spec.parent_id != null && (spec.type === 4 || !categories.has(spec.parent_id)))) {
+        return json({ message: "Invalid Form Body", code: 50035 }, 400);
+      }
+      const channel = nextId(Date.now());
+      const parent = spec.parent_id == null ? null : categories.get(spec.parent_id)!;
+      channels.push(guildChannel(channel, spec.name, spec.type, channels.length, parent, id));
+      if (spec.id != null && spec.type === 4) categories.set(spec.id, channel);
+      if (spec.id != null && spec.type === 0) textChannels.set(spec.id, channel);
+    }
+    const system = textChannels.get(body.system_channel_id ?? 2) ?? null;
+    const guild = createdServer(id, name, body.icon == null ? null : "test-server-icon", channels, system);
+    createdServers.set(id, guild);
+    for (const channel of channels) {
+      createdChannels.set(channel.id, channel);
+      if (channel.type === 0) messages.set(channel.id, []);
+    }
+    serverCreations.push(body);
+    dispatch("GUILD_CREATE", guild);
+    const { owner_id, icon, system_channel_id, roles, emojis, stickers, features } = guild;
+    return json({ id, name, owner_id, icon, system_channel_id, roles, emojis, stickers, features }, 201);
+  }
+
   // "Server"'s channels and categories, which Crew, and so Alice, may
   // manage: making one, reading, changing and deleting it, as Discord does.
   if (method === "POST" && path === `/guilds/${GUILD}/channels`) {
@@ -7446,6 +7584,9 @@ async function api(req: Request, path: string, origin: string): Promise<Response
   }
   if (method === "GET" && (m = path.match(/^\/channels\/(\d+)$/)) && threads.has(m[1]!)) {
     return json(wireThread(threads.get(m[1]!)!));
+  }
+  if (method === "GET" && (m = path.match(/^\/channels\/(\d+)$/)) && createdChannels.has(m[1]!)) {
+    return json(createdChannels.get(m[1]!));
   }
   const envServer = (m = path.match(/^\/channels\/(\d+)$/)) ? world?.channelGuild.get(m[1]!) : undefined;
   if (method === "GET" && envServer) return json(envGuild(envServer).channels.find((channel) => channel.id === m![1]));
@@ -8038,6 +8179,78 @@ async function api(req: Request, path: string, origin: string): Promise<Response
     }
     return unknown(req, path);
   }
+
+  // Quest Home: the quests on offer, those claimed, and accepting one.
+  if (method === "GET" && path === "/quests/@me") {
+    return json({
+      quests: [
+        wireQuest("9100000000000000001", "Kill the Aliens", "Cyberalien 2077", "Alien Studios", "PLAY_ON_DESKTOP", 900, { type: 4, sku_id: "1", asset: "reward.png", orb_quantity: 700, messages: { name: "700 Orbs", name_with_article: "700 Orbs" } }),
+        wireQuest("9100000000000000002", "Watch the trailer", "Starfall", "Nova Games", "WATCH_VIDEO", 60, { type: 3, sku_id: "2", asset: "reward.png", messages: { name: "Starfall Decoration", name_with_article: "a Starfall Decoration" } }),
+        wireQuest("9100000000000000003", "Stream the beta", "Cyberalien 2077", "Alien Studios", "STREAM_ON_DESKTOP", 1800, { type: 1, sku_id: "3", asset: "reward.png", messages: { name: "In-game skin code", name_with_article: "an in-game skin code" } }),
+      ],
+      excluded_quests: [],
+      quest_enrollment_blocked_until: null,
+    });
+  }
+  if (method === "GET" && path === "/quests/@me/claimed") {
+    return json({
+      quests: [{
+        id: "9100000000000000009",
+        config: {
+          id: "9100000000000000009",
+          starts_at: "2026-10-01T00:00:00+00:00",
+          expires_at: "2026-10-20T00:00:00+00:00",
+          features: [],
+          colors: { primary: "#44E9A0", secondary: "#18A753" },
+          assets: { hero: "hero.png", game_tile: "tile.png", logotype: "logo.png" },
+          messages: { quest_name: "Old adventure", game_title: "Starfall", game_publisher: "Nova Games" },
+          rewards: [{ type: 3, sku_id: "5", name: "Comet Decoration", name_with_article: "a Comet Decoration", asset: "reward.png", asset_video: null, orb_quantity: null }],
+        },
+        user_status: { user_id: ALICE, claimed_at: "2026-10-19T00:00:00+00:00" },
+      }],
+    });
+  }
+  if (method === "POST" && (m = path.match(/^\/quests\/(\d+)\/enroll$/))) {
+    const id = m[1]!;
+    if (!questStatus.has(id) || questStatus.get(id)) return json({ message: "Unknown Quest", code: 10000 }, 404);
+    const body: any = await req.json().catch(() => ({}));
+    const status = { user_id: ALICE, quest_id: id, enrolled_at: new Date().toISOString(), completed_at: null, claimed_at: null, progress: {} };
+    questStatus.set(id, status);
+    questEnrollments.push({ id, location: body.location ?? null });
+    return json(status);
+  }
+  // The Shop: categories with products, and Alice's Orbs.
+  if (method === "GET" && path === "/collectibles-categories") {
+    const money = (amount: number) => ({ amount, currency: "eur", exponent: 2 });
+    return json([
+      {
+        sku_id: "9200000000000000001",
+        name: "Vice City",
+        summary: "A neon look.",
+        banner_text_color: "#FFFFFF",
+        hero_banner_asset: { static: `${origin}/shop-assets/banner-1.png`, animated: null },
+        logo_url: `${origin}/shop-assets/logo-1.png`,
+        is_orbs_exclusive: false,
+        products: [
+          shopProduct("9200000000000000011", "Palm Sunset", 0, money(899), origin),
+          shopProduct("9200000000000000012", "Neon Plate", 2, money(599), origin),
+          shopProduct("9200000000000000013", "Vice Bundle", 1000, money(2399), origin),
+        ],
+      },
+      {
+        sku_id: "9200000000000000002",
+        name: "Lo-fi vibes",
+        summary: "Cosy and quiet.",
+        hero_banner_asset: { static: `${origin}/shop-assets/banner-2.png`, animated: null },
+        is_orbs_exclusive: true,
+        products: [
+          shopProduct("9200000000000000021", "Cosy Cat", 0, { amount: 1200, currency: "discord_orb", exponent: 0 }, origin),
+          shopProduct("9200000000000000022", "Moon Oasis", 1, { amount: 1800, currency: "discord_orb", exponent: 0 }, origin),
+        ],
+      },
+    ]);
+  }
+  if (method === "GET" && path === "/users/@me/virtual-currency/balance") return json({ balance: ORBS });
 
   // Apps' commands, once Alice types "/"; see "Commands" in the header.
   const commandIndex = commandIndexRoute(method, path);
@@ -9165,6 +9378,10 @@ const server = Bun.serve<SocketData>({
     if (movingBanner) {
       return new Response(Bun.file(new URL("gifs/hello.gif", fixtures)), { headers: { "content-type": "image/gif" } });
     }
+    // Quests' and the Shop's pictures: a gradient of a colour of their own.
+    if (req.method === "GET" && /^\/(quests\/\d+|shop-assets)\/[\w-]+\.png$/.test(path)) {
+      return new Response(picture(path), { headers: { "content-type": "image/png" } });
+    }
     const collectible = req.method === "GET" ? path.match(COLLECTIBLES_PATH) : null;
     if (collectible) {
       if (collectible[2] === "animated") collectibleAnimations++;
@@ -9956,6 +10173,9 @@ const server = Bun.serve<SocketData>({
     if (req.method === "GET" && path === "/_control/invites") {
       return Response.json(invites);
     }
+    if (req.method === "GET" && path === "/_control/server-creations") {
+      return json(serverCreations);
+    }
     if (req.method === "GET" && path === "/_control/channel-moves") {
       return Response.json(channelMoves);
     }
@@ -9970,6 +10190,9 @@ const server = Bun.serve<SocketData>({
     }
     if (req.method === "GET" && path === "/_control/event-interest") {
       return Response.json(eventInterest);
+    }
+    if (req.method === "GET" && path === "/_control/quest-enrollments") {
+      return Response.json(questEnrollments);
     }
     if (req.method === "GET" && path === "/_control/gift-redeems") {
       return Response.json(giftRedeems);

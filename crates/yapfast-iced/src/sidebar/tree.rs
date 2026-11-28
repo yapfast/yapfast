@@ -340,7 +340,7 @@ pub fn build(app: &App) -> Vec<TreeRow> {
             }
             Kind::Server | Kind::Nested { .. } => tops.push(server_entry(app, item)),
             // The unread DMs the rail shows are the direct messages' own.
-            Kind::Dm | Kind::Divider | Kind::Add => {}
+            Kind::Dm | Kind::Divider | Kind::Add | Kind::Discover => {}
         }
     }
     let mut rows = vec![TreeRow {

@@ -34,6 +34,7 @@ mod links;
 mod messages;
 mod profiles;
 mod servers;
+mod storefront;
 mod threads;
 mod voice_channels;
 

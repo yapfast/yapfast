@@ -8,6 +8,8 @@
 //! empties it. A message of one's own is edited in its row (`edit.rs`), in
 //! a field of its own beside the draft.
 
+pub mod tools;
+
 use iced::{
     Alignment, Element, Length, Padding, Task, keyboard,
     widget::{Id, Space, button, column, container, operation, row, text, tooltip},
@@ -92,6 +94,8 @@ pub enum Event {
     Answer(bool),
     /// The +.
     Plus,
+    /// Gift and Apps open Yapfast's menus of native actions and browser links.
+    Tools(tools::Kind),
     /// The edit's hint: cancel or save; its emoji button.
     CancelEdit,
     SaveEdit,
@@ -213,6 +217,7 @@ pub fn update(app: &mut App, event: Event) -> Task<Message> {
             Task::batch([app.sync(), refocus(app)])
         }
         Event::Plus => plus(app),
+        Event::Tools(kind) => tools::open(app, kind),
         Event::CancelEdit => {
             app.client.dispatch(Action::CancelEdit);
             Task::batch([app.sync(), operation::focus(COMPOSER)])
@@ -1022,7 +1027,7 @@ fn composer_box<'a>(ctx: crate::ctx::Ctx<'a>, look: &Look) -> Element<'a, Messag
     let header = ctx.header;
     let replying = ctx.state.compose().is_some();
     // Discord's words: `Message @sam` in a DM, `Message #general` in a
-    // channel, and a group's or thread's own name as it is.
+    // channel, a quoted thread name, and a group's own name as it is.
     let name = &header.name;
     let placeholder = if replying {
         "Write a reply".to_owned()
@@ -1062,7 +1067,7 @@ fn composer_box<'a>(ctx: crate::ctx::Ctx<'a>, look: &Look) -> Element<'a, Messag
         top: if commanding { 10.0 } else { PAD },
         right: 6.0,
         bottom: PAD,
-        left: 6.0,
+        left: 12.0,
     })
     .enabled(look.enabled)
     .message_height(ctx.look.window.height, crate::style::scrollbar(theme))
@@ -1096,7 +1101,7 @@ fn composer_box<'a>(ctx: crate::ctx::Ctx<'a>, look: &Look) -> Element<'a, Messag
         } else {
             "Attach files"
         },
-        27,
+        20,
         theme.secondary,
         (look.attach || look.plus).then_some(Message::Write(Event::Plus)),
     );
@@ -1108,6 +1113,11 @@ fn composer_box<'a>(ctx: crate::ctx::Ctx<'a>, look: &Look) -> Element<'a, Messag
     // picker, in a Discord room.
     let mut buttons = row![].spacing(6).align_y(Alignment::End);
     let state = ctx.state;
+    if tools::available(ctx) {
+        buttons = buttons
+            .push(lift(tools::button(ctx, tools::Kind::Gift)))
+            .push(lift(tools::button(ctx, tools::Kind::Apps)));
+    }
     // A theme can draw a key under each button (Bubblegum's candy keys);
     // the preview, which has no GIFs or stickers, still shows a button
     // with a key of its own, greyed, so no key is left without its glyph.

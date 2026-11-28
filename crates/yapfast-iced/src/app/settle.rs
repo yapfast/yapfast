@@ -71,6 +71,7 @@ impl App {
             call: &self.call,
             header_spot: &self.header_spot,
             friends: &self.friends,
+            pages: &self.pages,
             active_now: &self.active_now,
             account_pointed: self.account_pointed,
             browse_filter: &self.sidebar.browse_filter,
@@ -301,6 +302,9 @@ impl App {
             }
             Screen::TagCard => {
                 self.win.tag_card.close(&mut cx, why);
+            }
+            Screen::BoostGoal => {
+                self.win.boost_goal.close(&mut cx, why);
             }
         }
     }

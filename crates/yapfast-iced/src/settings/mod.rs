@@ -16,11 +16,13 @@
 //! (`form.rs`); each page's module holds its view and what its controls
 //! do.
 
-mod appearance;
+pub mod account;
+pub(crate) mod appearance;
 mod desktop_icons;
 mod font;
 pub mod keybinds;
 mod pages;
+pub mod privacy;
 pub(crate) mod theme_creator;
 mod theme_keys;
 pub(crate) mod theme_marketplace;
@@ -95,6 +97,12 @@ const PAGE: &str = "settings-page";
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Section {
     Account,
+    ContentSocial,
+    DataPrivacy,
+    FamilyCenter,
+    FriendRequests,
+    StreamerMode,
+    ActivityPrivacy,
     Voice,
     Messages,
     Accessibility,
@@ -122,6 +130,12 @@ impl Section {
     fn title(self) -> &'static str {
         match self {
             Section::Account => "My Account",
+            Section::ContentSocial => "Content & Social",
+            Section::DataPrivacy => "Data & Privacy",
+            Section::FamilyCenter => "Family Center",
+            Section::FriendRequests => "Friend Requests",
+            Section::StreamerMode => "Streamer Mode",
+            Section::ActivityPrivacy => "Activity Privacy",
             Section::Voice => "Voice & Video",
             Section::Messages => "Messages",
             Section::Accessibility => "Accessibility",
@@ -140,6 +154,10 @@ impl Section {
     fn icon(self) -> Icon {
         match self {
             Section::Account => Icon::User,
+            Section::ContentSocial => Icon::MessageCircle,
+            Section::DataPrivacy => Icon::Settings,
+            Section::FamilyCenter | Section::FriendRequests => Icon::Users,
+            Section::StreamerMode | Section::ActivityPrivacy => Icon::Play,
             Section::Voice => Icon::Mic,
             Section::Messages => Icon::MessageCircle,
             Section::Accessibility => Icon::Accessibility,
@@ -159,7 +177,16 @@ impl Section {
 /// The column's groups and their sections, as Discord's settings group
 /// them.
 const GROUPS: [(&str, &[Section]); 3] = [
-    ("Account", &[Section::Account]),
+    (
+        "Account",
+        &[
+            Section::Account,
+            Section::ContentSocial,
+            Section::DataPrivacy,
+            Section::FamilyCenter,
+            Section::FriendRequests,
+        ],
+    ),
     (
         "Experience",
         &[
@@ -176,6 +203,8 @@ const GROUPS: [(&str, &[Section]); 3] = [
         &[
             Section::Discord,
             Section::Games,
+            Section::ActivityPrivacy,
+            Section::StreamerMode,
             Section::Themes,
             Section::Keybinds,
             Section::Advanced,
@@ -199,6 +228,7 @@ pub enum Drop {
 /// Settings while open.
 #[derive(Default)]
 pub struct Settings {
+    pub account: account::Account,
     pub section: Option<Section>,
     pub query: String,
     pub open: Option<Drop>,
@@ -270,6 +300,8 @@ pub enum Event {
     Sounds(pages::sounds::Event),
     /// My Account's and the Discord page's buttons.
     Account(pages::AccountEvent),
+    AccountPage(account::Event),
+    Privacy(privacy::Event),
     Game(pages::GameEvent),
     Voice(voice::Event),
     Theme(appearance::Event),
@@ -381,6 +413,8 @@ impl Settings {
             Event::Pref(pref) => self.pref(pref, cx),
             Event::Sounds(event) => return self.sound_event(event, cx),
             Event::Account(event) => self.account_event(event, cx),
+            Event::AccountPage(event) => return self.account_page_event(event, cx),
+            Event::Privacy(event) => privacy::update(event, cx),
             Event::Game(event) => self.game_event(event, cx),
             Event::Voice(event) => self.voice_event(event, cx),
             Event::DesktopIcon(event) => return self.desktop_icon_event(event, cx),
@@ -561,7 +595,13 @@ impl<'a> Page<'a> {
         let theme = self.cx.look.theme;
         let section = settings.section();
         let page = match section {
-            Section::Account => self.account_page(),
+            Section::Account => self.account_hub(),
+            Section::ContentSocial => self.content_social_page(),
+            Section::DataPrivacy => self.data_privacy_page(),
+            Section::FamilyCenter => self.family_center_page(),
+            Section::FriendRequests => self.friend_requests_page(),
+            Section::StreamerMode => self.streamer_mode_page(),
+            Section::ActivityPrivacy => self.activity_privacy_page(),
             Section::Voice => self.voice_page(),
             Section::Messages => self.messages_page(),
             Section::Accessibility => self.accessibility_page(),
@@ -640,10 +680,13 @@ impl<'a> Page<'a> {
         let surface = yapfast_core::themes::package::art::ArtSurface::Settings;
         let decorated =
             self.cx.themes.decorates(&theme.id, surface) || theme.package_paint("panel").is_some();
+        // The sections' column and the page, a step apart as the stock
+        // sheet's are (a Bonfire card swaps them).
+        let (nav_ground, page_ground) = crate::sheet::grounds(theme);
         let panel = if decorated {
             iced::Color::TRANSPARENT
         } else {
-            theme.panel
+            page_ground
         };
         // Inside the card's 1 px edge, as the sheet's parts (see
         // `sheet::backdrop`).
@@ -658,7 +701,7 @@ impl<'a> Page<'a> {
         // settings are glass.
         let glass = self.cx.themes.glass(&theme.id, surface).is_some();
         let chat: iced::Background = if !decorated {
-            theme.chat.into()
+            nav_ground.into()
         } else if glass {
             iced::Color::TRANSPARENT.into()
         } else {
@@ -751,18 +794,40 @@ impl<'a> Page<'a> {
             ..iced::Padding::ZERO
         })
         .height(56);
-        let search = container(
-            controls::field(
-                theme,
-                SEARCH,
-                "Search settings",
-                &settings.query,
-                false,
-                true,
-            )
+        let (ink, hint, selection, sunken, line_color) = (
+            theme.text,
+            theme.muted,
+            theme.selection,
+            theme.sunken,
+            theme.line,
+        );
+        let search_input = iced::widget::text_input("Search settings", &settings.query)
+            .id(iced::widget::Id::new(SEARCH))
             .size(14)
-            .padding([11, 12])
-            .on_input(|query| crate::app::settings(Event::Search(query))),
+            .padding(0)
+            .on_input(|query| crate::app::settings(Event::Search(query)))
+            .style(move |_, _| iced::widget::text_input::Style {
+                background: Color::TRANSPARENT.into(),
+                border: iced::Border::default(),
+                icon: ink,
+                placeholder: hint,
+                value: ink,
+                selection,
+            });
+        let search = container(
+            container(
+                row![
+                    self.cx.look.glyph(Icon::Search, 16, theme.muted),
+                    search_input
+                ]
+                .spacing(8)
+                .align_y(Alignment::Center),
+            )
+            .padding([0, 12])
+            .height(40)
+            .width(Length::Fill)
+            .align_y(Alignment::Center)
+            .style(move |_| crate::style::outlined(sunken, line_color, 8.0)),
         )
         .padding([0, 16]);
         let query = settings.query.to_lowercase();

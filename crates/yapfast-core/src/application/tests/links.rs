@@ -68,6 +68,86 @@ fn invite_to(code: &str, guild: &str, channel: &str) -> chat::InvitePreview {
 
 #[test]
 #[cfg(feature = "discord")]
+fn server_creation_waits_for_confirmation_and_for_the_new_server_to_list() {
+    let mut app = discord_server();
+    app.dispatch(Action::OpenAddServer);
+    let create = |name: &str| Action::CreateServer {
+        name: name.into(),
+        icon: None,
+    };
+    assert!(app.dispatch(create("Premature")).is_empty());
+    app.dispatch(Action::ChooseServerLayout(Some(chat::ServerLayout::Study)));
+    assert!(app.dispatch(create(" J ")).is_empty());
+    let dialog = app.state.server_creation.as_ref().unwrap();
+    assert!(dialog.error.is_some() && !dialog.creating());
+    let created = app.dispatch(create("  Study Hall  "));
+    let request = match created.as_slice() {
+        [
+            Effect::Backend(Command::Discord(DiscordCommand::CreateServer {
+                request,
+                name,
+                layout: chat::ServerLayout::Study,
+                icon: None,
+            })),
+        ] if name == "Study Hall" => *request,
+        _ => panic!("expected one creation request"),
+    };
+    assert!(app.dispatch(create("Duplicate")).is_empty());
+    app.dispatch(Action::CloseAddServer);
+    assert!(app.state.server_creation.as_ref().unwrap().creating());
+
+    app.apply(Event::ServerCreated {
+        request,
+        result: Err("Discord refused the name.".into()),
+    });
+    let dialog = app.state.server_creation.as_ref().unwrap();
+    assert_eq!(dialog.error.as_deref(), Some("Discord refused the name."));
+    assert!(!dialog.creating());
+
+    let retried = app.dispatch(create("Study Hall"));
+    let next = match retried.as_slice() {
+        [Effect::Backend(Command::Discord(DiscordCommand::CreateServer { request, .. }))] => {
+            *request
+        }
+        _ => panic!("expected one retry"),
+    };
+    app.apply(Event::ServerCreated {
+        request,
+        result: Ok("discord:99".into()),
+    });
+    assert!(
+        app.state.server_creation.as_ref().unwrap().creating(),
+        "old response ignored"
+    );
+    app.apply(Event::ServerCreated {
+        request: next,
+        result: Ok("discord:20".into()),
+    });
+    assert!(app.state.server_creation.is_none());
+    assert_ne!(
+        app.state.navigation,
+        Navigation::Server("discord:20".into())
+    );
+
+    let mut snapshot = yapfast_discord::service::Snapshot::clone(app.discord.as_ref().unwrap());
+    let created = yapfast_discord::ready::server(&serde_json::json!({
+        "id": "20", "name": "Study Hall", "owner_id": "99",
+        "roles": [{"id": "20", "name": "@everyone", "position": 0,
+                   "permissions": yapfast_discord::ready::permission::VIEW_CHANNEL.to_string()}],
+        "channels": [{"id": "21", "type": 0, "name": "general", "position": 0}],
+    }))
+    .unwrap();
+    snapshot.servers.push(MarkedServer::from(created));
+    app.apply(discord_event(snapshot));
+    assert_eq!(
+        app.state.navigation,
+        Navigation::Server("discord:20".into())
+    );
+    assert_eq!(app.state.selected.as_deref(), Some("discord:20:21"));
+}
+
+#[test]
+#[cfg(feature = "discord")]
 fn join_a_server_shows_the_invite_and_joins_on_the_click() {
     let mut app = discord_server();
     app.dispatch(Action::OpenJoinServer);

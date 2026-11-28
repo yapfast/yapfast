@@ -1,6 +1,6 @@
 //! The server rail down the window's left, with its Discord look: the DM
 //! home (the app's logo), a line, the DMs with unread messages, then each
-//! server and folder, then the tile that adds a server. Each
+//! server and folder, then the tiles for adding and discovering servers. Each
 //! tile has its pill at the rail's edge (tall while open, half under the
 //! pointer, a dot while unread), its mentions in a red badge, a speaker
 //! when people are in its voice channels (green while this account is in
@@ -129,8 +129,11 @@ pub const GAP: f32 = 8.0;
 const RADIUS: f32 = 12.0;
 /// The add-a-server tile's id, and the disc and plus drawn on it.
 const ADD: &str = "+";
+const DISCOVER: &str = "discover";
+const SERVER_DIRECTORY: &str = "https://discord.com/servers";
 const ADD_DISC: f32 = 18.0;
-const ADD_PLUS: u32 = 14;
+const ADD_ARM: f32 = 10.0;
+const ADD_BAR: f32 = 2.0;
 const FOLDER_RADIUS: f32 = 16.0;
 /// Room above each tile for the insertion line in the middle of the gap.
 const INSERTION_LINE: f32 = 2.0;
@@ -170,6 +173,7 @@ pub enum Event {
     /// An unread DM on the rail opens.
     Dm(String),
     Join,
+    Discover,
     /// A right click on a server, a folder or an unread DM: its menu, where
     /// the pointer was pressed.
     Menu(String, iced::Point),
@@ -209,6 +213,7 @@ pub enum Kind {
     },
     /// Discord's "Add a server" tile, after the last server.
     Add,
+    Discover,
 }
 
 /// One row of the rail.
@@ -309,7 +314,7 @@ impl RailItem {
             Kind::Folder { open: true, .. } => folder + label + 4.0,
             Kind::Folder { open: false, .. } => folder + label + gap,
             Kind::Nested { last, .. } => tile + label + if *last { 4.0 } else { 0.0 } + gap,
-            Kind::Server | Kind::Dm | Kind::Add => tile + label + gap,
+            Kind::Server | Kind::Dm | Kind::Add | Kind::Discover => tile + label + gap,
         }
     }
 }
@@ -578,20 +583,27 @@ pub fn rail(state: &AppState, open_folders: &BTreeSet<String>) -> Vec<RailItem> 
         );
     }
     if state.discord_online || state.preview {
-        items.push(RailItem {
-            id: ADD.into(),
-            name: "Add a server".into(),
-            icon: None,
-            group_icon: None,
-            kind: Kind::Add,
-            selected: false,
-            unread: false,
-            badge: String::new(),
-            call: false,
-            media: None,
-            busy: Busy::default(),
-            unavailable: false,
-        });
+        items.extend(
+            [
+                (ADD, "Add a server", Kind::Add),
+                (DISCOVER, "Discover servers on Discord", Kind::Discover),
+            ]
+            .into_iter()
+            .map(|(id, name, kind)| RailItem {
+                id: id.into(),
+                name: name.into(),
+                icon: None,
+                group_icon: None,
+                kind,
+                selected: false,
+                unread: false,
+                badge: String::new(),
+                call: false,
+                media: None,
+                busy: Busy::default(),
+                unavailable: false,
+            }),
+        );
     }
     items
 }
@@ -902,7 +914,11 @@ pub fn update(app: &mut App, event: Event) -> Task<Message> {
             return app.ask();
         }
         Event::Dm(id) => app.client.dispatch(Action::Open(id)),
-        Event::Join => app.client.dispatch(Action::OpenJoinServer),
+        Event::Join => app.client.dispatch(Action::OpenAddServer),
+        Event::Discover => {
+            crate::browser::open(SERVER_DIRECTORY);
+            return Task::none();
+        }
         Event::Menu(id, at) => {
             return crate::place_menus::open_place_menu(app, &id, at, false);
         }
@@ -1060,35 +1076,41 @@ impl<'a> View<'a> {
         }
         let tiles = self.tiles();
         let rail_width = self.rail_width();
-        let viewport = self.s.scroll;
-        let mut top = 0.0;
         let destination = self.destination();
-        let mut rows = Rows::new(
-            self.s
-                .items
-                .iter()
-                .enumerate()
-                .map(|(i, item)| item.height(i, tiles))
-                .sum(),
-        );
+        let total: f32 = self
+            .s
+            .items
+            .iter()
+            .enumerate()
+            .map(|(i, item)| item.height(i, tiles))
+            .sum();
+        // iced reports a list's viewport only while its content overflows
+        // it. Once the window grows until every row fits, or after it was
+        // tiny (minimized, mid-resize), the viewport kept here is stale:
+        // rows below its old end were never built, and the rail ended
+        // short with the room under it empty. The window is never shorter
+        // than the rail's box, so build for it at least, and keep the
+        // offset within what can scroll, as iced does.
+        let height = self.s.scroll.height.max(self.cx.look.window.height);
+        let offset = self.s.scroll.offset.min((total - height).max(0.0));
+        let mut top = 0.0;
+        let mut rows = Rows::new(total);
         for (index, item) in self.s.items.iter().enumerate() {
-            let height = item.height(index, tiles);
+            let row = item.height(index, tiles);
             let at = top;
-            top += height;
-            if at + height < viewport.offset - MARGIN
-                || at > viewport.offset + viewport.height + MARGIN
-            {
+            top += row;
+            if at + row < offset - MARGIN || at > offset + height + MARGIN {
                 continue;
             }
             // Each row reaches above its tile for the call speaker.
             rows.push(
                 key(&item.id),
                 at - ABOVE,
-                height + ABOVE,
+                row + ABOVE,
                 self.rail_row(
                     index,
                     item,
-                    height,
+                    row,
                     destination.as_ref().filter(|drop| drop.item.id == item.id),
                 ),
             );
@@ -1275,7 +1297,7 @@ impl<'a> View<'a> {
                 continue;
             }
             // The text rail writes its own add line, below.
-            if item.kind == Kind::Add {
+            if matches!(item.kind, Kind::Add | Kind::Discover) {
                 continue;
             }
             let (label, nested, selected, unread, badge, message) = match &item.kind {
@@ -1336,7 +1358,7 @@ impl<'a> View<'a> {
                     item.badge.as_str(),
                     Message::Rail(Event::Server(item.id.clone())),
                 ),
-                Kind::Divider | Kind::Add => unreachable!(),
+                Kind::Divider | Kind::Add | Kind::Discover => unreachable!(),
             };
             let line = match (tree_rail, nested) {
                 (true, true) => format!("│   {}", branch(index + 1 == count)),
@@ -1397,7 +1419,7 @@ impl<'a> View<'a> {
             .spacing(0);
         for (index, item) in self.s.items.iter().enumerate() {
             // The theme's own add button ends the row, below.
-            if item.kind == Kind::Add {
+            if matches!(item.kind, Kind::Add | Kind::Discover) {
                 continue;
             }
             if item.kind == Kind::Divider {
@@ -1729,6 +1751,29 @@ impl<'a> View<'a> {
             .into()
     }
 
+    /// The ground of the add and discover tiles: the raised one, a step
+    /// toward the rail's while at rest.
+    fn plain_ground(self, lit: bool) -> Color {
+        let theme = self.cx.look.theme;
+        if lit {
+            theme.raised
+        } else {
+            crate::theme::mix(theme.raised, theme.rail, 0.83)
+        }
+    }
+
+    /// The discover tile: the add tile's ground with Discord's compass, a
+    /// white disc with its needle cut out, not an icon in the accent.
+    fn discover_face(self, lit: bool) -> Element<'a, Message> {
+        let ground = self.plain_ground(lit);
+        self.cx
+            .look
+            .glyph(Icon::Compass, 24, self.cx.look.theme.text)
+            .boxed(TILE)
+            .style(move |_| rounded(ground, RADIUS))
+            .into()
+    }
+
     /// The add-a-server tile: the raised ground, a step toward the rail's
     /// while at rest, with a disc of the text's colour and the rail's plus
     /// cut from it. A theme's is Slint's `TileAddItem`: the stock "+" on the
@@ -1759,17 +1804,19 @@ impl<'a> View<'a> {
                 })
                 .into();
         }
-        let ground = if lit {
-            theme.raised
-        } else {
-            crate::theme::mix(theme.raised, theme.rail, 0.83)
-        };
+        let ground = self.plain_ground(lit);
         let (disc, plus) = (theme.text, theme.rail);
-        let glyph = self
-            .cx
-            .look
-            .glyph(Icon::Plus, ADD_PLUS, plus)
-            .boxed(ADD_DISC);
+        // Two bars, as Discord draws it: 10 px long and 2 px thick.
+        let bar = |w: f32, h: f32| {
+            container(Space::new())
+                .width(w)
+                .height(h)
+                .style(move |_| container::Style::default().background(plus))
+        };
+        let glyph = stack![
+            container(bar(ADD_ARM, ADD_BAR)).center(ADD_DISC),
+            container(bar(ADD_BAR, ADD_ARM)).center(ADD_DISC),
+        ];
         container(
             container(glyph)
                 .center(ADD_DISC)
@@ -2194,6 +2241,11 @@ impl<'a> View<'a> {
                 (tile_width, tile_height),
                 Message::Rail(Event::Join),
             ),
+            Kind::Discover => (
+                self.discover_face(pointed),
+                (tile_width, tile_height),
+                Message::Rail(Event::Discover),
+            ),
             _ => (
                 self.server_face(item, lit),
                 (tile_width, tile_height),
@@ -2225,14 +2277,14 @@ impl<'a> View<'a> {
             pointed,
             folder: matches!(item.kind, Kind::Folder { .. }),
             open_folder,
-            menu: item.kind != Kind::Add,
+            menu: !matches!(item.kind, Kind::Add | Kind::Discover),
             draggable: self.can_drag()
                 && !self.cx.state.preview
                 && self.cx.state.discord_user.is_some()
                 && (matches!(item.kind, Kind::Folder { .. })
                     || (matches!(item.kind, Kind::Server | Kind::Nested { .. })
                         && discord::parse_server(&item.id).is_some())),
-            read: !matches!(item.kind, Kind::Add | Kind::Dm | Kind::Divider),
+            read: !matches!(item.kind, Kind::Add | Kind::Discover | Kind::Dm | Kind::Divider),
         };
         // A server out of reach in a Discord outage says so, besides
         // fading.

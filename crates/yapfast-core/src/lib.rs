@@ -83,6 +83,7 @@ pub mod session;
 pub mod soundboard;
 pub mod sounds;
 pub mod spoiler;
+pub mod storefront;
 #[cfg(feature = "discord")]
 pub mod stream_audio;
 #[cfg(feature = "discord")]

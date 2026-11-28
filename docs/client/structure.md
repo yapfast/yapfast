@@ -157,7 +157,7 @@ Each part of the window has its module:
   people wear);
 - what opens over the window: `picker` (with its tabs `emoji`, `gifs`,
   `stickers`), `menus`, `dialogs`, `bot_select`, `forward`,
-  `image_viewer`, `server_dialogs`, `link_dialogs`, `status`,
+  `image_viewer`, `server_dialogs`, `boost_goal`, `link_dialogs`, `status`,
   `switcher`, `bot_modal`;
 - calls: `call` (with `stage`, `dock`, `details`, `popups`, `dm`,
   `corner`);

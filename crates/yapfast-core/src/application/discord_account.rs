@@ -17,7 +17,9 @@ impl Application {
             self.state.record_visit(previous, &HistoryPlace::Dm(screen));
         }
         self.state.dm_screen = Some(screen);
-        if open { vec![] } else { self.deselect() }
+        let mut effects = if open { vec![] } else { self.deselect() };
+        effects.extend(self.load_screen(screen));
+        effects
     }
 
     pub(super) fn add_friend(&mut self, username: String) -> Vec<Effect> {
@@ -865,6 +867,7 @@ impl Application {
         self.state.discord_linked = false;
         self.state.discord_online = false;
         self.state.discord_user = None;
+        self.state.popular_emojis.clear();
         self.state.discord_friends = Arc::default();
         self.state.discord_blocked.clear();
         self.state.discord_ignored = Arc::default();
@@ -878,6 +881,8 @@ impl Application {
         }
         self.state.person_dialog = None;
         self.state.server_settings = None;
+        self.state.server_creation = None;
+        self.pending_server = None;
         self.state.channel_settings = None;
         self.state.browse = None;
         self.state.mfa.clear();

@@ -14,6 +14,21 @@ use crate::chat::NotifyLevel;
 #[cfg(feature = "discord")]
 use yapfast_discord::{marked::MarkedServer, notifications::Level, ready::permission};
 
+impl AppState {
+    /// The Discord server whose emoji ranking fits the selected room.
+    pub fn emoji_server_context(&self) -> Option<&str> {
+        let (guild, _) = discord::parse_room(self.selected.as_deref()?)?;
+        self.servers
+            .iter()
+            .find(|server| {
+                server.discord
+                    && !server.unavailable
+                    && discord::parse_server(&server.id) == Some(guild)
+            })
+            .map(|server| server.id.as_str())
+    }
+}
+
 /// The Discord server and, for a room id, the channel or category a place
 /// names: a server id or a room id.
 #[cfg(feature = "discord")]
@@ -359,6 +374,40 @@ impl Application {
             }
             Err(error) => {
                 tracing::warn!(%error, "could not show what a server's card shows");
+            }
+        }
+    }
+
+    pub(super) fn load_popular_emoji(&mut self) -> Vec<Effect> {
+        if self.state.preview || !self.state.discord_online {
+            return vec![];
+        }
+        let Some(server) = self.state.emoji_server_context().map(str::to_owned) else {
+            return vec![];
+        };
+        if self.state.popular_emojis.contains_key(&server) {
+            return vec![];
+        }
+        self.state.popular_emojis.insert(server.clone(), Vec::new());
+        vec![Effect::Backend(Command::Discord(
+            DiscordCommand::PopularEmoji(server),
+        ))]
+    }
+
+    pub(super) fn popular_emoji_loaded(
+        &mut self,
+        server: String,
+        result: Result<Vec<String>, String>,
+    ) {
+        match result {
+            Ok(emoji) => {
+                if let Some(known) = self.state.popular_emojis.get_mut(&server) {
+                    *known = emoji;
+                }
+            }
+            Err(error) => {
+                self.state.popular_emojis.remove(&server);
+                tracing::debug!(%error, "could not load the server's emoji rankings");
             }
         }
     }

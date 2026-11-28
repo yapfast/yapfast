@@ -323,15 +323,15 @@ fn the_links_are_measured_as_tall_as_theyre_drawn_under_short_channel_rows() {
         &[],
     );
     let screens = SideRow::Screens {
-        friends: false,
-        requests: false,
+        screen: None,
         badge: String::new(),
     };
     let browse = SideRow::Browse { open: false };
-    // Friends and Requests at 38 px, Browse Channels at 32, as drawn.
+    // Friends, Nitro, Shop, Quests and Requests at 38 px, Browse Channels at
+    // 32, as drawn.
     assert_eq!(
         screens.height(&app.theme, GAP),
-        GAP + 9.0 + 38.0 + GAP + 38.0 + 6.0
+        GAP + 9.0 + 5.0 * 38.0 + 4.0 * GAP + 6.0
     );
     assert_eq!(browse.height(&app.theme, GAP), GAP + 6.0 + 32.0 + 6.0);
     // The tree measures them as the list does.

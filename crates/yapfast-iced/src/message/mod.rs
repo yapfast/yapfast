@@ -23,7 +23,7 @@ use crate::{
     media::Gallery,
     pictures::{Face, Icon},
     piece::Piece,
-    style::{CHIP, hex},
+    style::{CHIP, faded, hex},
     timeline::{AUTHOR_GAP, AUTHOR_LINE, CONTENT_PAD, END_PAD, LINE_HEIGHT, RowLook},
     widgets::{Fold, RightPress},
 };
@@ -40,10 +40,8 @@ pub use reaction_chips::CHIP_HEIGHT;
 pub use reaction_chips::{emoji_shortcode, reacts};
 
 /// The line above a reply or a command's answer, and its avatar.
-const HEADER_LINE: f32 = 22.0;
+pub(crate) const HEADER_LINE: f32 = 24.0;
 const HEADER_AVATAR: f32 = 16.0;
-/// A custom emoji's picture on a reply's quote line.
-const REPLY_EMOJI: u32 = 16;
 /// An embed at its widest, its bar, its thumbnail at its widest, and the
 /// pieces its text is in the selection (left out of copies).
 const EMBED_WIDTH: f32 = 432.0;
@@ -94,7 +92,8 @@ pub fn open_author(app: &mut App, index: usize) -> iced::Task<Message> {
     let header = message.reply.is_some() || message.used.is_some();
     let avatar = crate::timeline::avatar(&app.theme);
     let gutter = crate::timeline::gutter(&app.theme);
-    let y = app.ctx().row_body_top(index) + CONTENT_PAD + if header { 24.0 } else { 2.0 };
+    let y =
+        app.ctx().row_body_top(index) + CONTENT_PAD + if header { HEADER_LINE + 2.0 } else { 2.0 };
     let x = lane.left + (gutter - avatar) / 2.0;
     let width = crate::profile::WIDTH;
     let beside = if x + avatar + 8.0 + width <= app.window.width - 8.0 {
@@ -211,10 +210,12 @@ pub fn message_content<'a>(
         theme.text
     };
     let editing = ctx.composer.editing.as_deref() == Some(message.item.as_str());
+    let show_edited = message.edited && message.notice.is_none() && !editing;
+    let mut inline_edited = false;
     if editing {
         content = content.push(crate::edit::inline_edit(ctx));
     } else if !look.body.parts.is_empty() && !look.body.plain().is_empty() {
-        let body = ctx.body_view(
+        let (body, placed_inline) = ctx.body_view_edited(
             &look.body,
             index,
             FIRST_PART,
@@ -223,7 +224,9 @@ pub fn message_content<'a>(
                 line_height: line_height(ctx),
                 ink,
             },
+            show_edited,
         );
+        inline_edited = placed_inline;
         content = content.push(if ctx.layout.collapse_long {
             folding(ctx, index, body)
         } else {
@@ -233,7 +236,7 @@ pub fn message_content<'a>(
     if message.flags & LOADING != 0 {
         content = content.push(thinking(ctx, message));
     }
-    if message.edited && message.notice.is_none() && !editing {
+    if show_edited && !inline_edited {
         content = content.push(
             text("(edited)")
                 .size(theme.type_size("small", 10.0))
@@ -965,7 +968,11 @@ fn gutter<'a>(
             Space::new()
                 .width(avatar)
                 .height(if look.first && message.notice.is_none() {
-                    if header { avatar + 24.0 } else { avatar }
+                    if header {
+                        avatar + HEADER_LINE + 2.0
+                    } else {
+                        avatar
+                    }
                 } else {
                     0.0
                 })
@@ -1008,7 +1015,7 @@ fn gutter<'a>(
         layers = layers.push(placed(
             person_menu(ctx, index, message, face),
             0.0,
-            if header { 24.0 } else { 2.0 },
+            if header { HEADER_LINE + 2.0 } else { 2.0 },
         ));
     } else if ctx.pointed.message.as_deref() == Some(message.item.as_str()) {
         // Right-aligned to the avatar's edge.
@@ -1067,7 +1074,15 @@ fn reply_line<'a>(
     reply: &'a chat::Reply,
 ) -> Element<'a, Message> {
     let theme = ctx.look.theme;
-    let mut line = row![].spacing(6).align_y(Alignment::Center);
+    let style = ctx.state.cosmetics.style(reply.style.as_deref());
+    let font = display_font(style);
+    let name_style = looks::name_look(style, &reply.author, ctx.in_server, theme.dark);
+    let color = reply.color.map_or(theme.secondary, hex);
+    let color = match &name_style {
+        Some(style) if !ctx.in_server => style.colors.first().map_or(color, |rgb| hex(*rgb)),
+        _ => color,
+    };
+    let mut line = row![].spacing(4).align_y(Alignment::Center);
     if !reply.author.is_empty() {
         line = line
             .push(ctx.face(Face::new(
@@ -1076,10 +1091,15 @@ fn reply_line<'a>(
                 HEADER_AVATAR,
             )))
             .push(
-                text(format!("@{}", reply.author))
+                text(format!("@{}", shown_name(&reply.author, font)))
                     .size(theme.type_size("names", 14.0))
-                    .font(theme.font("names", MEDIUM))
-                    .color(reply.color.map_or(theme.secondary, hex))
+                    .font(if font.is_some() {
+                        style_font(font, 400)
+                    } else {
+                        theme.font("names", style_font(None, 400))
+                    })
+                    // Discord fades a quoted role name to 64% over chat.
+                    .color(faded(color, 0.64))
                     .wrapping(text::Wrapping::None),
             );
         // The tag the author wears, a little smaller than a message's.
@@ -1104,18 +1124,18 @@ fn reply_line<'a>(
             ));
         }
     }
+    if reply.forwarded {
+        line = line.push(ctx.look.glyph(Icon::Forward, 16, theme.secondary));
+    }
     line = line.push(
-        container(ctx.inline_emoji_line(
-            &[],
+        container(ctx.reply_preview(
             &look.body.reply,
-            &reply.emoji,
+            reply,
             Look {
                 size: theme.type_size("small", 13.0),
                 line_height: 18.0,
                 ink: theme.text,
             },
-            REPLY_EMOJI,
-            true,
         ))
         .width(Length::Fill)
         .clip(true),
@@ -1232,6 +1252,15 @@ fn sent_time<'a>(ctx: crate::ctx::Ctx<'a>, index: usize, message: &'a ChatMessag
         .map_or(message.time.as_str(), |look| &*look.time)
 }
 
+/// Font-only styles still count when no effect colours were supplied.
+fn display_font(style: Option<&chat::NameStyle>) -> Option<crate::fonts::NameFont> {
+    let style = style?;
+    Some(crate::fonts::NameFont {
+        family: looks::family(style.font)?,
+        weight: looks::weight(style.font),
+    })
+}
+
 /// What the timeout clock's tooltip says, as Discord's client words it.
 pub const TIMED_OUT_TIP: &str =
     "This is only visible to moderators and indicates this user is timed out.";
@@ -1276,12 +1305,9 @@ fn author_line<'a>(
 ) -> Element<'a, Message> {
     let theme = ctx.look.theme;
     let cosmetics = ctx.state.cosmetics;
-    let mut style = looks::name_look(
-        cosmetics.style(message.style.as_deref()),
-        &message.author,
-        ctx.in_server,
-        theme.dark,
-    );
+    let name_style = cosmetics.style(message.style.as_deref());
+    let mut font = display_font(name_style);
+    let mut style = looks::name_look(name_style, &message.author, ctx.in_server, theme.dark);
     let content = ctx
         .themes
         .content(&theme.id, ctx.layout.theme_content.contains(&theme.id));
@@ -1289,6 +1315,7 @@ fn author_line<'a>(
         .is_some_and(|content| content.names.styles == yapfast_core::themes::content::Follow::Theme)
     {
         style = None;
+        font = None;
     }
     let color = message.color.map_or(theme.channel_white, hex);
     // Out of a server a whole style shows; its first colour stands in
@@ -1305,11 +1332,7 @@ fn author_line<'a>(
         yapfast_core::themes::chrome::Place::Author,
         &message.author,
     );
-    let shown_author = shown_name(
-        &author,
-        style.as_ref().and_then(crate::looks::NameLook::font),
-    )
-    .into_owned();
+    let shown_author = shown_name(&author, font).into_owned();
     let hover = crate::theme_effects::name_hover_effect(ctx, &shown_author);
     // A name longer than its room (the bubble's share, or the lane, less
     // its time) ends in "…" rather than widening its bubble past it.
@@ -1317,8 +1340,8 @@ fn author_line<'a>(
     let name_size = theme.type_size("names", text_size(ctx));
     let long = shown_author.chars().count() as f32 * name_size * 0.62 > room;
     let name_font = {
-        let stock = style_font(style.as_ref().and_then(crate::looks::NameLook::font), 500);
-        if style.is_some() {
+        let stock = style_font(font, 500);
+        if style.is_some() || font.is_some() {
             stock
         } else {
             theme.font("names", stock)
@@ -1413,7 +1436,7 @@ fn author_line<'a>(
         crate::widgets::Hover::new(name, under).into()
     };
     let mut line = row![person_menu(ctx, index, message, name)]
-        .spacing(8)
+        .spacing(4)
         .align_y(Alignment::Center);
     if let Some(tag) = cosmetics.tag(message.tag.as_ref()) {
         let size = text_size(ctx) * 0.72;

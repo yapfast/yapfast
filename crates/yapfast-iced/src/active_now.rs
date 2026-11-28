@@ -8,7 +8,7 @@ use crate::widgets::scroll_view;
 use std::collections::HashMap;
 
 use iced::{
-    Alignment, Element, Length, Padding, Point,
+    Alignment, Element, Length, Padding,
     widget::{Space, button, column, container, row, stack, text},
 };
 use yapfast_core::{
@@ -23,7 +23,6 @@ use crate::{
     people::voice_spots,
     pictures::{Face, initials, tint},
     style::{hex, rounded, scrollbar},
-    theme::rgb,
     widgets::Pic,
 };
 
@@ -569,11 +568,8 @@ fn active_card<'a>(ctx: crate::ctx::Ctx<'a>, card: &'a Card, now: u64) -> Elemen
         (theme.raised, theme.raised, theme.edge)
     };
     let face = Face::new(card.face.avatar.as_deref(), &card.face.name, 32.0);
-    let face = ctx.face(match card.presence {
-        // The ring takes the head's colour at rest.
-        Some(presence) => face.dot(Some((presence, rgb(head_ground), Point::new(20.0, 20.0)))),
-        None => face,
-    });
+    // Discord shows no presence dot on the card's avatar.
+    let face = ctx.face(face);
     let mut head = row![
         face,
         column![
@@ -670,7 +666,7 @@ fn active_row<'a>(ctx: crate::ctx::Ctx<'a>, entry: &'a CardRow) -> Element<'a, M
             entry.icon.as_deref(),
             &entry.named,
             entry.kind == RowKind::Voice,
-            32.0
+            48.0
         ),
         words
     ]

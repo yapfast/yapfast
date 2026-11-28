@@ -21,10 +21,25 @@ recording. Each change is kept at once in
 `layout.json` under its own key (`layout::Prefs` and
 `layout::Voice` read them) and handed to the core.
 
+The seven [privacy and accessibility pages](privacy.md) use native Yapfast
+cards for supported controls and explicit official Discord browser
+handoffs for account settings Yapfast cannot edit. Their controls share
+the preferences below, including changes made from another settings page.
+
 - My account (`pages/`, a file a page, with the preferences' changes in
   its `mod.rs`): the account's card, where its login is kept,
   Reconnect while offline, Edit profile, the custom status, and Sign out
   (Back to sign in in the preview).
+  The account module (`account.rs`) adds local Overview, Profiles, Connections,
+  Authorized Apps, Devices and Nitro & Billing tabs using Yapfast's form kit.
+  Profiles opens the existing main editor or a server's editor, with the server
+  choices built only while expanded. The other tabs show the documented manual
+  path in Discord beside Open Discord in browser, plus explicitly labelled help
+  links; Nitro also links to its public page. The browser button opens the web
+  app, without claiming to select a settings page. These tabs fetch no account
+  details and display no email or phone number. See
+  [account settings](../discord/account-settings.md) for the supported controls,
+  official sources and the browser workflow boundaries.
 - Voice & video (`voice.rs`): the microphone, speakers and camera, each a
   dropdown of the devices the core lists (listed again as the page shows),
   the microphone's and speakers' volumes, which play while dragged and are

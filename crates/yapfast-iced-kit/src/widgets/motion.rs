@@ -15,9 +15,11 @@ use std::{
 };
 
 use iced::{
-    Color, Element, Transformation,
+    Color, Element, Length, Transformation,
     advanced::{Renderer as _, Shell, renderer, widget::Operation},
-    mouse, window,
+    mouse,
+    widget::Space,
+    window,
 };
 
 use super::{At, Hooks, Inner, Renderer, Stateless, Wrap};
@@ -186,8 +188,28 @@ thread_local! {
     /// How far open the layer being drawn is, eased, from 0 to 1: set by
     /// the [`Motion`] drawing it, 1 outside one.
     static SHOWN: Cell<f32> = const { Cell::new(1.0) };
+    /// How dark the window's dims drawn so far this frame make what's
+    /// under them, 0 to 1 (only counted while a title bar is drawn, [`BAR`]):
+    /// [`bar_dim`] takes it, drawn last, to dim the bar as well.
+    static DIMMED: Cell<f32> = const { Cell::new(0.0) };
+    /// How tall the window's own title bar is while the view is built and
+    /// drawn, 0 without one ([`set_bar`]).
+    static BAR: Cell<f32> = const { Cell::new(0.0) };
     /// The resolved popup style of the layer currently being drawn.
     static STYLE: Cell<ThemeMotion> = Cell::new(ThemeMotion::default());
+}
+
+/// Says how tall the window's own title bar is (0 without one), for the
+/// view being built: the content lays out under it, so what's centred in
+/// the window ([`bar`]) is moved up by half of it, and what dims the
+/// window dims the bar too ([`bar_dim`]).
+pub fn set_bar(height: f32) {
+    BAR.set(height);
+}
+
+/// How tall the window's own title bar is, as the view says ([`set_bar`]).
+pub fn bar() -> f32 {
+    BAR.get()
 }
 
 /// How far open a layer is that opened at `start`, at `now`, eased out
@@ -426,6 +448,48 @@ impl<M> Hooks<M> for Dim {
             },
             color,
         );
+        if BAR.get() > 0.0 {
+            let seen = DIMMED.get();
+            DIMMED.set(1.0 - (1.0 - seen) * (1.0 - color.a));
+        }
+        child(renderer);
+    }
+}
+
+/// The title bar's strip, `height` tall across the window's top, drawn over
+/// it as the layer after the content: it dims by what the dims drawn before
+/// it dimmed, as Discord's modals dim its title bar too. It takes no
+/// event and shows to an operation as nothing.
+pub fn bar_dim<'a, M: 'a>(height: f32) -> Element<'a, M> {
+    Wrap::new(Space::new().width(Length::Fill).height(height), BarDim).into()
+}
+
+/// What [`bar_dim`] paints.
+pub struct BarDim;
+
+impl<M> Hooks<M> for BarDim {
+    type State = Stateless;
+
+    fn draw(
+        &self,
+        _state: &Stateless,
+        renderer: &mut Renderer,
+        at: At,
+        child: &mut dyn FnMut(&mut Renderer),
+    ) {
+        let dimmed = DIMMED.replace(0.0);
+        if dimmed > 0.0 {
+            renderer.fill_quad(
+                renderer::Quad {
+                    bounds: at.bounds,
+                    ..Default::default()
+                },
+                Color {
+                    a: dimmed,
+                    ..Color::BLACK
+                },
+            );
+        }
         child(renderer);
     }
 }

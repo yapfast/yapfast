@@ -83,7 +83,13 @@ author who joined the server in the last week (`new_member`; not a bot, not
 one who left and came back, and not in a server itself under a week old, as
 Discord's client marks them), and, in a forum post, an "OP" tag for the
 post's author unless the APP tag is there; a reply's line quotes the
-author's tag a little smaller. Before the name, a red clock marks an
+author's tag a little smaller. Reply names use the author's display-name
+font and a faded role colour. The 24 px reply row leaves the author's
+20 px row directly above the body, without changing the body's line pitch.
+A reply to a forward quotes its first snapshot after a forward icon;
+attachments or embeds on the original add an image icon after the snippet.
+The reply connector is drawn for every reply, including empty previews.
+Before the name, a red clock marks an
 author who is timed out, only for an account that may time them out
 (`author_timed_out_until`, which the core sets; see
 [servers](../discord/servers.md#a-server-members-menu)); its tooltip reads "This is

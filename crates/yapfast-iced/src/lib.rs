@@ -115,6 +115,7 @@ mod sidebar;
 mod signin;
 mod status;
 use yapfast_iced_kit::style;
+mod boost_goal;
 mod keybinds;
 mod shortcuts;
 mod suggest;

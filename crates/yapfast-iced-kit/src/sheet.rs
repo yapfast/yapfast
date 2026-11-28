@@ -45,8 +45,18 @@ pub const DIM: Color = Color {
     r: 0.0,
     g: 0.0,
     b: 0.0,
-    a: 0.7,
+    a: 0.72,
 };
+/// The grounds of the pages' column and of the page. Discord's Dark lifts
+/// both a step over the window's (measured): the column on the chat's ground
+/// and the page on the panels'.
+pub fn grounds(theme: &crate::theme::Theme) -> (Color, Color) {
+    if theme.bonfire {
+        (theme.chat, theme.panel)
+    } else {
+        (theme.sidebar, theme.chat)
+    }
+}
 /// The pages' column and a page's row in it, as a channel's row.
 const NAV: f32 = 232.0;
 const NAV_TOP: f32 = 56.0;
@@ -202,7 +212,7 @@ impl<'a, M: Clone + 'a> Sheet<'a, M> {
                     .align_bottom(Length::Fill),
             );
         }
-        let sidebar = theme.sidebar;
+        let (sidebar, chat) = grounds(theme);
         let nav = container(
             scroll_view(
                 column(
@@ -225,7 +235,6 @@ impl<'a, M: Clone + 'a> Sheet<'a, M> {
         .width(NAV)
         .height(Length::Fill)
         .style(move |_| rounded(sidebar, corners([inner, 0.0, 0.0, inner])));
-        let chat = theme.chat;
         let card = container(row![
             nav,
             container(content).width(Length::Fill).height(Length::Fill)
@@ -389,7 +398,7 @@ pub fn backdrop<'a, M: Clone + 'a>(
     margin: f32,
     close: M,
 ) -> Element<'a, M> {
-    let (edge, ground) = (theme.edge, theme.chat);
+    let (edge, ground) = (theme.edge, grounds(theme).1);
     let card: Element<'a, M> = if theme.packaged() {
         // The card's ground and edge are one rounded shape at the theme's
         // card corner, with its shadow; its parts lie 1 px inside the edge
@@ -430,8 +439,13 @@ pub fn backdrop<'a, M: Clone + 'a>(
     let scrim = theme.token_colour("scrim", DIM);
     opaque(stack![
         controls::dimmed(close, scrim),
+        // `margin` in from the whole window's edges, its top too, which the
+        // window's title bar covers.
         container(crate::widgets::motion::grow(opaque(card)))
-            .padding(margin)
+            .padding(iced::Padding {
+                top: (margin - crate::widgets::motion::bar()).max(0.0),
+                ..iced::Padding::new(margin)
+            })
             .center_x(Length::Fill)
             .height(Length::Fill)
     ])

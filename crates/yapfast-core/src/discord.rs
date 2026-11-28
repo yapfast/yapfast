@@ -1031,7 +1031,19 @@ fn server_rooms(
         channels.push(id);
         // Each thread's channel is the room listed before the first of them.
         let parent = rooms.len() - 1;
-        for thread in threads.remove(channel.id.as_str()).into_iter().flatten() {
+        // Most recently active first, as Discord's client lists them, a
+        // thread with no message yet by its own, newer, id.
+        let mut under = threads.remove(channel.id.as_str()).unwrap_or_default();
+        under.sort_by_cached_key(|thread| {
+            let id = thread.channel.id.parse::<u64>().unwrap_or(0);
+            let last = thread
+                .channel
+                .thread
+                .as_deref()
+                .map_or(0, |details| details.last_message);
+            std::cmp::Reverse(id.max(last))
+        });
+        for thread in under {
             let room = thread_room(server, thread, &rooms[parent], me, premium);
             channels.push(room.id.clone());
             rooms.push(room);
@@ -2413,6 +2425,47 @@ mod tests {
                 ("22", "Games")
             ]
         );
+    }
+
+    #[test]
+    fn lists_a_channels_threads_by_latest_activity() {
+        let thread = |id: &str, last_message: u64| {
+            let thread = Channel {
+                id: id.into(),
+                name: format!("thread {id}"),
+                parent: Some("21".into()),
+                thread: Some(Box::new(yapfast_discord::ready::Thread {
+                    joined: true,
+                    last_message,
+                    ..Default::default()
+                })),
+                ..Default::default()
+            };
+            let marks = ChannelMarks {
+                unread: true,
+                ..Default::default()
+            };
+            (thread, marks)
+        };
+        let channel = Channel {
+            id: "21".into(),
+            name: "21".into(),
+            ..Default::default()
+        };
+        let server = Server {
+            id: "10".into(),
+            text_channels: vec![channel],
+            ..Default::default()
+        };
+        // The newer thread has no message, the older one has a later one.
+        let server = with_threads(server, vec![thread("50", 0), thread("40", 60)]);
+        let snapshot = Snapshot {
+            servers: vec![server],
+            ..Default::default()
+        };
+        let (rooms, _) = index(&snapshot, false);
+        let names: Vec<_> = rooms.iter().map(|room| room.name.as_str()).collect();
+        assert_eq!(names, ["21", "thread 40", "thread 50"]);
     }
 
     #[test]

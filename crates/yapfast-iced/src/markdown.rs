@@ -843,11 +843,31 @@ impl<'c> crate::ctx::Ctx<'c> {
         first: crate::piece::PartNo,
         look: Look,
     ) -> Element<'c, Message> {
+        self.body_view_edited(body, row, first, look, false).0
+    }
+
+    /// As [`Self::body_view`], and when `edited` is set appends `(edited)`
+    /// inline to the final non-code block, returning whether it was placed
+    /// inline so callers can fall back to a trailing line otherwise.
+    pub fn body_view_edited(
+        self,
+        body: &'c Body,
+        row: usize,
+        first: crate::piece::PartNo,
+        look: Look,
+        edited: bool,
+    ) -> (Element<'c, Message>, bool) {
         let theme = self.look.theme;
+        let inline_edited = edited
+            && body
+                .parts
+                .last()
+                .is_some_and(|part| part.shape != Shape::Code);
         // Animated custom emoji play in a message's text in the timeline or
         // the thread beside it; elsewhere (a bio, a topic, a search's
         // results) they show their still.
         let plays = self.lanes.row_look(row).is_some();
+        let last_part = body.parts.len().saturating_sub(1);
         // In a theme's bubbles the words take only their own width, so the
         // bubble hugs them.
         let hugs = plays
@@ -875,7 +895,7 @@ impl<'c> crate::ctx::Ctx<'c> {
             let side = (size * EMOJI_SCALE).round();
             let mut pictures = Vec::new();
             let mut moving: Vec<(usize, Box<dyn crate::piece::Moving + 'c>)> = Vec::new();
-            let spans: Vec<_> = part
+            let mut spans: Vec<_> = part
                 .runs
                 .iter()
                 .enumerate()
@@ -901,6 +921,13 @@ impl<'c> crate::ctx::Ctx<'c> {
                     }
                 })
                 .collect();
+            if inline_edited && index == last_part {
+                spans.push(
+                    span(format!(" {}", "(edited)"))
+                        .size(10.0)
+                        .color(theme.muted),
+                );
+            }
             let light_role = if matches!(part.shape, Shape::Heading(_)) {
                 yapfast_core::themes::package::art::TextRole::Headings
             } else {
@@ -992,7 +1019,7 @@ impl<'c> crate::ctx::Ctx<'c> {
                 ..Padding::ZERO
             }));
         }
-        parts.into()
+        (parts.into(), inline_edited)
     }
 
     /// Single-line plain text with inline custom emoji pictures (animating
@@ -1007,6 +1034,31 @@ impl<'c> crate::ctx::Ctx<'c> {
         emoji_side: u32,
         plays: bool,
     ) -> Element<'c, Message> {
+        self.inline_emoji_line_mark(prefix, text, emoji, look, (emoji_side, None), plays)
+    }
+
+    /// A timeline reply's snippet, with the original's media mark inline
+    /// after its text rather than pushed to the far end of the row.
+    pub fn reply_preview(
+        self,
+        text: &'c str,
+        reply: &'c yapfast_core::chat::Reply,
+        look: Look,
+    ) -> Element<'c, Message> {
+        let mark = reply.has_media.then_some(crate::pictures::Icon::Image);
+        self.inline_emoji_line_mark(&[], text, &reply.emoji, look, (16, mark), true)
+    }
+
+    fn inline_emoji_line_mark(
+        self,
+        prefix: &[&'c str],
+        text: &'c str,
+        emoji: &'c [yapfast_core::chat::CustomEmoji],
+        look: Look,
+        pictures: (u32, Option<crate::pictures::Icon>),
+        plays: bool,
+    ) -> Element<'c, Message> {
+        let (emoji_side, mark) = pictures;
         let mut spans: Vec<Span<'c, &'c str, Font>> = Vec::new();
         let mut pictures = Vec::new();
         let mut moving: Vec<(usize, Box<dyn crate::piece::Moving + 'c>)> = Vec::new();
@@ -1038,6 +1090,12 @@ impl<'c> crate::ctx::Ctx<'c> {
                     }
                 }
             }
+        }
+        if let Some(mark) = mark {
+            spans.push(span(" ").size(look.size).color(look.ink));
+            let index = spans.len();
+            spans.push(span(EMOJI_MARK_STR).size(16).color(look.ink));
+            pictures.push((index, self.look.icon(mark, 16, crate::theme::rgb(look.ink))));
         }
         if spans.is_empty() {
             spans.push(span("").color(look.ink));

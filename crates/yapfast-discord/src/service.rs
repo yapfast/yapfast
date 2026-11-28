@@ -2317,6 +2317,26 @@ impl Discord {
             .collect())
     }
 
+    /// A server's most-used custom emoji, by id and in order of rank.
+    pub async fn guild_top_emojis(&self, guild: &str) -> Result<Vec<String>> {
+        let response = self.api.guild_top_emojis(guild).await?;
+        let items = response["items"]
+            .as_array()
+            .context("could not understand Discord's emoji rankings")?;
+        let mut ranked: Vec<_> = items
+            .iter()
+            .filter_map(|item| Some((item["emoji_rank"].as_u64()?, item["emoji_id"].as_str()?)))
+            .collect();
+        ranked.sort_by_key(|(rank, _)| *rank);
+        let mut seen = HashSet::new();
+        Ok(ranked
+            .into_iter()
+            .map(|(_, id)| id)
+            .filter(|id| seen.insert(*id))
+            .map(str::to_owned)
+            .collect())
+    }
+
     /// Adds a custom emoji, `image` a data URI; gives back the emoji.
     pub async fn create_emoji(
         &self,
@@ -3353,6 +3373,42 @@ impl Discord {
         Ok(())
     }
 
+    /// Creates a server and returns its Discord id. With no layout, Discord
+    /// supplies its default channels. Otherwise make the layout in the same
+    /// request, so a partially created preset does not get left behind.
+    pub async fn create_server(
+        &self,
+        name: &str,
+        text_channels: &[&str],
+        icon: Option<&str>,
+    ) -> Result<String> {
+        let mut body = serde_json::json!({"name": name});
+        if let Some(icon) = icon {
+            body["icon"] = icon.into();
+        }
+        if !text_channels.is_empty() {
+            // The category and system-channel ids are placeholders scoped
+            // to the request and replaced by Discord's channel ids.
+            let mut channels = vec![serde_json::json!({"id": 1, "type": 4, "name": "Text"})];
+            channels.extend(text_channels.iter().enumerate().map(|(index, name)| {
+                serde_json::json!({"id": index + 2, "type": 0, "name": name, "parent_id": 1})
+            }));
+            let voice_category = text_channels.len() + 2;
+            channels.extend([
+                serde_json::json!({"id": voice_category, "type": 4, "name": "Voice"}),
+                serde_json::json!({"type": 2, "name": "General", "parent_id": voice_category}),
+            ]);
+            body["channels"] = channels.into();
+            body["system_channel_id"] = 2.into();
+        }
+        let guild = self.api.create_guild(&body).await?;
+        guild["id"]
+            .as_str()
+            .filter(|id| id.parse::<u64>().is_ok_and(|id| id != 0))
+            .map(str::to_owned)
+            .context("Discord did not return the new server's id.")
+    }
+
     /// What an invite shows before joining by it, by its code; see
     /// [`Api::resolve_invite`]. An invite that isn't to a server, which
     /// Yapfast doesn't join, is refused.
@@ -3441,6 +3497,40 @@ impl Discord {
     /// the entitlement it grants over the gateway.
     pub async fn redeem_gift(&self, code: &str, channel: Option<&str>) -> Result<()> {
         self.api.redeem_gift_code(code, channel).await.map(drop)
+    }
+
+    /// The quests on offer and those claimed, as Quest Home lists them. A
+    /// list of claimed quests that doesn't come leaves it empty: the ones on
+    /// offer are what the page is for.
+    pub async fn quests(&self) -> Result<(Vec<crate::quests::Quest>, Vec<crate::quests::Quest>)> {
+        let offered = crate::quests::parse(&self.api.quests().await?);
+        let claimed = match self.api.claimed_quests().await {
+            Ok(value) => crate::quests::parse_claimed(&value),
+            Err(error) => {
+                tracing::debug!(%error, "could not list the claimed quests");
+                Vec::new()
+            }
+        };
+        Ok((offered, claimed))
+    }
+
+    /// Accepts the quest `id`; see [`Api::enroll_quest`].
+    pub async fn enroll_quest(&self, id: &str) -> Result<()> {
+        self.api.enroll_quest(id).await.map(drop)
+    }
+
+    /// The Shop's categories, and this account's Orbs when Discord says
+    /// them: the Shop shows without the balance.
+    pub async fn shop(&self) -> Result<(Vec<crate::shop::Category>, Option<u64>)> {
+        let categories = crate::shop::parse(&self.api.collectibles_categories().await?);
+        let orbs = match self.api.orbs_balance().await {
+            Ok(value) => crate::shop::orbs(&value),
+            Err(error) => {
+                tracing::debug!(%error, "could not read the Orbs balance");
+                None
+            }
+        };
+        Ok((categories, orbs))
     }
 
     /// What authorizing the application `request` names would do; see

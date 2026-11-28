@@ -17,6 +17,7 @@ use crate::{
 };
 
 use super::{CHAT_BUTTON, Event, GAP, HEADING, INSET, ROW, Room, SideRow, VOICE_CARD_GAP};
+use yapfast_core::application::DmScreen;
 
 fn themed_count_pill<'a>(
     theme: &crate::theme::Theme,
@@ -115,23 +116,40 @@ impl<'a> super::View<'a> {
             .and_then(|rows| rows.gap)
             .unwrap_or(GAP);
         let inner: Element<'a, Message> = match row {
-            SideRow::Screens {
-                friends,
-                requests,
-                badge,
-            } => column![
+            SideRow::Screens { screen, badge } => column![
                 self.link_row(
                     ("screen:friends", Icon::Users, "Friends"),
-                    *friends,
+                    *screen == Some(DmScreen::Friends),
                     "",
                     Message::Side(Event::Friends),
                     true
                 ),
                 self.link_row(
                     ("screen:requests", Icon::Inbox, "Requests"),
-                    *requests,
+                    *screen == Some(DmScreen::Requests),
                     badge,
                     Message::Side(Event::Requests),
+                    true
+                ),
+                self.link_row(
+                    ("screen:nitro", Icon::Gem, "Nitro"),
+                    *screen == Some(DmScreen::Nitro),
+                    "",
+                    Message::Side(Event::Nitro),
+                    true
+                ),
+                self.link_row(
+                    ("screen:shop", Icon::Shop, "Shop"),
+                    *screen == Some(DmScreen::Shop),
+                    "",
+                    Message::Side(Event::Shop),
+                    true
+                ),
+                self.link_row(
+                    ("screen:quests", Icon::Trophy, "Quests"),
+                    *screen == Some(DmScreen::Quests),
+                    "",
+                    Message::Side(Event::Quests),
                     true
                 ),
             ]
@@ -151,16 +169,7 @@ impl<'a> super::View<'a> {
                 self.cx
                     .look
                     .icon_button(
-                        Icon::UserPlus,
-                        "Add a friend",
-                        Message::Friends(crate::friends::Event::OpenAdd)
-                    )
-                    .size(24.0, 16)
-                    .below(),
-                self.cx
-                    .look
-                    .icon_button(
-                        Icon::SquarePen,
+                        Icon::Plus,
                         "New message",
                         Message::Switcher(crate::switcher::Event::OpenNewDm)
                     )
@@ -532,7 +541,7 @@ impl<'a> super::View<'a> {
                 "body"
             },
             headers.and_then(|h| h.weight),
-            SEMIBOLD,
+            MEDIUM,
         );
         let header_shadow = crate::themes::offset_shadow(headers.and_then(|h| h.shadow));
         let framed_words = headers.is_some_and(|headers| headers.frame.is_some());
@@ -544,7 +553,8 @@ impl<'a> super::View<'a> {
             if label_bar.is_some() {
                 theme.type_size("labels", 14.0)
             } else {
-                14.0
+                // Discord's, measured: 13 px.
+                13.0
             }
         });
         // A theme's ransom-note headings, as Slint cuts them.
@@ -1010,6 +1020,10 @@ impl<'a> super::View<'a> {
                         rows.icon.colour.is_some()
                     }
             });
+            let icon = match room.icon {
+                Icon::Forum => Icon::ForumBubbles,
+                icon => icon,
+            };
             let glyph = if themed_ink {
                 crate::look::Look::tinted_glyph
             } else {
@@ -1017,7 +1031,7 @@ impl<'a> super::View<'a> {
             };
             face = face.push(glyph(
                 self.cx.look,
-                room.icon,
+                icon,
                 icon_size.round() as u32,
                 faded(icon_ink, opacity),
             ));

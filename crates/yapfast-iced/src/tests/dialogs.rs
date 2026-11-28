@@ -105,10 +105,11 @@ fn the_quick_switchers_arrows_keep_the_lit_place_in_view() {
         press(&mut app, key::Named::ArrowDown);
     }
     assert_eq!(app.quick.chosen, 12);
-    let top = 12.0 * 40.0;
-    let height = ((app.window.height - 48.0).min(440.0) - 2.0 * 16.0 - 52.0 - 60.0).max(40.0);
+    let pitch = crate::switcher::PITCH;
+    let top = 12.0 * pitch;
+    let height = crate::switcher::list_height(app.window.height);
     assert!(
-        app.quick.offset <= top && top + 40.0 <= app.quick.offset + height,
+        app.quick.offset <= top && top + pitch <= app.quick.offset + height,
         "row 12 at {top} px in view of {} px from {} px",
         height,
         app.quick.offset
@@ -119,7 +120,7 @@ fn the_quick_switchers_arrows_keep_the_lit_place_in_view() {
     }
     let last = app.quick.places.len() - 1;
     assert_eq!(app.quick.chosen, last);
-    assert!(app.quick.offset + height >= (last + 1) as f32 * 40.0);
+    assert!(app.quick.offset + height >= (last + 1) as f32 * pitch);
 }
 
 #[test]

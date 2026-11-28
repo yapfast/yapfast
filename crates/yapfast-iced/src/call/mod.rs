@@ -477,6 +477,9 @@ pub fn call_sync(app: &mut App) {
 /// One of Yapfast's sounds, as loud as Voice's settings say, unless a
 /// call is deafened.
 pub(crate) fn play(app: &App, sound: Sound) {
+    if app.layout.prefs.streamer_mode {
+        return;
+    }
     let voice = &app.client.state().voice;
     if voice.active() && voice.deafened && !matches!(sound, Sound::Deafen | Sound::Undeafen) {
         return;
@@ -569,7 +572,7 @@ pub(crate) fn choose_suppressor(app: &mut App, suppressor: yapfast_core::noise::
 /// A call ringing this account rings until it's answered or stops.
 fn ring(app: &mut App) {
     let state = app.client.state();
-    if ringing(state).next().is_none() || state.do_not_disturb() {
+    if app.layout.prefs.streamer_mode || ringing(state).next().is_none() || state.do_not_disturb() {
         app.call.ringer = None;
     } else if app.call.ringer.is_none() {
         app.call.ringer = yapfast_core::ring::Ringer::start(

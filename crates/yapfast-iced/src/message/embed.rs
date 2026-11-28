@@ -76,7 +76,7 @@ pub(super) fn embed<'a>(
                 text(embed.provider.as_str())
                     .size(theme.type_size("small", 12.0))
                     .font(theme.font("small", crate::fonts::REGULAR))
-                    .color(theme.text),
+                    .color(theme.secondary),
             )
             .padding(Padding::ZERO.bottom(1)),
         );
@@ -112,7 +112,12 @@ pub(super) fn embed<'a>(
         );
     }
     if !laid.description.parts.is_empty() && !embed.description.is_empty() {
-        card = card.push(ctx.body_view(&laid.description, index, first, small(14.0, theme.text)));
+        card = card.push(ctx.body_view(
+            &laid.description,
+            index,
+            first,
+            small(14.0, theme.secondary),
+        ));
     }
     // Inline fields share a row, up to three; others have one each.
     let mut fields = column![].spacing(8);
@@ -173,7 +178,7 @@ pub(super) fn embed<'a>(
             text(embed.footer.as_str())
                 .size(theme.type_size("small", 12.0))
                 .font(theme.font("small", REGULAR))
-                .color(theme.text),
+                .color(theme.muted),
         );
     }
     let mut beside = row![card].spacing(16);

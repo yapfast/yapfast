@@ -91,10 +91,9 @@ impl Room {
 /// A row of the list.
 #[derive(Clone, Debug, PartialEq)]
 pub enum SideRow {
-    /// Friends and Requests, at the top of the DMs.
+    /// Friends, Requests, Nitro, Shop and Quests, at the top of the DMs.
     Screens {
-        friends: bool,
-        requests: bool,
+        screen: Option<DmScreen>,
         badge: String,
     },
     /// "Direct Messages", with its buttons.
@@ -142,7 +141,7 @@ impl SideRow {
             gap
         };
         gap + match self {
-            SideRow::Screens { .. } => 9.0 + link_height(true) + GAP + link_height(true) + 6.0,
+            SideRow::Screens { .. } => 9.0 + 5.0 * link_height(true) + 4.0 * GAP + 6.0,
             SideRow::DmHeading => 40.0,
             SideRow::Browse { .. } => 6.0 + link_height(false) + 6.0,
             SideRow::Pinned => 36.0,
@@ -319,8 +318,7 @@ pub fn sidebar_in(
     if direct {
         if state.discord_linked && !state.preview {
             rows.push(SideRow::Screens {
-                friends: state.dm_screen == Some(DmScreen::Friends),
-                requests: state.dm_screen == Some(DmScreen::Requests),
+                screen: state.dm_screen,
                 badge: count_badge(crate::friends::waiting(state) as u64),
             });
         }

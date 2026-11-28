@@ -95,9 +95,6 @@ pub fn hover_bar<'a>(ctx: crate::ctx::Ctx<'a>, index: usize) -> Option<Element<'
             act(MenuAct::NewThread),
         ));
     }
-    if quick && message.own && message.can_edit && message.can_reply && writes {
-        buttons = buttons.push(button(Icon::Reply, "Reply", act(MenuAct::Reply)));
-    }
     if message.can_react && super::reaction_chips::reacts(ctx, index) == chat::Reacts::Any {
         if !quick {
             for key in ctx.app.frequent_reactions(quick_reactions) {
@@ -123,6 +120,9 @@ pub fn hover_bar<'a>(ctx: crate::ctx::Ctx<'a>, index: usize) -> Option<Element<'
         ));
     }
     if message.own && message.can_edit && writes {
+        if message.can_reply {
+            buttons = buttons.push(button(Icon::Reply, "Reply", act(MenuAct::Reply)));
+        }
         buttons = buttons.push(button(Icon::Pencil, "Edit", act(MenuAct::Edit)));
     } else if message.can_reply && writes {
         buttons = buttons.push(button(Icon::Reply, "Reply", act(MenuAct::Reply)));

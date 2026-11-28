@@ -4,7 +4,7 @@
 
 use iced::{
     Alignment, Element, Length,
-    widget::{column, container, row},
+    widget::{column, container, row, stack},
 };
 
 use crate::{
@@ -200,6 +200,16 @@ fn status_line(app: &App) -> Option<(Element<'_, Message>, bool)> {
 /// The conversation column: the header, the timeline and the composer,
 /// with a server's member list beside them; or a voice channel's call.
 pub fn conversation(app: &App) -> Element<'_, Message> {
+    // The window's top outline carries on over the conversation to its right edge.
+    let top_outline = bar(app.theme.outline, Length::Fill, 1);
+    stack![content(app), top_outline]
+        .width(Length::Fill)
+        .height(Length::Fill)
+        .into()
+}
+
+/// What fills the conversation column, under the window's top outline.
+fn content(app: &App) -> Element<'_, Message> {
     if crate::call::stage::voice_panel(app) {
         // The stage alone takes the `call` surface (see `call_view`).
         return crate::call::stage::call_view(app);
@@ -213,6 +223,11 @@ pub fn conversation(app: &App) -> Element<'_, Message> {
             }
             yapfast_core::application::DmScreen::Requests => {
                 crate::friends::requests::requests_screen(app.ctx())
+            }
+            yapfast_core::application::DmScreen::Nitro
+            | yapfast_core::application::DmScreen::Shop
+            | yapfast_core::application::DmScreen::Quests => {
+                crate::sidebar::destinations::page(app.ctx(), screen)
             }
         };
         return column![

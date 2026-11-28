@@ -535,8 +535,8 @@ const BOOST: u32 = 0xff73fa;
 /// under it, the room above and below the panel, and how many cards show
 /// until it's opened.
 const ACTIVITY_HEAD: f32 = 32.0;
-const CARD: f32 = 68.0;
-const CARD_PITCH: f32 = 76.0;
+const CARD: f32 = 70.0;
+const CARD_PITCH: f32 = CARD + 8.0;
 const PANEL_TOP: f32 = 8.0;
 const PANEL_BOTTOM: f32 = 4.0;
 const FIRST_CARDS: usize = 3;
@@ -582,6 +582,9 @@ pub struct ActivityCard {
     pub id: String,
     pub name: String,
     pub avatar: Option<String>,
+    /// The member's role colour, kept with the feed instead of looked up
+    /// again on each view.
+    pub color: Option<u32>,
     /// The game, artist or show, the words about when, and its picture.
     pub game: String,
     pub since: String,
@@ -794,9 +797,7 @@ pub fn activity_cards(
     members: &[ChatMember],
     now_ms: u64,
 ) -> Vec<ActivityCard> {
-    use yapfast_core::{
-        chat::FeedEntry, discord::parse_room, yapfast_discord::activity_feed::Kind,
-    };
+    use yapfast_core::{discord::parse_room, yapfast_discord::activity_feed::Kind};
     let Some((asked, people)) = &state.activity_people else {
         return Vec::new();
     };
@@ -804,35 +805,29 @@ pub fn activity_cards(
     if server(asked) != server(room) {
         return Vec::new();
     }
-    // What their presence says of it, which is more than the feed does.
-    let doing = |member: &ChatMember, entry: &FeedEntry| {
-        member
-            .activities
-            .iter()
-            .find(|activity| match entry.kind {
-                Kind::Game | Kind::Launched => {
-                    activity.kind == ActivityKind::Playing && activity.name == entry.title
-                }
-                Kind::Listened => activity.kind == ActivityKind::Listening,
-                Kind::Watched => activity.kind == ActivityKind::Watching,
-                Kind::TopGame | Kind::TopArtist => false,
-            })
-            .cloned()
-    };
     state
         .activity_feed
         .iter()
         .filter_map(|entry| {
             let person = people.iter().find(|person| person.id == entry.author)?;
             let live = entry.live_at(now_ms);
-            let member = live
-                .then(|| members.iter().find(|member| *member.id == *entry.author))
-                .flatten();
+            let member = members.iter().find(|member| *member.id == *entry.author);
             // Discord's client leaves out what someone offline "is" doing.
-            if member.is_some_and(|member| member.presence == Some(Presence::Offline)) {
+            if live && member.is_some_and(|member| member.presence == Some(Presence::Offline)) {
                 return None;
             }
-            let activity = member.and_then(|member| doing(member, entry));
+            // Borrow the matching presence activity; copying it also copied
+            // its artwork and rich-presence strings for every feed entry.
+            let activity = member.filter(|_| live).and_then(|member| {
+                member.activities.iter().find(|activity| match entry.kind {
+                    Kind::Game | Kind::Launched => {
+                        activity.kind == ActivityKind::Playing && activity.name == entry.title
+                    }
+                    Kind::Listened => activity.kind == ActivityKind::Listening,
+                    Kind::Watched => activity.kind == ActivityKind::Watching,
+                    Kind::TopGame | Kind::TopArtist => false,
+                })
+            });
             let since = match (entry.hours, entry.tracks) {
                 (Some(hours), _) if entry.kind == Kind::TopGame => {
                     format!("Most played: {hours}h")
@@ -859,6 +854,7 @@ pub fn activity_cards(
                 id: person.id.to_string(),
                 name: person.name.to_string(),
                 avatar: (!person.avatar.is_empty()).then(|| person.avatar.to_string()),
+                color: member.and_then(|member| member.color),
                 icon: match entry.kind {
                     Kind::Game | Kind::Launched => 1,
                     Kind::Listened => 2,
@@ -1961,7 +1957,7 @@ impl<'a> View<'a> {
         .into()
     }
 
-    /// A group's heading: 14 px medium in the channel grey, 20 px above,
+    /// A group's heading: 13 px medium in the channel grey, 20 px above,
     /// its role's icon before it.
     fn heading_row(self, heading: &str, icon: Option<&str>) -> Element<'a, Message> {
         let theme = self.cx.look.theme;
@@ -2009,7 +2005,8 @@ impl<'a> View<'a> {
             if label_bar || headers.and_then(|h| h.font).is_some() {
                 theme.type_size(header_role, 14.0)
             } else {
-                14.0
+                // Discord's, measured: 13 px.
+                13.0
             }
         });
         let header_font = crate::themes::list_font(
@@ -2695,7 +2692,7 @@ impl<'a> View<'a> {
         )
     }
 
-    /// The Activity panel over the list: "Activity — N" with its eye and
+    /// The Activity panel over the list: its heading, hide/show control and
     /// chevron, then the first three cards (all of them once it's opened),
     /// as Discord's: 8 px corners and padding, an outline, the name, the
     /// title in bold, the kind's icon with the time, the picture.
@@ -2715,24 +2712,26 @@ impl<'a> View<'a> {
         ]
         .spacing(4)
         .align_y(Alignment::Center);
-        let (eye, eye_label) = if hidden {
+        let (toggle, toggle_label) = if hidden {
             (Icon::EyeOff, "Show Activity Cards")
         } else {
-            (Icon::Eye, "Hide Activity Cards")
+            (Icon::Settings, "Hide Activity Cards")
         };
         head = head.push(
             self.cx
                 .look
-                .icon_button(eye, eye_label, Message::Members(Event::HideActivity))
-                .size(20.0, 16),
+                .icon_button(toggle, toggle_label, Message::Members(Event::HideActivity))
+                .size(16.0, 12)
+                .ink(theme.channel_read),
         );
+        head = head.push(Space::new().width(Length::Fill));
         if opens {
             let icon = if self.s.activity_open && !hidden {
                 Icon::ChevronDown
             } else {
                 Icon::ChevronRight
             };
-            head = head.push(self.cx.look.glyph(icon, 16, theme.muted));
+            head = head.push(self.cx.look.glyph(icon, 16, theme.channel_read));
         }
         let lit = theme.wash(0.06);
         let head = iced::widget::button(
@@ -2774,6 +2773,7 @@ impl<'a> View<'a> {
         when = when.push(
             text(card.since.as_str())
                 .size(theme.type_size("small", 12.0))
+                .line_height(1.0)
                 .font(theme.font("small", REGULAR))
                 .color(tone)
                 .wrapping(text::Wrapping::None),
@@ -2783,8 +2783,9 @@ impl<'a> View<'a> {
                 .avatar(card.avatar.as_deref(), &card.name, 16.0, 8.0, 1.0),
             crate::elide::elide(card.name.as_str())
                 .size(theme.type_size("names", 14.0))
+                .line_height(18.0)
                 .font(theme.font("names", MEDIUM))
-                .color(theme.secondary),
+                .color(card.color.map_or(theme.secondary, hex)),
         ]
         .spacing(6)
         .align_y(Alignment::Center);
@@ -2792,23 +2793,30 @@ impl<'a> View<'a> {
             who,
             crate::elide::elide(card.game.as_str())
                 .size(theme.type_size("body", 14.0))
+                .line_height(18.0)
                 .font(theme.font("body", SEMIBOLD))
                 .color(theme.text),
             when,
         ]
-        .spacing(2)
+        .spacing(1)
         .width(Length::Fill);
         let mut body = row![words].spacing(8).align_y(Alignment::Center);
-        if let Some(thumb) = &card.thumb {
+        if let Some(picture) = card
+            .thumb
+            .as_deref()
+            .and_then(|thumb| self.cx.picture(thumb, 48, 48, true))
+        {
+            body = body.push(Pic::square(picture, 48.0).radius(8.0));
+        } else if matches!(card.icon, 1 | 5) {
+            body = body.push(self.cx.look.drawn(Icon::UnknownGame, 48));
+        } else if card.thumb.is_some() {
             let raised = theme.raised;
-            body = body.push(match self.cx.picture(thumb, 48, 48, true) {
-                Some(picture) => Element::from(Pic::square(picture, 48.0).radius(8.0)),
-                None => container(Space::new())
+            body = body.push(
+                container(Space::new())
                     .width(48)
                     .height(48)
-                    .style(move |_| rounded(raised, 8))
-                    .into(),
-            });
+                    .style(move |_| rounded(raised, 8)),
+            );
         }
         let activity_themed = self
             .cx
@@ -2821,15 +2829,21 @@ impl<'a> View<'a> {
         } else {
             crate::style::edge(line, 8.0)
         };
-        let face = iced::widget::button(container(body).padding(8).height(CARD).clip(true))
-            .padding(0)
-            .width(Length::Fill)
-            .on_press(Message::Members(Event::OpenActivity(card.id.clone())))
-            .style(move |_, status| iced::widget::button::Style {
-                background: Some(if controls::lights(status) { lit } else { rest }.into()),
-                border,
-                ..Default::default()
-            });
+        let face = iced::widget::button(
+            container(body)
+                .padding(8)
+                .height(CARD)
+                .align_y(Alignment::Center)
+                .clip(true),
+        )
+        .padding(0)
+        .width(Length::Fill)
+        .on_press(Message::Members(Event::OpenActivity(card.id.clone())))
+        .style(move |_, status| iced::widget::button::Style {
+            background: Some(if controls::lights(status) { lit } else { rest }.into()),
+            border,
+            ..Default::default()
+        });
         // The panel is in no scrollable: the point is the window's already.
         let user = card.id.clone();
         RightPress::new(face, move |at| Message::PersonMenu(user.clone(), at)).into()

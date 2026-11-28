@@ -497,6 +497,9 @@ Yapfast is back, rather than showing an error.
   packages carry), holds those that differ from GitHub's shortcodes, which the
   `emojis` crate knows. A flag comes from its country's two letters. Yapfast
   doesn't change them yet.
+- The current server's Popular section uses `GET /guilds/{guild.id}/top-emojis`
+  when the picker first opens there. The picker orders its known custom emoji
+  by the returned ranks and offers the section when at least one is present.
 - Stickers show as pictures 160px square, as Discord draws them, whatever size
   their picture came at: the 160px one the CDN gives, decoded at that size
   rather than the timeline's preview. PNG and APNG stickers come from the CDN

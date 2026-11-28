@@ -12,7 +12,7 @@ use crate::{
     elide::elide,
     fonts::{BOLD, MEDIUM, SEMIBOLD},
     pictures::Icon,
-    style::{faded, rounded},
+    style::{edge, faded},
     widgets::Pic,
 };
 
@@ -36,42 +36,42 @@ impl<'a> super::View<'a> {
             // With its setting on, as Discord's: a button that looks like a
             // field and opens the quick switcher, which Ctrl+K opens too.
             None if self.cx.layout.dm_search_switcher => {
-                let (ground, hint) = (theme.field, theme.muted);
+                let (ground, hint) = (theme.sunken, theme.muted);
+                let border = edge(theme.outline_field, 8.0);
                 button(
                     text("Find or start a conversation")
                         .size(13)
                         .color(hint)
-                        .wrapping(text::Wrapping::None),
+                        .wrapping(text::Wrapping::None)
+                        .width(Length::Fill)
+                        .align_x(Alignment::Center),
                 )
                 .padding([8, 10])
                 .width(Length::Fill)
                 .on_press(Message::Side(Event::FindConversation))
                 .style(move |_, _| button::Style {
                     background: Some(ground.into()),
-                    border: crate::style::round(6),
+                    border,
                     text_color: hint,
                     ..button::Style::default()
                 })
                 .into()
             }
-            None => {
-                let (ground, ink, hint, selection) =
-                    (theme.field, theme.text, theme.muted, theme.selection);
-                text_input("Find a conversation", &self.s.filter)
-                    .id(FILTER)
-                    .on_input(|filter| Message::Side(Event::Filter(filter)))
-                    .size(13)
-                    .padding([8, 10])
-                    .style(move |_, _| text_input::Style {
-                        background: ground.into(),
-                        border: crate::style::round(6),
-                        icon: ink,
-                        placeholder: hint,
-                        value: ink,
-                        selection,
-                    })
-                    .into()
-            }
+            None => text_input("Find or start a conversation", &self.s.filter)
+                .id(FILTER)
+                .on_input(|filter| Message::Side(Event::Filter(filter)))
+                .size(13)
+                .padding([8, 10])
+                .align_x(Alignment::Center)
+                .style(move |_, _| text_input::Style {
+                    background: theme.sunken.into(),
+                    border: edge(theme.outline_field, 8.0),
+                    icon: theme.text,
+                    placeholder: theme.muted,
+                    value: theme.text,
+                    selection: theme.selection,
+                })
+                .into(),
             // As Slint: a server whose name opens no menu has it as a plain
             // title, 16 px bold in the window's face.
             // Over a banner it's white, as the name with a menu is.
@@ -150,7 +150,8 @@ impl<'a> super::View<'a> {
 
     /// Discord's boost goal under the server's name: a pill whose pink
     /// fill is the share of the goal the boosts reach, "Boost Goal" and
-    /// how many of the goal's boosts, with a line under the row.
+    /// how many of the goal's boosts, with a line under the row; clicking
+    /// it opens the native boost progress summary.
     pub(super) fn boost_goal(self, boosts: u32) -> Element<'a, Message> {
         let theme = self.cx.look.theme;
         let share = (boosts as f32 / BOOST_GOAL as f32).min(1.0);
@@ -217,12 +218,14 @@ impl<'a> super::View<'a> {
         // Discord's (32,32,36) on its dark theme: the field colour, a step
         // above the sheet.
         let ground = theme.field;
-        let pill = container(stack![pill, words])
+        let goal = button(stack![pill, words])
+            .padding(0)
             .width(Length::Fill)
             .height(BOOST_PILL)
-            .style(move |_| rounded(ground, BOOST_PILL / 2.0));
+            .on_press(Message::BoostGoal(crate::boost_goal::Event::Open))
+            .style(lit_style(Some(ground), theme.hover, BOOST_PILL / 2.0));
         column![
-            container(pill)
+            container(goal)
                 .padding(Padding {
                     top: 16.0,
                     right: 13.0,
@@ -295,14 +298,17 @@ impl<'a> super::View<'a> {
         } else {
             (theme.text, theme.secondary)
         };
-        let mut face = row![].spacing(10).align_y(Alignment::Center);
+        let community_badge = head.community && !head.verified;
+        let mut face = row![]
+            .spacing(if community_badge { 8 } else { 10 })
+            .align_y(Alignment::Center);
         // Discord marks a verified server with its green badge, and one
         // that is only a Community server with the Community badge; any
         // other shows its boost level in a scallop.
         if head.verified {
             face = face.push(self.cx.look.drawn(Icon::Verified, 16));
         } else if head.community {
-            face = face.push(self.cx.look.glyph(Icon::Community, 16, ink));
+            face = face.push(self.cx.look.drawn(Icon::CommunityBadge, 20));
         } else if let Some(tier) = head.tier {
             face = face.push(
                 stack![
@@ -344,7 +350,9 @@ impl<'a> super::View<'a> {
                 .align_y(Alignment::Center),
         )
         .padding(Padding {
-            left: if head.community || head.verified || head.tier.is_some() {
+            left: if community_badge {
+                8.0
+            } else if head.verified || head.tier.is_some() {
                 10.0
             } else {
                 8.0

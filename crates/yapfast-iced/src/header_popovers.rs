@@ -27,19 +27,26 @@ use crate::{
     found::Found,
     markdown::{self, Body},
     pictures::{Face, Icon},
-    style::{hex, raised_shadow, scrollbar},
+    style::{hex, scrollbar},
     theme::rgb,
 };
 
 /// A popover's head, taller with a line under its heading.
 const HEAD: f32 = 48.0;
 const HEAD_DETAIL: f32 = 64.0;
+/// Pinned Messages' head, as Discord's: 55 px and its line.
+const HEAD_PINS: f32 = 56.0;
 /// The frame's corners.
-const RADIUS: f32 = 10.0;
+const RADIUS: f32 = 8.0;
 /// The gap under the header, and kept to the window's edges.
 const GAP: f32 = 6.0;
+/// Pinned Messages sits against the header, and 2 px beyond its button's
+/// right edge (measured in Discord).
+const PINS_GAP: f32 = 0.0;
+const PINS_OVERHANG: f32 = 2.0;
 const MARGIN: f32 = 8.0;
-const PINS_WIDTH: f32 = 420.0;
+/// Discord's, with its 1 px edge.
+const PINS_WIDTH: f32 = 422.0;
 const PINS_MOST: f32 = 560.0;
 const PEOPLE_WIDTH: f32 = 440.0;
 const PEOPLE_MOST: f32 = 520.0;
@@ -467,6 +474,18 @@ pub fn popover_pictures(app: &App) -> Vec<&str> {
     urls
 }
 
+/// A popover's shadow, as Discord's: soft and close.
+fn popover_shadow() -> iced::Shadow {
+    iced::Shadow {
+        color: iced::Color {
+            a: 0.3,
+            ..iced::Color::BLACK
+        },
+        offset: iced::Vector::new(0.0, 4.0),
+        blur_radius: 12.0,
+    }
+}
+
 /// The open popover, placed under its button.
 pub fn view<'a>(
     popovers: &'a Popovers,
@@ -495,7 +514,8 @@ impl<'a> View<'a> {
         if let Some(topic) = &self.s.topic {
             return Some(self.topic_layer(topic));
         }
-        let (panel, width, most) = if pins_open(self.cx.state) {
+        let pins = pins_open(self.cx.state);
+        let (panel, width, most) = if pins {
             (self.pins_view(), PINS_WIDTH, PINS_MOST)
         } else if self.cx.state.thread_list().is_some() {
             // As Discord's: 35% of the window wide, from 480 to 600 px.
@@ -507,8 +527,8 @@ impl<'a> View<'a> {
             return None;
         };
         let width = width.min(self.cx.look.window.width - 2.0 * MARGIN);
-        let top = crate::header::HEIGHT + GAP;
-        let x = (self.s.right - width)
+        let top = crate::header::HEIGHT + if pins { PINS_GAP } else { GAP };
+        let x = (self.s.right + if pins { PINS_OVERHANG } else { 0.0 } - width)
             .min(self.cx.look.window.width - width - MARGIN)
             .max(MARGIN);
         let height = most.min(self.cx.look.window.height - top - 2.0 * MARGIN);
@@ -527,9 +547,8 @@ impl<'a> View<'a> {
         )
     }
 
-    /// A popover's frame: its icon, heading and detail over a line, Close,
-    /// and what it holds; as tall as what it holds, or as its place with
-    /// `fill`.
+    /// A popover's frame: its icon, heading and detail over a line and what
+    /// it holds, as tall as its contents or as its place with `fill_place`.
     pub fn frame(
         self,
         fill_place: bool,
@@ -546,26 +565,45 @@ impl<'a> View<'a> {
         if let Some(detail) = detail {
             words = words.push(elide(detail).size(13).color(theme.muted));
         }
+        // Pinned Messages' icon is bigger, and nearer its heading.
+        let pins = icon == Icon::Pin;
         let mut head = row![
-            self.cx.look.glyph(icon, 20, theme.secondary),
+            self.cx
+                .look
+                .glyph(icon, if pins { 24 } else { 20 }, theme.secondary),
             container(words).width(Length::Fill),
         ]
-        .spacing(10)
+        .spacing(if pins { 8 } else { 10 })
         .align_y(Alignment::Center);
         if let Some(end) = end {
             head = head.push(end);
         }
-        head = head.push(
-            self.cx
-                .look
-                .icon_button(Icon::X, "Close", Message::Popover(Event::Close))
-                .below(),
-        );
-        let panel_ground = theme.panel;
+        let (ground, panel_ground) = if theme.dark || theme.bonfire {
+            (theme.raised, theme.raised)
+        } else {
+            (theme.sidebar, theme.panel)
+        };
+        // A theme package's popout art or ground shows through the frame.
+        let surface = yapfast_core::themes::package::art::ArtSurface::Popout;
+        let decorated = self.cx.themes.decorates(&theme.id, surface)
+            || theme.package_paint(surface.ground()).is_some();
+        let (ground, panel_ground) = if decorated {
+            (iced::Color::TRANSPARENT, iced::Color::TRANSPARENT)
+        } else {
+            (ground, panel_ground)
+        };
         let head = column![
             container(head)
                 .padding(Padding::ZERO.left(16).right(10))
-                .height(if tall { HEAD_DETAIL } else { HEAD } - 1.0)
+                .height(
+                    if tall {
+                        HEAD_DETAIL
+                    } else if pins {
+                        HEAD_PINS
+                    } else {
+                        HEAD
+                    } - 1.0,
+                )
                 .align_y(Alignment::Center)
                 .style(move |_| {
                     crate::style::rounded(
@@ -575,17 +613,6 @@ impl<'a> View<'a> {
                 }),
             bar(theme.edge, Length::Fill, 1),
         ];
-        let surface = yapfast_core::themes::package::art::ArtSurface::Popout;
-        let decorated = self.cx.themes.decorates(&theme.id, surface)
-            || theme.package_paint(surface.ground()).is_some();
-        let (ground, edge) = (
-            if decorated {
-                iced::Color::TRANSPARENT
-            } else {
-                theme.sidebar
-            },
-            theme.edge,
-        );
         let panel = container(column![head, body])
             .height(if fill_place {
                 Length::Fill
@@ -594,10 +621,16 @@ impl<'a> View<'a> {
             })
             .clip(true)
             .style(move |_| container::Style {
-                shadow: theme.surface_shadow("popout", raised_shadow()),
+                shadow: theme.surface_shadow("popout", popover_shadow()),
                 ..crate::style::rounded(ground, radius)
             });
         let panel = crate::theme_art::surface(panel, self.cx, surface);
+        // Bonfire's popovers have an edge a shade darker than its lines.
+        let edge = if theme.bonfire {
+            hex(0x29292c)
+        } else {
+            theme.edge
+        };
         iced::widget::opaque(controls::edged(panel, edge, radius))
     }
 
@@ -626,23 +659,34 @@ impl<'a> View<'a> {
             .into()
     }
 
-    /// Discord's answer to a channel with no pins: a big pin and a line,
-    /// and its tip on a lighter band under them.
+    /// Discord's answer to a channel with no pins: its sad face with a pin
+    /// in it and a line, and its tip on a lighter band under them.
     fn no_pins(self, note: String) -> Element<'a, Message> {
         let theme = self.cx.look.theme;
+        // The face is drawn for the dark themes; the others keep the pin.
+        let picture: Element<'a, Message> = if theme.dark || theme.bonfire {
+            self.cx.look.drawn(Icon::PinsEmpty, 120).into()
+        } else {
+            self.cx.look.glyph(Icon::Pin, 80, theme.faint).into()
+        };
         let place = container(
             column![
-                self.cx.look.glyph(Icon::Pin, 80, theme.faint),
-                text(note).size(16).font(BOLD).color(theme.text).center(),
+                picture,
+                text(note)
+                    .size(16)
+                    .font(BOLD)
+                    .line_height(iced::Pixels(20.0))
+                    .width(Length::Fixed(230.0))
+                    .color(theme.text)
+                    .center(),
             ]
-            .spacing(20)
+            .spacing(11)
             .align_x(Alignment::Center),
         )
-        .padding(32)
+        .padding(Padding::ZERO.top(17))
         .width(Length::Fill)
         .height(228)
-        .center_x(Length::Fill)
-        .center_y(228);
+        .center_x(Length::Fill);
         let ground = if theme.bonfire {
             crate::style::hex(0x313137)
         } else {
@@ -651,27 +695,23 @@ impl<'a> View<'a> {
         let tip = container(
             column![
                 text("Protip:")
-                    .size(14)
+                    .size(13)
                     .font(BOLD)
+                    .line_height(iced::Pixels(16.0))
                     .color(crate::style::hex(0x5eb479)),
                 text("Users with the \"Pin Messages\" permission can pin a message from its context menu.")
-                    .size(14)
-                    .color(theme.text)
-                    .center(),
+                .size(13)
+                .line_height(iced::Pixels(16.0))
+                .color(theme.text)
+                .center(),
             ]
-            .spacing(2)
             .align_x(Alignment::Center),
         )
-        .padding(Padding {
-            top: 16.0,
-            right: 16.0,
-            bottom: 17.0,
-            left: 16.0,
-        })
+        .padding(Padding::ZERO.left(16).right(16))
         .width(Length::Fill)
-        .height(103)
+        .height(102)
         .center_x(Length::Fill)
-        .center_y(103)
+        .center_y(102)
         .style(move |_| container::Style {
             background: Some(ground.into()),
             ..Default::default()
