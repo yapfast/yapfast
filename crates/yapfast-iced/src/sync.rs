@@ -458,6 +458,20 @@ impl App {
             self.linking = Some(handle.abort_on_drop());
             tasks.push(task);
         }
+        // The import's steps are followed to the stream's end, whatever
+        // happens to the linking meanwhile: a save can outlast it.
+        if let Some((run, progress)) = self.client.take_import() {
+            tasks.push(
+                Task::run(
+                    iced::futures::stream::unfold(progress, |mut progress| async move {
+                        let step = progress.recv().await?;
+                        Some((step, progress))
+                    }),
+                    move |step| Message::Import(run, Some(step)),
+                )
+                .chain(Task::done(Message::Import(run, None))),
+            );
+        }
         if self.client.link_stopped() {
             self.linking = None;
         }

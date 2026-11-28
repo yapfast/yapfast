@@ -37,6 +37,9 @@ pub enum Message {
     Stopped,
     /// Linking a Discord account went a step further.
     Linking(yapfast_core::discord_link::Progress),
+    /// Importing the Discord app's accounts: a step of the run, or, with
+    /// none, its end.
+    Import(u64, Option<yapfast_core::discord_link::Progress>),
     /// The sign-in screen and the verify banner; Discord's two-factor
     /// prompt.
     SignIn(signin::Event),

@@ -186,7 +186,7 @@ impl Application {
             .unwrap_or_default();
         let body = self.outgoing_body(&edit.room, &edit.text, kept);
         if body.len() > chat::MAX_MESSAGE_BYTES {
-            self.state.notice = Some("Keep messages under 16 KB.".into());
+            self.state.notice = Some(super::Notice::Error("Keep messages under 16 KB.".into()));
             return vec![];
         }
         if self.state.preview {
@@ -361,7 +361,7 @@ impl Application {
         let text = silent_text.map_or(draft.as_str(), str::trim_start);
         let body = self.outgoing_body(&id, text, Vec::new());
         if body.len() > chat::MAX_MESSAGE_BYTES {
-            self.state.notice = Some("Keep messages under 16 KB.".into());
+            self.state.notice = Some(super::Notice::Error("Keep messages under 16 KB.".into()));
             return vec![];
         }
         if self.state.preview {
@@ -495,7 +495,7 @@ impl Application {
             return;
         };
         let staged = self.state.staged.entry(id).or_default();
-        self.state.notice = stage_files(staged, paths, limit);
+        self.state.notice = stage_files(staged, paths, limit).map(super::Notice::Error);
     }
 
     /// Leave reply mode.

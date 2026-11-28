@@ -553,7 +553,8 @@ impl Application {
         if paths.is_empty() || self.state.preview {
             return;
         }
-        self.state.notice = super::compose::stage_files(&mut form.files, paths, limit);
+        self.state.notice =
+            super::compose::stage_files(&mut form.files, paths, limit).map(super::Notice::Error);
     }
 
     /// Takes the file at `index` out of the form's first message.

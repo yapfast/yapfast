@@ -26,6 +26,7 @@ pub mod gateway;
 pub mod gifs;
 pub mod gift;
 pub mod guild;
+pub mod import;
 pub mod interactions;
 pub mod invite;
 pub mod limits;

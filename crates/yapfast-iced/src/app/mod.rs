@@ -516,6 +516,14 @@ impl App {
                 self.client.linking(step);
                 self.sync()
             }
+            Message::Import(run, Some(step)) => {
+                self.client.import_step(run, step);
+                self.sync()
+            }
+            Message::Import(run, None) => {
+                self.client.import_ended(run);
+                self.sync()
+            }
             Message::SignIn(event) => {
                 let mut cx = crate::ctx::cx!(self);
                 self.sign_in.update(event, &mut cx)

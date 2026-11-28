@@ -609,7 +609,7 @@ impl Application {
             return;
         }
         if let Err(error) = result {
-            self.state.notice = Some(error);
+            self.state.notice = Some(super::Notice::Error(error));
         }
     }
 

@@ -448,7 +448,9 @@ fn the_preview_says_so_and_a_notice_shows_until_dismissed() {
         "Local preview: sample data. Nothing leaves this computer."
     ));
     change(&mut app, |state| {
-        state.notice = Some("Discord asked Yapfast to slow down.".into());
+        state.notice = Some(yapfast_core::application::Notice::Error(
+            "Discord asked Yapfast to slow down.".into(),
+        ));
     });
     assert!(shows(&app, "Discord asked Yapfast to slow down."));
     interact(&mut app, |ui| {

@@ -4,14 +4,19 @@
 //! the accounts already linked, and becomes the active one; see
 //! `yapfast_discord::remote_auth` and `yapfast_discord::token`.
 
+use anyhow::Context;
 use tokio::sync::mpsc::{self, UnboundedReceiver};
 use yapfast_discord::{
     api::{Api, Refused},
+    import,
     remote_auth::{self, Step, Stopped},
     token,
 };
 
 use crate::runtime::{BackgroundRuntime, BackgroundTask};
+
+mod importing;
+pub use importing::{Cancellation, saves_pending};
 
 /// How linking goes, for [`crate::application::Application::linking`].
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -24,6 +29,18 @@ pub enum Progress {
     Captcha(String),
     /// The account is linked and its login saved.
     Linked,
+    /// A validated import finished, with counts and any partial failures.
+    Imported(String),
+    ImportSaveStarted,
+    ImportSaveFinished {
+        linked: bool,
+    },
+    /// Cancellation has finished or the save grace period has expired.
+    ImportCancelled {
+        message: String,
+        linked: bool,
+        save_pending: bool,
+    },
     /// The code expired before anyone confirmed it.
     Expired,
     Failed(String),
@@ -45,6 +62,117 @@ pub fn start(
         None => runtime.spawn(run(report)),
     };
     (task, progress)
+}
+
+/// Starts importing the accounts the vanilla Discord client keeps on this
+/// device, on `runtime`. Each login found is checked against Discord and
+/// linked beside any account already there; the result arrives on the
+/// receiver as save progress and a terminal outcome. Request cancellation through
+/// the returned handle and keep the task until it reports. After the grace period,
+/// a pending save's completion can still arrive, including after a replacement run.
+pub fn import(
+    runtime: &BackgroundRuntime,
+) -> (
+    BackgroundTask<()>,
+    UnboundedReceiver<Progress>,
+    Cancellation,
+) {
+    let (sender, progress) = mpsc::unbounded_channel();
+    let report = move |step| {
+        let _ = sender.send(step);
+    };
+    let cancel = Cancellation::default();
+    (
+        runtime.spawn(run_import(cancel.clone(), report)),
+        progress,
+        cancel,
+    )
+}
+
+/// Finds the vanilla client's logins, links the ones Discord still accepts,
+/// and tells `progress` how it went. A login the client holds but Discord has
+/// logged out is skipped, not an error.
+async fn run_import(cancel: Cancellation, progress: impl Fn(Progress) + Clone + Send + 'static) {
+    let cancelled = || {
+        progress(Progress::ImportCancelled {
+            message: "Import cancelled.".into(),
+            linked: false,
+            save_pending: false,
+        });
+    };
+    // Filesystem reads and DPAPI must not occupy the network worker threads.
+    let discovery = tokio::select! {
+        biased;
+        _ = cancel.cancelled() => return cancelled(),
+        result = tokio::task::spawn_blocking(import::discover) => match importing::discovery_result(result) {
+            Ok(discovery) => discovery,
+            Err(error) => return progress(Progress::Failed(error.to_string())),
+        },
+    };
+    if !discovery.accounts.is_empty() {
+        match Api::anonymous() {
+            Ok(api) => tokio::select! {
+                biased;
+                _ = cancel.cancelled() => return cancelled(),
+                _ = api.learn_build_number() => {},
+            },
+            Err(error) => tracing::warn!(
+                error = format!("{error:#}"),
+                "could not prepare Discord build-number lookup"
+            ),
+        }
+    }
+    let save_progress = progress.clone();
+    let linked = importing::run(
+        discovery,
+        |candidate| async move {
+            // A stalled request must not leave the sign-in screen waiting forever.
+            tokio::time::timeout(std::time::Duration::from_secs(30), async move {
+                let token = token::clean(&candidate.token).context(importing::Failure::Invalid)?;
+                let api = Api::new(token.clone()).context(importing::Failure::Client)?;
+                let me = api.me().await.map_err(|error| {
+                    let cause = match error.downcast_ref::<Refused>() {
+                        Some(Refused(status)) => importing::Failure::refused(status.as_u16()),
+                        None => importing::Failure::Network,
+                    };
+                    error.context(cause)
+                })?;
+                Ok(importing::Validated {
+                    id: me.id,
+                    token,
+                    username: me.username,
+                    name: me.global_name.unwrap_or_default(),
+                })
+            })
+            .await
+            .map_err(|error| anyhow::Error::new(error).context(importing::Failure::Timeout))?
+        },
+        move |account| {
+            let progress = save_progress.clone();
+            importing::save_in_background(
+                move || token::adopt(&account.token, &account.username, &account.name),
+                move |step| {
+                    progress(match step {
+                        importing::SaveProgress::Started => Progress::ImportSaveStarted,
+                        importing::SaveProgress::Finished { linked } => {
+                            Progress::ImportSaveFinished { linked }
+                        }
+                    });
+                },
+            )
+        },
+        cancel,
+    )
+    .await;
+    progress(match linked {
+        Ok(summary) if summary.cancelled => Progress::ImportCancelled {
+            message: summary.message(),
+            linked: summary.linked > 0,
+            save_pending: summary.save_pending,
+        },
+        Ok(summary) => Progress::Imported(summary.message()),
+        Err(error) => Progress::Failed(error.to_string()),
+    });
 }
 
 /// Links the account a pasted token belongs to, once Discord accepts it.

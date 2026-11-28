@@ -558,7 +558,7 @@ impl Application {
         forwarding.note = note;
         forwarding.error = None;
         if self.state.preview {
-            self.state.notice = Some("Message forwarded.".into());
+            self.state.notice = Some(super::Notice::Info("Message forwarded.".into()));
         } else {
             self.forwards.push(ForwardSent {
                 waiting: forwarding.chosen.clone(),
@@ -662,11 +662,11 @@ impl Application {
         };
         let (unsent, unforwarded) = (places(&notes_unsent), places(&failed));
         if let Some((_, why)) = notes_unsent.first() {
-            self.state.notice = Some(format!(
+            self.state.notice = Some(super::Notice::Error(format!(
                 "Forwarded, but the message you added didn't go to {unsent}: {why}"
-            ));
+            )));
         } else if failed.is_empty() {
-            self.state.notice = Some("Message forwarded.".into());
+            self.state.notice = Some(super::Notice::Info("Message forwarded.".into()));
         }
         let Some((_, why)) = failed.first() else {
             return;
@@ -937,8 +937,9 @@ impl Application {
                 self.state.jump = Some((seeking.item, count));
             }
         } else if !seeking.unread {
-            self.state.notice =
-                Some("Yapfast couldn't find that message. It may have been deleted.".into());
+            self.state.notice = Some(super::Notice::Error(
+                "Yapfast couldn't find that message. It may have been deleted.".into(),
+            ));
         }
         vec![]
     }

@@ -3424,6 +3424,8 @@ pub enum DiscordCommand {
     /// of the one running: after linking another, which becomes the active
     /// one. [`Event::DiscordAccounts`] follows.
     Start,
+    /// Refresh the linked accounts without interrupting the active connection.
+    ListAccounts,
     /// Make the linked Discord account with this id the active one and
     /// connect it in place of the one running; [`Event::DiscordSwitched`]
     /// and [`Event::DiscordAccounts`] follow, or [`Event::Error`] when it
@@ -5715,6 +5717,9 @@ pub async fn run(
                         if replacing {
                             let _ = events.send(Event::DiscordSwitched);
                         }
+                        send_discord_accounts(&events);
+                    }
+                    Command::Discord(DiscordCommand::ListAccounts) => {
                         send_discord_accounts(&events);
                     }
                     Command::Discord(DiscordCommand::SwitchAccount(id)) => {
