@@ -23,6 +23,7 @@ use crate::{
 #[derive(Clone, Copy)]
 pub struct Ctx<'a> {
     pub look: Look<'a>,
+    pub i18n: &'a crate::i18n::I18n,
     /// The pictures made to draw, and the moving ones playing.
     pub pictures: &'a Pictures,
     /// The core, and its state.
@@ -192,6 +193,7 @@ pub enum Screen {
 /// A preference others show, changed.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Pref {
+    Language,
     /// Message times read on another clock.
     Clock,
     /// The timeline's rows look otherwise: text size, link previews,

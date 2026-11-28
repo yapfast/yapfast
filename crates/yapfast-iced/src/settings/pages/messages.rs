@@ -16,7 +16,7 @@ impl<'a> Page<'a> {
     pub(in crate::settings) fn messages_page(self) -> Element<'a, Message> {
         let theme = self.cx.look.theme;
         let prefs = &self.cx.layout.prefs;
-        let twelve = prefs.twelve_hour_clock;
+        let twelve = prefs.twelve_hour_clock();
         let preview = self.sample(vec![
             text("Thinking co-op after nine, if people are up for it.")
                 .size(message_size(prefs))
@@ -39,9 +39,6 @@ impl<'a> Page<'a> {
             preview,
             form::group([
                 form::heading(theme, "CLOCK"),
-                choices(theme, &["24-hour", "12-hour"], usize::from(twelve), |index| {
-                    pref(Pref::TwelveHour(index == 1))
-                }),
                 switch(
                     "Show seconds",
                     prefs.clock_seconds,

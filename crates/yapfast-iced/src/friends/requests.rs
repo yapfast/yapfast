@@ -141,7 +141,7 @@ pub(super) fn request_rows(
 /// those this account sent, and spam folded away.
 pub fn requests_screen<'a>(ctx: crate::ctx::Ctx<'a>) -> Element<'a, Message> {
     let state = ctx.state;
-    let rows = request_rows(state, ctx.layout.prefs.twelve_hour_clock);
+    let rows = request_rows(state, ctx.layout.prefs.twelve_hour_clock());
     if rows.incoming.is_empty() && rows.sent.is_empty() && rows.spam.is_empty() {
         return ctx.look.empty_screen(
             Icon::Inbox,

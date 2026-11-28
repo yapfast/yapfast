@@ -570,7 +570,7 @@ impl<'a> View<'a> {
     fn audit_row(self, page: &'a AuditLogPage, index: usize) -> Element<'a, Message> {
         let theme = self.cx.look.theme;
         let entry = &page.rows[index];
-        let twelve_hour = self.cx.layout.prefs.twelve_hour_clock;
+        let twelve_hour = self.cx.layout.prefs.twelve_hour_clock();
         let now = clock::now_ms() / 1000;
         let when = |seconds: u64| clock::calendar(seconds, now, twelve_hour);
         let (start, end) = (when(entry.start), when(entry.end));
@@ -679,7 +679,7 @@ impl<'a> View<'a> {
         now: u64,
     ) -> Element<'a, Message> {
         let strong = self.cx.look.theme.text;
-        let twelve_hour = self.cx.layout.prefs.twelve_hour_clock;
+        let twelve_hour = self.cx.layout.prefs.twelve_hour_clock();
         let spans: Vec<Span<'a, (), iced::Font>> = words
             .spans()
             .filter_map(|piece| match piece {

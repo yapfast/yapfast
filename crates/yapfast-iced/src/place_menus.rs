@@ -69,7 +69,7 @@ fn place_menu(
         unread = false;
     }
     let developer = app.layout.developer_mode;
-    let twelve = app.layout.prefs.twelve_hour_clock;
+    let twelve = app.layout.prefs.twelve_hour_clock();
     let server_notifications = if server {
         core.server_notifications(id)
     } else {
@@ -221,7 +221,7 @@ pub fn open_bell(app: &mut App, at: Point) -> Task<Message> {
         in_category: core.category_of(&room).is_some(),
         settings,
     };
-    let mut rows = vec![notify.mute_row(app.layout.prefs.twelve_hour_clock)];
+    let mut rows = vec![notify.mute_row(app.layout.prefs.twelve_hour_clock())];
     let mut levels = notify.levels();
     if let Some(first) = levels.first_mut() {
         first.separated = true;
@@ -239,7 +239,7 @@ pub fn open_bell(app: &mut App, at: Point) -> Task<Message> {
 /// upcoming events", greyed, for a server with none, as Discord's opens
 /// all the same.
 pub fn open_events_menu(app: &mut App, server: &str, at: Point) -> Task<Message> {
-    let twelve = app.layout.prefs.twelve_hour_clock;
+    let twelve = app.layout.prefs.twelve_hour_clock();
     let mut rows: Vec<MenuRow> = app
         .client
         .state()

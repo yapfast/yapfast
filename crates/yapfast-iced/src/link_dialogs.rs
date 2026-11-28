@@ -233,7 +233,7 @@ impl<'a> View<'a> {
         let prompt = self
             .cx
             .state
-            .event_prompt(self.cx.layout.prefs.twelve_hour_clock)?;
+            .event_prompt(self.cx.layout.prefs.twelve_hour_clock())?;
         let theme = self.cx.look.theme;
         let mut body = vec![
             self.cx

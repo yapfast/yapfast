@@ -19,6 +19,7 @@ use crate::{
     fonts::BOLD,
     form::switch,
     layout::Animate,
+    time_format::TimeFormat,
 };
 
 mod about;
@@ -31,6 +32,7 @@ mod advanced;
 mod discord;
 mod games;
 pub use games::{block_game, open_detected_games_menu};
+mod language_time;
 mod messages;
 mod notifications;
 mod sounds;
@@ -42,7 +44,8 @@ const ANIMATES: [Animate; 3] = [Animate::Focused, Animate::Always, Animate::Neve
 /// the slider was let go, when it's kept).
 #[derive(Clone, Debug)]
 pub enum Pref {
-    TwelveHour(bool),
+    Language(usize),
+    TimeFormat(TimeFormat),
     Seconds(bool),
     DateFormat(usize),
     /// Accessibility's text size in chat, in pixels, as it's dragged; and
@@ -141,10 +144,27 @@ impl Settings {
     pub(in crate::settings) fn pref(&mut self, pref: Pref, cx: &mut Cx<'_>) {
         let prefs = &mut cx.layout.prefs;
         match pref {
-            Pref::TwelveHour(on) => {
-                prefs.twelve_hour_clock = on;
+            Pref::Language(index) => {
+                self.open = None;
+                let tag = if let Some(index) = index.checked_sub(1) {
+                    let Some(language) = crate::i18n::LANGUAGES.get(index) else {
+                        return;
+                    };
+                    Some(language.tag)
+                } else {
+                    None
+                };
+                if prefs.language.as_deref() != tag {
+                    prefs.language = tag.map(str::to_owned);
+                    cx.keep("language", tag);
+                    cx.request(Request::Changed(Shown::Language));
+                }
+            }
+            Pref::TimeFormat(format) => {
+                self.open = None;
+                prefs.time_format = Some(format);
                 prefs.apply_clock();
-                cx.keep("twelve_hour_clock", on);
+                cx.keep("time_format", format);
                 cx.request(Request::Changed(Shown::Clock));
             }
             Pref::Seconds(on) => {
@@ -395,7 +415,7 @@ impl<'a> Page<'a> {
         let theme = self.cx.look.theme;
         let prefs = &self.cx.layout.prefs;
         let size = message_size(prefs);
-        let twelve = prefs.twelve_hour_clock;
+        let twelve = prefs.twelve_hour_clock();
         let clock = format!(
             "{}{}{}",
             if twelve { "9:41" } else { "21:41" },
@@ -430,8 +450,8 @@ impl<'a> Page<'a> {
     /// A switch that flips a preference.
     fn flip(
         self,
-        label: &'a str,
-        description: &'a str,
+        label: impl Into<std::borrow::Cow<'a, str>>,
+        description: impl Into<std::borrow::Cow<'a, str>>,
         on: bool,
         make: fn(bool) -> Pref,
     ) -> Element<'a, Message> {

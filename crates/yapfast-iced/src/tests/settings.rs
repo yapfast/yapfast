@@ -36,6 +36,46 @@ fn stored(folder: &tempfile::TempDir) -> serde_json::Value {
     .expect("JSON")
 }
 
+#[test]
+fn interface_language_changes_live_and_survives_restart() {
+    let (mut app, folder) = preview();
+    open(&mut app, Section::LanguageTime);
+    assert!(shows(&app, "Interface language"));
+    interact(&mut app, |ui| {
+        ui.click("System language").expect("language dropdown");
+    });
+    interact(&mut app, |ui| {
+        ui.click("Русский").expect("Russian language option");
+    });
+    assert!(shows(&app, "Язык интерфейса"));
+    assert_eq!(stored(&folder)["language"], "ru");
+
+    let _ = app.update(crate::app::settings(Event::Search("внешний".into())));
+    assert!(shows(&app, "Внешний вид"));
+    assert!(!shows(&app, "Сообщения"));
+
+    let mut app = start(&folder, true);
+    open(&mut app, Section::LanguageTime);
+    assert!(shows(&app, "Язык интерфейса"));
+    interact(&mut app, |ui| {
+        ui.click("Русский").expect("current language");
+    });
+    interact(&mut app, |ui| {
+        ui.click("Deutsch").expect("German language option");
+    });
+    assert!(shows(&app, "Sprache der Benutzeroberfläche"));
+    assert_eq!(stored(&folder)["language"], "de");
+
+    interact(&mut app, |ui| {
+        ui.click("Deutsch").expect("current language");
+    });
+    interact(&mut app, |ui| {
+        ui.click("Systemsprache").expect("system language option");
+    });
+    assert!(app.layout.prefs.language.is_none());
+    assert!(stored(&folder)["language"].is_null());
+}
+
 /// The text glow switch stops a theme's soft edge, and is kept.
 #[test]
 fn the_text_glow_switch_stops_the_soft_edge_and_is_kept() {
@@ -1465,10 +1505,14 @@ fn preferences_are_kept_across_a_restart() {
         *last = std::sync::Arc::new(message);
         state.messages = std::sync::Arc::new(messages);
     });
-    open(&mut app, Section::Messages);
+    open(&mut app, Section::LanguageTime);
+    interact(&mut app, |ui| {
+        ui.click("Auto").expect("the time format dropdown");
+    });
     interact(&mut app, |ui| {
         ui.click("12-hour").expect("the clock");
     });
+    open(&mut app, Section::Messages);
     interact(&mut app, |ui| {
         ui.click("Show seconds").expect("the switch");
     });
@@ -1482,7 +1526,7 @@ fn preferences_are_kept_across_a_restart() {
     let _ = app.update(crate::settings::pref_message(
         crate::settings::Pref::KeepTextPx,
     ));
-    assert!(app.layout.prefs.twelve_hour_clock && app.layout.prefs.clock_seconds);
+    assert!(app.layout.prefs.twelve_hour_clock() && app.layout.prefs.clock_seconds);
     // The timeline's times follow at once: 9:41:05 PM, say.
     let time = &app.timeline.looks.last().expect("a message").time;
     assert!(
@@ -1497,16 +1541,36 @@ fn preferences_are_kept_across_a_restart() {
     interact(&mut app, |ui| {
         ui.click("Developer Mode").expect("the switch");
     });
-    let again = start(&folder, true);
+    let mut again = start(&folder, true);
     let prefs = &again.layout.prefs;
-    assert!(prefs.twelve_hour_clock && prefs.clock_seconds);
+    assert!(prefs.twelve_hour_clock() && prefs.clock_seconds);
     assert!(again.layout.collapse_long && again.layout.developer_mode);
     assert_eq!(prefs.text_px(), 18);
     assert_eq!(prefs.flash_taskbar, Some(false));
-    // `layout.json` keeps them under the keys older versions wrote.
     let layout = stored(&folder);
-    assert_eq!(layout["twelve_hour_clock"], true);
+    assert_eq!(layout["time_format"], "12-hour");
     assert_eq!(layout["flash_taskbar"], false);
+
+    open(&mut again, Section::LanguageTime);
+    interact(&mut again, |ui| {
+        ui.click("12-hour").expect("the saved time format");
+    });
+    interact(&mut again, |ui| {
+        ui.click("24-hour").expect("the clock");
+    });
+    assert!(!again.layout.prefs.twelve_hour_clock());
+    assert_eq!(stored(&folder)["time_format"], "24-hour");
+    interact(&mut again, |ui| {
+        ui.click("24-hour").expect("the time format dropdown");
+    });
+    interact(&mut again, |ui| {
+        ui.click("Auto").expect("the system time format");
+    });
+    assert_eq!(
+        again.layout.prefs.time_format(),
+        crate::time_format::TimeFormat::Auto
+    );
+    assert_eq!(stored(&folder)["time_format"], "auto");
 }
 
 /// Appearance's Show activity cards says what the member list's eye left:

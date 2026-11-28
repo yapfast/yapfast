@@ -230,7 +230,12 @@ impl KeptSticker {
 #[derive(Default, serde::Deserialize)]
 #[serde(default)]
 pub struct Prefs {
-    /// Messages: the clock, its seconds, the date's order (an index into
+    /// The interface language as a BCP 47 tag, or the system language when absent.
+    pub language: Option<String>,
+    pub time_format: Option<crate::time_format::TimeFormat>,
+    #[serde(rename = "twelve_hour_clock")]
+    legacy_twelve_hour_clock: Option<bool>,
+    /// Messages: the clock's seconds, the date's order (an index into
     /// `clock::DateFormat::ALL`, following the clock unless chosen), link
     /// previews, boost gems, mentioning those replied to, tracking taken out
     /// of links sent, sharing that this account types; and Accessibility's
@@ -238,7 +243,6 @@ pub struct Prefs {
     /// `chat_text_size` in pixels; before it, older versions kept
     /// `text_size` (0 small, 1 default, 2 large), which counts while the
     /// pixels are unset ([`Prefs::text_px`]).
-    pub twelve_hour_clock: bool,
     pub clock_seconds: bool,
     pub date_format: Option<i32>,
     pub text_size: Option<i32>,
@@ -370,6 +374,20 @@ impl Layout {
 pub const SCROLL_SPEEDS: [u16; 5] = [50, 100, 150, 200, 300];
 
 impl Prefs {
+    pub fn time_format(&self) -> crate::time_format::TimeFormat {
+        use crate::time_format::TimeFormat::{Auto, Hour12, Hour24};
+        self.time_format
+            .unwrap_or(match self.legacy_twelve_hour_clock {
+                None => Auto,
+                Some(true) => Hour12,
+                Some(false) => Hour24,
+            })
+    }
+
+    pub fn twelve_hour_clock(&self) -> bool {
+        self.time_format().twelve_hour()
+    }
+
     pub fn scroll_speed(&self) -> u16 {
         self.scroll_speed
             .filter(|speed| SCROLL_SPEEDS.contains(speed))
@@ -440,7 +458,7 @@ impl Prefs {
                 .copied()
         }));
         // After the date's order, which Discord's timestamps follow.
-        clock::set_twelve_hour_clock(self.twelve_hour_clock);
+        clock::set_twelve_hour_clock(self.twelve_hour_clock());
     }
 }
 

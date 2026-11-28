@@ -730,7 +730,7 @@ pub fn composer_look(ctx: crate::ctx::Ctx<'_>) -> Look {
         .map(|until| {
             format!(
                 "You're timed out in this server until {}.",
-                crate::place_menus::until(until / 1000, ctx.layout.prefs.twelve_hour_clock)
+                crate::place_menus::until(until / 1000, ctx.layout.prefs.twelve_hour_clock())
             )
         });
     let request = room.filter(|room| room.request).map(|room| {
