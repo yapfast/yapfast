@@ -12,10 +12,7 @@ use std::{
 
 use anyhow::{Context, Result};
 
-use crate::{
-    audio_io::{Output, RATE},
-    sounds::{self, SoundSet},
-};
+use crate::audio_io::{Output, RATE};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Tone {
@@ -85,35 +82,27 @@ pub fn set_themed(tone: Tone, samples: Option<Arc<[i16]>>) {
     }
 }
 
-#[derive(Clone)]
-pub enum CustomTone {
-    Set(SoundSet),
-    File(Arc<[i16]>),
-}
+/// The user's own files for the ring and ringback, as 48 kHz interleaved
+/// stereo, ahead of a theme's; none rings as without them.
+static CUSTOM: std::sync::RwLock<[Option<Arc<[i16]>>; 2]> = std::sync::RwLock::new([None, None]);
 
-static CUSTOM: std::sync::RwLock<[Option<CustomTone>; 2]> = std::sync::RwLock::new([None, None]);
-
-/// Applies both personal tones for subsequent calls and previews.
-pub fn set_custom(tones: [Option<CustomTone>; 2]) {
+/// Rings with the user's own files, incoming then outgoing, from the next
+/// ring or preview on.
+pub fn set_custom(tones: [Option<Arc<[i16]>>; 2]) {
     if let Ok(mut custom) = CUSTOM.write() {
         *custom = tones;
     }
 }
 
+/// One repetition of what rings for `tone`, and the silence after it: the
+/// user's file, padded to the tone's three seconds, a theme's sound, or the
+/// tone.
 fn repetition(tone: Tone) -> (Arc<[i16]>, usize) {
-    let pcm = |sample: f32| (sample * f32::from(i16::MAX)) as i16;
-    let custom = CUSTOM
+    if let Some(samples) = CUSTOM
         .read()
         .ok()
-        .and_then(|custom| custom[tone as usize].clone());
-    if let Some(custom) = custom {
-        let samples = match custom {
-            CustomTone::Set(set) => sounds::render_ring(set, tone)
-                .into_iter()
-                .map(pcm)
-                .collect(),
-            CustomTone::File(samples) => samples,
-        };
+        .and_then(|custom| custom[tone as usize].clone())
+    {
         let pause = (3 * RATE as usize * 2).saturating_sub(samples.len());
         return (samples, pause);
     }
@@ -215,19 +204,6 @@ fn play(
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn sound_set_ring_phrases_vary_by_direction_and_instrument() {
-        let incoming = sounds::render_ring(SoundSet::Felt, Tone::Incoming);
-        let outgoing = sounds::render_ring(SoundSet::Felt, Tone::Outgoing);
-        let flute = sounds::render_ring(SoundSet::Flute, Tone::Incoming);
-        assert!(incoming.len() > outgoing.len());
-        assert_ne!(incoming, flute);
-        for phrase in [incoming, outgoing, flute] {
-            assert!(phrase.len() <= 3 * RATE as usize * 2);
-            assert!(phrase.iter().any(|sample| sample.abs() > 0.1));
-        }
-    }
 
     #[test]
     fn tones_sound_then_pause_without_clipping() {

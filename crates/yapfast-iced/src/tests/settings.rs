@@ -37,21 +37,21 @@ fn stored(folder: &tempfile::TempDir) -> serde_json::Value {
 }
 
 #[test]
-fn custom_sounds_show_call_tones_and_keep_choices_when_turned_off() {
-    use yapfast_core::{sounds::SoundSet, themes::media::SoundSlot};
+fn custom_sounds_show_call_tones_and_keep_files_when_turned_off() {
+    use yapfast_core::themes::media::SoundSlot;
 
     use crate::custom_sounds::Choice;
 
     let (mut app, folder) = preview();
     open(&mut app, Section::Sounds);
     assert!(!app.layout.voice.adjust_each_sound);
-    assert!(!shows(&app, "Upload file"));
+    assert!(!shows(&app, "Incoming call"));
     interact(&mut app, |ui| {
         ui.click("Custom sound set").expect("the switch");
     });
     assert!(shows(&app, "Incoming call"));
     assert!(shows(&app, "Outgoing call"));
-    assert!(!shows(&app, "Upload file"));
+    assert!(!shows(&app, "Uploaded file"));
 
     interact(&mut app, |ui| {
         let row = super::last(ui, "Outgoing call");
@@ -70,21 +70,11 @@ fn custom_sounds_show_call_tones_and_keep_choices_when_turned_off() {
         ui.point_at(source);
         let _ = ui.simulate(iced_test::simulator::click());
     });
+    // A file or the default, no other set's sounds: the only Glow is the
+    // sound set's, above the rows.
     assert!(shows(&app, "Custom"));
     interact(&mut app, |ui| {
-        let preset = super::last(ui, "Glow");
-        assert!(preset.y > super::last(ui, "Outgoing call").y);
-        ui.point_at(preset);
-        let _ = ui.simulate(iced_test::simulator::click());
-    });
-    assert_eq!(
-        app.layout.voice.sound_choice(SoundSlot::Ringback),
-        Choice::Set(SoundSet::Glow),
-    );
-    interact(&mut app, |ui| {
-        let preset = super::last(ui, "Glow");
-        ui.point_at(preset);
-        let _ = ui.simulate(iced_test::simulator::click());
+        assert!(super::last(ui, "Glow").y < super::last(ui, "Incoming call").y);
     });
     interact(&mut app, |ui| {
         ui.click("Custom").expect("the file picker option");
@@ -92,7 +82,7 @@ fn custom_sounds_show_call_tones_and_keep_choices_when_turned_off() {
     assert!(!shows(&app, "Custom"));
     assert_eq!(
         app.layout.voice.sound_choice(SoundSlot::Ringback),
-        Choice::Set(SoundSet::Glow),
+        Choice::Default,
     );
     crate::custom_sounds::save(folder.path(), SoundSlot::Ring, &[100, -100]).unwrap();
     interact(&mut app, |ui| {
@@ -107,14 +97,13 @@ fn custom_sounds_show_call_tones_and_keep_choices_when_turned_off() {
             .expect("turn the custom set back on");
     });
     assert!(shows(&reopened, "Uploaded file"));
-    assert!(!shows(&reopened, "Replace file"));
     assert_eq!(
         reopened.layout.voice.sound_choice(SoundSlot::Ring),
         Choice::File
     );
     assert_eq!(
         reopened.layout.voice.sound_choice(SoundSlot::Ringback),
-        Choice::Set(SoundSet::Glow),
+        Choice::Default,
     );
     reopened.shell.frame.width = 800.0;
     crate::window_bar::fit_window(&mut reopened);

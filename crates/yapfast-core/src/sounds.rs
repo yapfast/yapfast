@@ -187,7 +187,6 @@ const F4: f32 = 65.0;
 const A4: f32 = 69.0;
 const C5: f32 = 72.0;
 const F5: f32 = 77.0;
-const A5: f32 = 81.0;
 
 /// A sound's notes (start in seconds, MIDI note, velocity), how much faster
 /// than usual they fade, and its loudness against the others in dB.
@@ -345,31 +344,6 @@ const PEAK: f32 = 0.25;
 /// its own quieting, before any volume. It ends once 40 dB below its peak.
 pub fn render(set: SoundSet, sound: Sound) -> Vec<f32> {
     let (notes, fade, loudness) = score(sound);
-    render_score(set, notes, fade, loudness)
-}
-
-/// One phrase of a DM call tone on the chosen sound set's instrument.
-pub(crate) fn render_ring(set: SoundSet, tone: crate::ring::Tone) -> Vec<f32> {
-    use crate::ring::Tone;
-    match tone {
-        Tone::Incoming => render_score(
-            set,
-            &[
-                (0.0, C5, 0.8),
-                (0.16, F5, 0.9),
-                (0.32, A5, 1.0),
-                (0.8, C5, 0.8),
-                (0.96, F5, 0.9),
-                (1.12, A5, 1.0),
-            ],
-            0.7,
-            0.0,
-        ),
-        Tone::Outgoing => render_score(set, &[(0.0, F4, 0.8), (0.4, C5, 0.85)], 0.9, -4.0),
-    }
-}
-
-fn render_score(set: SoundSet, notes: &[(f32, f32, f32)], fade: f32, loudness: f32) -> Vec<f32> {
     let last = notes.iter().fold(0.0f32, |last, note| last.max(note.0));
     let mut dry = vec![0.0f32; ((last + 2.0) * RATE as f32) as usize];
     for &(start, midi, velocity) in notes {
@@ -468,14 +442,6 @@ pub fn play(set: SoundSet, sound: Sound, volume: f32, speaker: Option<&str>) {
     }
     if let Some((samples, themed_volume)) = themed(sound) {
         play_decoded(samples, volume * themed_volume, speaker);
-        return;
-    }
-    play_set(set, sound, volume, speaker);
-}
-
-/// Plays the selected sound set's version of an event.
-pub fn play_set(set: SoundSet, sound: Sound, volume: f32, speaker: Option<&str>) {
-    if volume <= 0.0 {
         return;
     }
     let speaker: Option<Arc<str>> = speaker.map(Into::into);

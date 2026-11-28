@@ -1,4 +1,4 @@
-//! Sounds: the sound set, volumes and personal replacements.
+//! Sounds: the sound set, volumes and the user's own sound files.
 
 use std::sync::Arc;
 
@@ -236,7 +236,9 @@ impl<'a> Page<'a> {
                 custom,
                 Some(message(Event::Enable(!custom))),
             )
-            .description("Choose a sound from any set, or select Custom to pick a file.")
+            .description(
+                "Play sound files of your own. Choose Custom in a sound's menu to pick its file.",
+            )
             .view(self.cx.look),
         ];
         if !custom && !voice.adjust_each_sound {
@@ -291,11 +293,6 @@ impl<'a> Page<'a> {
         if has_file {
             options.push(("Uploaded file", Some(Choice::File)));
         }
-        options.extend(
-            SOUND_SETS
-                .into_iter()
-                .zip(SoundSet::ALL.map(|set| Some(Choice::Set(set)))),
-        );
         let selected = Some(voice.sound_choice(slot));
         let current = options.iter().position(|(_, choice)| *choice == selected);
         let source = form::dropdown(

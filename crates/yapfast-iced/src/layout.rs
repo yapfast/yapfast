@@ -22,7 +22,7 @@ use yapfast_core::{
     application::{Application, StickerUse},
     chat::Sticker,
     keybinds::{Binding, Shortcut},
-    ring::{self, CustomTone, Tone},
+    ring::{self, Tone},
     theme::Custom,
     themes::{Performance, media::SoundSlot},
 };
@@ -545,9 +545,12 @@ pub struct Voice {
     pub sound_volume: Option<u8>,
     pub adjust_each_sound: bool,
     pub each_sound: std::collections::BTreeMap<yapfast_core::sounds::Sound, u8>,
+    /// Sound files of the user's own in place of Yapfast's sounds and call
+    /// tones, while on; off unless turned on.
     pub custom_sound_set: Option<bool>,
+    /// Which sounds play their file; one with a file and no choice does.
     pub(crate) custom_sound_choices: BTreeMap<SoundSlot, Choice>,
-    /// Decoded replacements loaded from this device's data folder.
+    /// The files, decoded, from this device's data folder.
     #[serde(skip)]
     pub(crate) custom_sounds: crate::custom_sounds::CustomSounds,
 }
@@ -644,26 +647,21 @@ impl Voice {
             let slot = custom_sounds::ring_slot(tone);
             match self.sound_choice(slot) {
                 Choice::Default => None,
-                Choice::Set(set) => Some(CustomTone::Set(set)),
-                Choice::File => self.custom_sounds.get(&slot).cloned().map(CustomTone::File),
+                Choice::File => self.custom_sounds.get(&slot).cloned(),
             }
         }));
     }
 
-    /// Plays a personal sound, the theme's sound, or the selected set's sound.
+    /// Plays the user's file for `sound`, else the theme's sound or the set's.
     pub fn play_sound(&self, sound: yapfast_core::sounds::Sound, speaker: Option<&str>) {
         use yapfast_core::sounds;
         let gain = self.sound_gain(sound);
         if self.uses_custom_sounds() {
             let slot = SoundSlot::of_sound(sound);
-            match self.sound_choice(slot) {
-                Choice::Set(set) => return sounds::play_set(set, sound, gain, speaker),
-                Choice::File => {
-                    if let Some(samples) = self.custom_sounds.get(&slot) {
-                        return sounds::play_decoded(samples.clone(), gain, speaker);
-                    }
-                }
-                Choice::Default => {}
+            if self.sound_choice(slot) == Choice::File
+                && let Some(samples) = self.custom_sounds.get(&slot)
+            {
+                return sounds::play_decoded(samples.clone(), gain, speaker);
             }
         }
         sounds::play(self.sound_set, sound, gain, speaker);

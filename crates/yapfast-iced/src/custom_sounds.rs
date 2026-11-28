@@ -1,4 +1,5 @@
-//! Device-local sound choices and imported clips, stored as decoded stereo PCM.
+//! The user's own sound files for Yapfast's sounds and call tones, kept on
+//! this device decoded, as 48 kHz interleaved stereo PCM.
 
 use std::{
     collections::BTreeMap,
@@ -10,18 +11,21 @@ use std::{
 
 use yapfast_core::{
     ring::Tone,
-    sounds::{RATE, Sound, SoundSet},
+    sounds::{RATE, Sound},
     themes::media::{self, SoundSlot},
 };
 
 pub(crate) type CustomSounds = BTreeMap<SoundSlot, Arc<[i16]>>;
 
+/// What a sound plays while the custom set is on.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, serde::Deserialize, serde::Serialize)]
 #[serde(rename_all = "snake_case")]
 pub enum Choice {
+    /// What it plays without the custom set: the theme's sound, the set's
+    /// sound or the call tone.
     #[default]
     Default,
-    Set(SoundSet),
+    /// The file uploaded for it.
     File,
 }
 

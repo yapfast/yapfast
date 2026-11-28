@@ -115,16 +115,15 @@ recording. Each change is kept at once in
   Visual Density, Color & Contrast, Always underline links, its separate
   GIF, emoji and sticker switches and Minimum notification duration aren't
   there; its Display Name Styles is Appearance's Show name styles.
-- Notifications, Sounds and Advanced. Sounds has a sound set, event volume,
-  and optional per-event volumes. Turn on Custom sound set to choose a sound
-  from any built-in set for each event and the incoming and outgoing DM call
-  tones. Choose Custom from a row's menu to pick or replace its audio file.
-  Uploaded file reselects a file already saved for that row.
-  Default uses the theme's sound when available, then
-  the main sound set for events or the built-in call tone. Each row has a play
-  button. Uploaded WAV, Ogg, Opus and MP3 files can be up to 1 MiB and four
-  seconds for events or six for call tones. Turning off the custom set keeps
-  the choices and files on this device for when it is turned back on.
+- Notifications, Sounds and Advanced. Sounds has the sound set (which
+  plays a sound when chosen), Event volume, each sound's own volume with
+  its play button, and Custom sound set, off until turned on. With it on,
+  the incoming and outgoing DM call tones and each sound get a menu:
+  Default (the theme's sound, the set's or the call tone), Custom to pick a
+  file, and Uploaded file once one is picked, with a button to remove it.
+  The files are WAV, Ogg, Opus or MP3, up to 1 MiB and four seconds, six
+  for call tones, kept decoded on this device; turning the switch off
+  keeps them and the choices.
   Advanced holds Discord's two startup switches on Windows and Linux
   outside the preview: Automatically open Yapfast when your computer starts
   up, and Start Yapfast minimized (to the tray), off until chosen and greyed
