@@ -3012,10 +3012,14 @@ pub enum DiscordCommand {
         url: String,
     },
     /// Post sticker `id` in `room` as a message of its own, as Discord's
-    /// client does; the gateway shows it.
+    /// client does, as a reply to timeline item `reply` when the composer
+    /// replies to one (`quiet_reply`: without notifying its author); the
+    /// gateway shows it.
     SendSticker {
         room: String,
         id: String,
+        reply: Option<String>,
+        quiet_reply: bool,
     },
     /// The members of a Discord role in the room's server, as far as they're known;
     /// [`Event::RoleMembers`] follows.

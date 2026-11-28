@@ -544,9 +544,20 @@ impl Application {
                 uses: 1,
             }),
         }
+        // As a reply when the composer replies, as Discord's client sends
+        // it; the reply bar goes once Discord took it (`sticker_sent`).
+        let (reply, quiet_reply) = match self.state.compose.get(&room) {
+            Some(Compose::Reply { item, ping, .. }) => (Some(item.clone()), !ping),
+            _ => (None, false),
+        };
         let mut effects = self.close_stickers();
         effects.push(Effect::Backend(Command::Discord(
-            DiscordCommand::SendSticker { room, id },
+            DiscordCommand::SendSticker {
+                room,
+                id,
+                reply,
+                quiet_reply,
+            },
         )));
         effects
     }
@@ -589,6 +600,10 @@ impl Application {
     pub(super) fn sticker_sent(&mut self, room: String, result: Result<(), String>) {
         if result.is_ok() {
             self.slowmode_starts(&room);
+            // Sent as the reply, as a message from the composer is.
+            if matches!(self.state.compose.get(&room), Some(Compose::Reply { .. })) {
+                self.state.compose.remove(&room);
+            }
         }
         if self.state.selected.as_ref() != Some(&room) {
             return;

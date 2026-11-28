@@ -1101,8 +1101,11 @@ the width is the same for all three tabs and comes back at the next start
   scrolls out of sight.
 - A click sends `POST /channels/{id}/messages` with `sticker_ids`, a message of
   the sticker alone as Discord's client sends it; the gateway's MESSAGE_CREATE
-  shows it, as it shows a poll. A sticker that couldn't be sent says why in
-  the channel.
+  shows it, as it shows a poll. While the composer replies, it goes as the
+  reply, with the same `message_reference` and, with the mention off,
+  `allowed_mentions` a text reply has, and the reply bar goes once Discord
+  took it, as Discord's client sends it through its composer's send. A
+  sticker that couldn't be sent says why in the channel.
 - Discord's default packs are anyone's to send, and the open server's own
   stickers too; another server's, and every server's in a DM, need Nitro and
   show greyed with a lock until then, as Discord's client has them

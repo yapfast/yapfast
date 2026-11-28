@@ -2962,10 +2962,28 @@ impl Discord {
     }
 
     /// Posts sticker `id` in `channel`, as Discord's client does when one is
-    /// clicked in the picker. The gateway shows the message.
-    pub async fn send_sticker(&self, guild: &str, channel: &str, id: &str) -> Result<()> {
+    /// clicked in the picker: a reply to message `reply` of the channel when
+    /// one is given, notifying its author with `ping_reply`. The gateway
+    /// shows the message.
+    pub async fn send_sticker(
+        &self,
+        guild: &str,
+        channel: &str,
+        id: &str,
+        reply: Option<&str>,
+        ping_reply: bool,
+    ) -> Result<()> {
         let nonce = crate::message::nonce();
-        let sent = self.api.send_sticker(channel, id, &nonce).await?;
+        let options = crate::api::Sending {
+            nonce: &nonce,
+            reply,
+            ping_reply,
+            silent: false,
+        };
+        let sent = self
+            .api
+            .send_sticker(server(guild), channel, id, options)
+            .await?;
         self.write_names().learn_message(server(guild), &sent);
         Ok(())
     }
