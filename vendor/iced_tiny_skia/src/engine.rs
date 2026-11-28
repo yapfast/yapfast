@@ -85,9 +85,6 @@ impl Engine {
             return;
         }
 
-        let clip_mask = (!physical_bounds.is_within(&clip_bounds))
-            .then_some(clip_mask as &_);
-
         let transform = into_transform(transformation);
 
         // Make sure the border radius is not larger than the bounds
@@ -342,6 +339,14 @@ impl Engine {
             );
             return;
         }
+        // Yapfast port (patch 44): test containment against the same whole
+        // pixels as the clip mask and damage clear. A fractional stroke at
+        // the clip edge can otherwise paint pixels that aren't cleared.
+        let clip_mask = clip_bounds
+            .snap()
+            .is_none_or(|clip| !physical_bounds.is_within(&Rectangle::from(clip)))
+            .then_some(clip_mask as &_);
+
         // Yapfast port (patch 21): a quad of no colour (an outline drawn over
         // a card, `controls::edged`) fills nothing; stock, its whole area
         // went through the anti-aliased path and the clip mask.

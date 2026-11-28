@@ -968,9 +968,13 @@ mod tests {
         }
 
         fn draw_with(&mut self, build: impl FnOnce(&mut Renderer)) {
+            self.draw_scaled_with(1.0, build);
+        }
+
+        fn draw_scaled_with(&mut self, scale: f32, build: impl FnOnce(&mut Renderer)) {
             build(&mut self.renderer);
             let current = self.renderer.layers().to_vec();
-            let window = rect(0.0, 0.0, WIDTH as f32, HEIGHT as f32);
+            let window = rect(0.0, 0.0, WIDTH as f32 / scale, HEIGHT as f32 / scale);
             let (changes, shifted, damage) = match &self.last {
                 Some(previous) => {
                     let changes = crate::layer::changes(previous, &current);
@@ -979,8 +983,8 @@ mod tests {
                 }
                 None => (current.iter().map(|layer| vec![layer.bounds]).collect(), None, vec![window]),
             };
-            self.renderer.layer_changes_kept(changes, shifted, 1.0, Size::new(WIDTH, HEIGHT), self.keep);
-            let viewport = Viewport::with_physical_size(Size::new(WIDTH, HEIGHT), 1.0);
+            self.renderer.layer_changes_kept(changes, shifted, scale, Size::new(WIDTH, HEIGHT), self.keep);
+            let viewport = Viewport::with_physical_size(Size::new(WIDTH, HEIGHT), scale);
             let mut pixmap = tiny_skia::PixmapMut::from_bytes(bytemuck::cast_slice_mut(&mut self.pixels), WIDTH, HEIGHT).expect("pixmap");
             if !damage.is_empty() {
                 self.renderer.draw(&mut pixmap, &mut self.mask, &viewport, &damage, Color::BLACK);
