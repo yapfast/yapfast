@@ -884,6 +884,7 @@ fn volume_slider<'a>(video: &'a yapfast_core::chat::Video) -> Element<'a, Messag
     // Down to the button, so the pointer stays on it on the way.
     let reach = container(boxed).padding(Padding::ZERO.bottom(VOLUME_GAP));
     mouse_area(reach)
+        .on_press(Message::Nothing)
         .on_enter(Message::Clip(Clip::VolumeHover(true)))
         .on_exit(Message::Clip(Clip::VolumeHover(false)))
         .on_scroll(|delta| Message::Clip(Clip::Turn(turned(delta))))

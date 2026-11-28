@@ -485,6 +485,64 @@ fn a_video_full_screen_has_save_and_a_menu_of_the_videos_rows() {
 }
 
 #[test]
+fn clicking_a_full_screen_videos_volume_slider_does_not_pause_it() {
+    use crate::{app::Message, playback::Clip};
+    let (mut app, _folder) = preview();
+    a_video_full_screen(&mut app);
+    app.playback.clip_volume = 1;
+    let window = app.shell.frame;
+    let size = crate::viewer::fitted(window, Some((1280, 720)));
+    let room = crate::viewer::room(window);
+    let top = ((room.height - size.height) / 2.0).max(0.0);
+    let foot_y = crate::viewer::BAR + top + size.height + 8.0;
+    let foot_right = (window.width + size.width.max(360.0)) / 2.0;
+    // The mute button sits left of Exit full screen (6 px right padding,
+    // 28 px button, 6 px gap, 28 px mute button); the slider rises 112 px
+    // above it, overlapping the bottom-right of the video.
+    let slider_x = foot_right - 6.0 - 28.0 - 6.0 - 14.0;
+    // Upper half of the track (away from the initial 0.5 value) so the
+    // slider publishes a new volume while overlapping the video.
+    let on_slider = clicked(
+        &app,
+        iced::Point::new(slider_x, foot_y - 74.0),
+        iced::mouse::Button::Left,
+    );
+    assert!(
+        on_slider
+            .iter()
+            .any(|message| matches!(message, Message::Clip(Clip::Volume(_)))),
+        "changed the volume"
+    );
+    assert!(
+        !on_slider
+            .iter()
+            .any(|message| matches!(message, Message::Clip(Clip::Toggle | Clip::Full(false)))),
+        "did not toggle or close the video"
+    );
+    // Its top padding also overlaps the video and leaves playback alone.
+    let on_padding = clicked(
+        &app,
+        iced::Point::new(slider_x, foot_y - 104.0),
+        iced::mouse::Button::Left,
+    );
+    assert!(
+        !on_padding
+            .iter()
+            .any(|message| matches!(message, Message::Clip(Clip::Toggle | Clip::Full(false)))),
+        "padding did not toggle or close the video"
+    );
+    // Clicking the video itself still toggles playback.
+    let middle = iced::Point::new(window.width / 2.0, window.height / 2.0);
+    let on_video = clicked(&app, middle, iced::mouse::Button::Left);
+    assert!(
+        on_video
+            .iter()
+            .any(|message| matches!(message, Message::Clip(Clip::Toggle))),
+        "toggled the video"
+    );
+}
+
+#[test]
 fn the_wheel_on_a_videos_volume_turns_it_five_percent() {
     use yapfast_core::chat::VideoCommand;
     let (mut app, _folder) = preview();
