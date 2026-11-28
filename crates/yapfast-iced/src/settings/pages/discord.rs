@@ -87,7 +87,7 @@ impl<'a> Page<'a> {
                         .boxed(40)
                         .style(move |_| crate::style::rounded(raised, 20)),
                     column![
-                        text("Blocked accounts")
+                        text(crate::i18n::tr!(self.cx.i18n, "Blocked accounts"))
                             .size(16)
                             .font(crate::fonts::SEMIBOLD)
                             .color(theme.text),

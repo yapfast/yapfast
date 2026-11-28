@@ -146,10 +146,14 @@ pub fn dropdown<'a>(ctx: crate::ctx::Ctx<'a>) -> Element<'a, Message> {
     }
     if shown == 0 {
         panel = panel.push(
-            container(text("No matching options.").size(14).color(theme.secondary))
-                .center_x(Length::Fill)
-                .height(ROW)
-                .align_y(Alignment::Center),
+            container(
+                text(crate::i18n::tr!(ctx.i18n, "No matching options."))
+                    .size(14)
+                    .color(theme.secondary),
+            )
+            .center_x(Length::Fill)
+            .height(ROW)
+            .align_y(Alignment::Center),
         );
     }
     panel = panel.push(scroll_view(list).style(scrollbar(theme)));

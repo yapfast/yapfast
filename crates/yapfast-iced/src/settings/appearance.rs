@@ -858,7 +858,7 @@ impl<'a> Page<'a> {
         let actions = row![
             action(
                 theme,
-                "Browse themes",
+                crate::i18n::tr!(self.cx.i18n, "Browse themes"),
                 Kind::Plain,
                 Some(crate::app::settings(SettingsEvent::Open(Section::Themes))),
             )
@@ -917,11 +917,14 @@ impl<'a> Page<'a> {
                 )
             },
         );
-        let mut head = vec![form::title(theme, "Appearance")];
+        let mut head = vec![form::title(
+            theme,
+            crate::i18n::tr!(self.cx.i18n, "Appearance"),
+        )];
         head.extend(self.theme_note());
         head.extend([
             form::group([
-                form::beside(form::heading(theme, "THEME"), actions),
+                form::beside(form::heading(theme, crate::i18n::tr!(self.cx.i18n, "THEME")), actions),
                 tiles,
             ]),
             self.font_section(),
@@ -952,7 +955,7 @@ impl<'a> Page<'a> {
             self.desktop_icons(),
             self.title_bar_switch(),
             column![
-                form::heading(theme, "PROFILES"),
+                form::heading(theme, crate::i18n::tr!(self.cx.i18n, "PROFILES")),
                 profile(
                     "Play profile effects",
                     "The animations some people put over their profile cards.",
@@ -1024,7 +1027,7 @@ impl<'a> Page<'a> {
                     "The accounts people link, such as Steam or GitHub, on the card as on the full profile.",
                 )
                 .view(self.cx.look),
-                form::heading(theme, "MEMBER LIST"),
+                form::heading(theme, crate::i18n::tr!(self.cx.i18n, "MEMBER LIST")),
                 profile(
                     "Show activity cards",
                     "What people in the server are playing, above its member list. Off, only the Activity heading stays, and its eye shows them again.",
@@ -1188,7 +1191,7 @@ impl<'a> Page<'a> {
                     .map(|start| start.name.to_owned())
                     .collect();
                 parts.push(form::group([
-                    form::heading(theme, "START FROM"),
+                    form::heading(theme, crate::i18n::tr!(self.cx.i18n, "START FROM")),
                     form::dropdown(
                         names,
                         Some(editor.start),
@@ -1209,7 +1212,7 @@ impl<'a> Page<'a> {
                 .view(self.cx.look),
             );
             parts.push(form::group([
-                form::heading(theme, "EVERY COLOUR"),
+                form::heading(theme, crate::i18n::tr!(self.cx.i18n, "EVERY COLOUR")),
                 form::note(
                     theme,
                     "Each as #rgb, #rrggbb or #rrggbbaa, or picked from its swatch. The window shows a change as you make it.",

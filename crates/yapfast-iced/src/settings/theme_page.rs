@@ -64,11 +64,11 @@ impl<'a> Page<'a> {
             Tab::Create => self.create_tab(),
             Tab::Marketplace | Tab::AddFromUrl => settings
                 .marketplace
-                .view(self.cx.look, self.cx.themes)
+                .view(self.cx.look, self.cx.themes, self.cx.i18n)
                 .map(marketplace_message),
         };
         let mut parts = vec![
-            form::title(theme, "Themes"),
+            form::title(theme, crate::i18n::tr!(self.cx.i18n, "Themes")),
             form::note(
                 theme,
                 "Themes restyle Yapfast: its colours, fonts, shapes, art and sounds. A theme is data, never code, and you see what one changes before it's installed.",
@@ -215,10 +215,16 @@ impl<'a> Page<'a> {
     fn installed_themes(self) -> Element<'a, Message> {
         let theme = self.cx.look.theme;
         let cards = self.s.marketplace.gallery;
-        let mut header = row![container(form::heading(theme, "INSTALLED")).width(Length::Fill)]
-            .spacing(8)
-            .height(28)
-            .align_y(Alignment::Center);
+        let mut header = row![
+            container(form::heading(
+                theme,
+                crate::i18n::tr!(self.cx.i18n, "INSTALLED")
+            ))
+            .width(Length::Fill)
+        ]
+        .spacing(8)
+        .height(28)
+        .align_y(Alignment::Center);
         if let Some((_, name)) = self.cx.themes.previous() {
             header = header.push(
                 self.ring(
@@ -488,6 +494,7 @@ impl<'a> Page<'a> {
     fn cost(self, installed: &'a Installed) -> Element<'a, Message> {
         theme_marketplace::cost_line(
             self.cx.look,
+            self.cx.i18n,
             &installed.cost,
             &installed.notes,
             self.s.marketplace.cost_details.contains(&installed.id),
@@ -652,7 +659,10 @@ impl<'a> Page<'a> {
             );
         }
         form::group([
-            form::heading(theme, "THEMES THAT COULDN'T BE OPENED"),
+            form::heading(
+                theme,
+                crate::i18n::tr!(self.cx.i18n, "THEMES THAT COULDN'T BE OPENED"),
+            ),
             form::note(
                 theme,
                 "They stay installed, but Yapfast won't use files it can't check.",
@@ -671,10 +681,16 @@ impl<'a> Page<'a> {
             .custom
             .iter()
             .any(|custom| self.cx.themes.chosen_id() == custom.id);
-        let mut header = row![container(form::heading(theme, "YOUR THEMES")).width(Length::Fill)]
-            .spacing(8)
-            .height(28)
-            .align_y(Alignment::Center);
+        let mut header = row![
+            container(form::heading(
+                theme,
+                crate::i18n::tr!(self.cx.i18n, "YOUR THEMES")
+            ))
+            .width(Length::Fill)
+        ]
+        .spacing(8)
+        .height(28)
+        .align_y(Alignment::Center);
         if own_applied {
             header = header.push(
                 action(
@@ -730,8 +746,14 @@ impl<'a> Page<'a> {
         )];
         if !self.cx.themes.custom.is_empty() {
             parts.push(form::group([
-                form::heading(theme, "YOUR THEMES"),
-                form::note(theme, "Click one to show it, or its pencil to edit it."),
+                form::heading(theme, crate::i18n::tr!(self.cx.i18n, "YOUR THEMES")),
+                form::note(
+                    theme,
+                    crate::i18n::tr!(
+                        self.cx.i18n,
+                        "Click one to show it, or its pencil to edit it."
+                    ),
+                ),
                 self.theme_tiles(false),
             ]));
         }
@@ -760,7 +782,7 @@ impl<'a> Page<'a> {
         if let Some(phrase) = self.cx.themes.content_phrase(id) {
             let on = self.cx.layout.theme_content.contains(id);
             parts.push(form::group([
-                form::heading(theme, "PEOPLE'S CONTENT"),
+                form::heading(theme, crate::i18n::tr!(self.cx.i18n, "PEOPLE'S CONTENT")),
                 switch(
                     "Let the theme style people's profiles and media",
                     on,
@@ -776,7 +798,10 @@ impl<'a> Page<'a> {
             && (notifications || interface)
         {
             let prefs = self.cx.themes.sound_prefs(id).unwrap_or_default();
-            let mut sounds = vec![form::heading(theme, "SOUNDS")];
+            let mut sounds = vec![form::heading(
+                theme,
+                crate::i18n::tr!(self.cx.i18n, "SOUNDS"),
+            )];
             if notifications {
                 sounds.push(
                     switch(
@@ -856,7 +881,11 @@ impl<'a> Page<'a> {
     /// THEME OPTIONS: the applied package's switches, choices and sliders.
     pub(super) fn theme_options(self, installed: &'a Installed) -> Option<Element<'a, Message>> {
         let theme = self.cx.look.theme;
-        let mut rows = column![form::heading(theme, "THEME OPTIONS")].spacing(8);
+        let mut rows = column![form::heading(
+            theme,
+            crate::i18n::tr!(self.cx.i18n, "THEME OPTIONS")
+        )]
+        .spacing(8);
         let mut any = false;
         for option in &installed.options {
             if !option.active(&installed.options, &installed.choices) {
@@ -933,14 +962,14 @@ impl<'a> Page<'a> {
         column![
             form::rule(theme),
             form::group([
-                form::heading(theme, "PERFORMANCE"),
+                form::heading(theme, crate::i18n::tr!(self.cx.i18n, "PERFORMANCE")),
                 controls::choices(theme, &["Full", "Balanced", "Light"], performance, |index| {
                     theme_message(Event::Performance(index as i32))
                 }),
                 form::note(theme, said),
             ]),
             column![
-                form::heading(theme, "MOTION"),
+                form::heading(theme, crate::i18n::tr!(self.cx.i18n, "MOTION")),
                 switch(
                     "Reduce motion",
                     self.cx.layout.reduced_motion(),

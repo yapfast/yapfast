@@ -145,10 +145,15 @@ pub(super) fn tag_picker<'a>(
             },
             1.0,
         )),
-        None => face.push(text("Server Tag").size(12).color(ink2).font(iced::Font {
-            style: iced::font::Style::Italic,
-            ..iced::Font::default()
-        })),
+        None => face.push(
+            text(crate::i18n::tr!(ctx.i18n, "Server Tag"))
+                .size(12)
+                .color(ink2)
+                .font(iced::Font {
+                    style: iced::font::Style::Italic,
+                    ..iced::Font::default()
+                }),
+        ),
     };
     face = face.push(ctx.look.glyph(Icon::ChevronDown, 14, ink2));
     let ink = inks.ink;

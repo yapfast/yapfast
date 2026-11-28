@@ -197,7 +197,7 @@ impl<'a> super::View<'a> {
             .padding([6, 0])
             .into(),
             SideRow::Pinned => container(
-                text("PINNED CHANNELS")
+                text(crate::i18n::tr!(self.cx.i18n, "PINNED CHANNELS"))
                     .size(12.0)
                     .font(BOLD)
                     .color(theme.muted),

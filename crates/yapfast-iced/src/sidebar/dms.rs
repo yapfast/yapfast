@@ -198,7 +198,7 @@ impl<'a> super::View<'a> {
         container(
             row![
                 self.cx.look.glyph(Icon::Check, 12, theme.on_accent),
-                text("OFFICIAL")
+                text(crate::i18n::tr!(self.cx.i18n, "OFFICIAL"))
                     .size(10.0)
                     .font(BOLD)
                     .color(theme.on_accent),

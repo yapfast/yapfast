@@ -472,7 +472,7 @@ impl<'a> View<'a> {
             .push(
                 button(
                     container(
-                        text("Manage Accounts")
+                        text(crate::i18n::tr!(self.cx.i18n, "Manage Accounts"))
                             .size(14)
                             .font(BOLD)
                             .color(theme.text)
@@ -637,7 +637,10 @@ impl<'a> View<'a> {
     fn playing_card(self, playing: &'a yapfast_core::chat::Playing) -> Element<'a, Message> {
         let theme = self.cx.look.theme;
         let mut lines = column![
-            text("Playing").size(12).font(BOLD).color(theme.secondary),
+            text(crate::i18n::tr!(self.cx.i18n, "Playing"))
+                .size(12)
+                .font(BOLD)
+                .color(theme.secondary),
             crate::elide::elide(playing.name.as_str())
                 .size(15)
                 .font(crate::fonts::SEMIBOLD)
@@ -805,7 +808,10 @@ impl<'a> View<'a> {
         let mut body = column![
             head,
             row![emoji, field].spacing(8).align_y(Alignment::Center),
-            text("CLEAR AFTER").size(12).font(BOLD).color(theme.muted),
+            text(crate::i18n::tr!(self.cx.i18n, "CLEAR AFTER"))
+                .size(12)
+                .font(BOLD)
+                .color(theme.muted),
             controls::choices(theme, &CLEAR, draft.clear, |index| message(
                 Event::ClearAfter(index)
             )),

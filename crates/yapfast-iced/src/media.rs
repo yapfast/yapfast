@@ -301,15 +301,20 @@ impl<'a> crate::ctx::Ctx<'a> {
         boxed.style(move |_| rounded(raised, radius)).into()
     }
 
-    /// A spoiler's cover over a picture: the picture dimmed, "SPOILER" on a
+    /// A spoiler's cover over a picture: the picture dimmed, crate::i18n::tr!(self.i18n, "SPOILER") on a
     /// pill.
     pub fn spoiler_cover(self, radius: f32) -> Element<'a, Message> {
         container(
-            container(text("SPOILER").size(13).font(BOLD).color(Color::WHITE))
-                .padding([0, 12])
-                .height(28)
-                .align_y(Alignment::Center)
-                .style(|_| rounded(crate::style::SMOKE, 14)),
+            container(
+                text(crate::i18n::tr!(self.i18n, "SPOILER"))
+                    .size(13)
+                    .font(BOLD)
+                    .color(Color::WHITE),
+            )
+            .padding([0, 12])
+            .height(28)
+            .align_y(Alignment::Center)
+            .style(|_| rounded(crate::style::SMOKE, 14)),
         )
         .center(Length::Fill)
         .style(move |_| rounded(COVER_DIM, radius))

@@ -87,7 +87,7 @@ pub(super) fn editor_middle<'a>(
             column![
                 heading(main, "Note (only visible to you)", inks),
                 hover_edit(
-                    text("Click to add a note")
+                    text(crate::i18n::tr!(ctx.i18n, "Click to add a note"))
                         .size(15)
                         .color(inks.ink3)
                         .font(iced::Font {
@@ -205,9 +205,14 @@ pub(super) fn editor_top<'a>(
     }
     if reading == Some(ProfilePicture::Banner) {
         banner = banner.push(
-            container(text("Reading...").size(14).font(BOLD).color(Color::WHITE))
-                .center(Length::Fill)
-                .height(banner_height),
+            container(
+                text(crate::i18n::tr!(ctx.i18n, "Reading..."))
+                    .size(14)
+                    .font(BOLD)
+                    .color(Color::WHITE),
+            )
+            .center(Length::Fill)
+            .height(banner_height),
         );
     }
     let banner: Element<'a, Message> = if banner_editable || banner_locked {
@@ -350,8 +355,13 @@ pub(super) fn editor_avatar<'a>(
             face,
             container(stack![
                 disc(0.6),
-                container(text("Reading...").size(13).font(BOLD).color(Color::WHITE))
-                    .center(AVATAR)
+                container(
+                    text(crate::i18n::tr!(ctx.i18n, "Reading..."))
+                        .size(13)
+                        .font(BOLD)
+                        .color(Color::WHITE)
+                )
+                .center(AVATAR)
             ])
             .padding(6)
         ]
@@ -405,7 +415,11 @@ pub(super) fn status_thought<'a>(
         }
         words = words.push(text(thought.words.as_str()).size(14).color(inks.ink));
     } else {
-        words = words.push(text("Set a custom status").size(14).color(inks.ink2));
+        words = words.push(
+            text(crate::i18n::tr!(ctx.i18n, "Set a custom status"))
+                .size(14)
+                .color(inks.ink2),
+        );
     }
     let face = button(words)
         .padding([9, 13])
@@ -448,7 +462,7 @@ pub(super) fn editor_names<'a>(
         );
     } else {
         let name: Element<'a, Message> = if core.loading() {
-            text("Loading...")
+            text(crate::i18n::tr!(ctx.i18n, "Loading..."))
                 .size(if main { 24 } else { 26 })
                 .font(BOLD)
                 .color(inks.ink)
@@ -575,7 +589,12 @@ pub(super) fn own_actions<'a>(
     .gap(4.0)
     .outside(message(Event::Pop(None)));
     row![
-        action(theme, "Message", Kind::Plain, None),
+        action(
+            theme,
+            crate::i18n::tr!(ctx.i18n, "Message"),
+            Kind::Plain,
+            None
+        ),
         square(Icon::Shop, Message::Link(SHOP.into(), Point::ORIGIN)),
         more,
     ]
@@ -594,7 +613,7 @@ pub(super) fn nitro_offer<'a>(
         row![
             ctx.look.glyph(Icon::Lock, 20, theme.accent),
             column![
-                text("Make unique profiles for each server")
+                text(crate::i18n::tr!(ctx.i18n, "Make unique profiles for each server"))
                     .size(14)
                     .font(BOLD)
                     .color(theme.text),
@@ -686,10 +705,13 @@ pub(super) fn editor_bio<'a>(
         );
         bio = bio.push(
             row![
-                text("You can use markdown and links if you'd like.")
-                    .size(12)
-                    .color(inks.ink3)
-                    .width(Length::Fill),
+                text(crate::i18n::tr!(
+                    ctx.i18n,
+                    "You can use markdown and links if you'd like."
+                ))
+                .size(12)
+                .color(inks.ink3)
+                .width(Length::Fill),
                 count
             ]
             .spacing(8),

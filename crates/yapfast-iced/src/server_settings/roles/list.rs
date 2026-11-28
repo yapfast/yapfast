@@ -183,7 +183,7 @@ impl<'a> View<'a> {
         if lock.is_some() {
             line = line.push(tooltip(
                 self.cx.look.glyph(Icon::Lock, 14, theme.muted),
-                controls::tip(theme, lock_text(lock)),
+                controls::tip(theme, self.cx.i18n.text(lock_text(lock))),
                 tooltip::Position::Top,
             ));
         }

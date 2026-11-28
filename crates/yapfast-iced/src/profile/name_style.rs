@@ -533,13 +533,13 @@ pub(super) fn name_style_view<'a>(
         Space::new().width(Length::Fill),
         action(
             theme,
-            "Surprise Me",
+            crate::i18n::tr!(ctx.i18n, "Surprise Me"),
             Kind::Plain,
             Some(message(Event::Surprise))
         ),
         action(
             theme,
-            "Apply",
+            crate::i18n::tr!(ctx.i18n, "Apply"),
             Kind::Primary,
             window.changed().then(|| message(Event::Apply))
         ),
@@ -616,7 +616,7 @@ fn style_choices<'a>(ctx: crate::ctx::Ctx<'a>, window: &'a Window) -> Element<'a
         )
     });
     column![
-        text("Change Display Name Style")
+        text(crate::i18n::tr!(ctx.i18n, "Change Display Name Style"))
             .size(22)
             .font(BOLD)
             .color(theme.text),
@@ -956,9 +956,12 @@ fn style_previews<'a>(
         ..rounded(sample_fill, 10)
     });
     let note = container(
-        text("Colours and effects don't show in servers, and may look different across Discord.")
-            .size(12)
-            .color(theme.muted),
+        text(crate::i18n::tr!(
+            ctx.i18n,
+            "Colours and effects don't show in servers, and may look different across Discord."
+        ))
+        .size(12)
+        .color(theme.muted),
     )
     .width((width - 56.0 - 92.0).max(0.0));
     let (sunken, wash) = (

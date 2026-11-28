@@ -337,16 +337,22 @@ pub fn frame<'a>(
 
 /// Holds the last frame under a note while the outgoing preview is paused,
 /// in the words of Discord's client.
-pub(super) fn paused_share_preview(content: Element<'_, Message>) -> Element<'_, Message> {
+pub(super) fn paused_share_preview<'a>(
+    content: Element<'a, Message>,
+    i18n: &'a crate::i18n::I18n,
+) -> Element<'a, Message> {
     let note = column![
-        text("Your stream is still running!")
+        text(crate::i18n::tr!(i18n, "Your stream is still running!"))
             .size(14)
             .color(Color::WHITE)
             .align_x(Alignment::Center),
-        text("We’ve paused this preview to save your resources.")
-            .size(13)
-            .color(NOTE)
-            .align_x(Alignment::Center),
+        text(crate::i18n::tr!(
+            i18n,
+            "We’ve paused this preview to save your resources."
+        ))
+        .size(13)
+        .color(NOTE)
+        .align_x(Alignment::Center),
     ]
     .spacing(4)
     .align_x(Alignment::Center);
@@ -588,10 +594,13 @@ fn join_view(app: &App) -> Element<'_, Message> {
             .is_some_and(|room| room.call_encrypted());
     if !encrypted {
         panel = panel.push(
-            text("This channel is unencrypted. Yapfast only joins encrypted voice channels.")
-                .size(15)
-                .color(theme.accent)
-                .align_x(Alignment::Center),
+            text(crate::i18n::tr!(
+                app.i18n,
+                "This channel is unencrypted. Yapfast only joins encrypted voice channels."
+            ))
+            .size(15)
+            .color(theme.accent)
+            .align_x(Alignment::Center),
         );
     }
     let label = if state.voice.active() {
@@ -763,7 +772,7 @@ fn stage_tile(
             let content =
                 framed.unwrap_or_else(|| tile::note(app.look(), Some(Icon::ScreenShare), status));
             let content = if live && !app.shell.focused {
-                paused_share_preview(content)
+                paused_share_preview(content, &app.i18n)
             } else {
                 content
             };

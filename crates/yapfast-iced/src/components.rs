@@ -250,9 +250,12 @@ pub fn app_card<'a>(
             CardRow::Unknown => {
                 let accent = theme.accent;
                 container(
-                    text("Yapfast can't show this part of the message yet.")
-                        .size(14)
-                        .color(theme.secondary),
+                    text(crate::i18n::tr!(
+                        ctx.i18n,
+                        "Yapfast can't show this part of the message yet."
+                    ))
+                    .size(14)
+                    .color(theme.secondary),
                 )
                 .padding(16)
                 .width(Length::Fill)

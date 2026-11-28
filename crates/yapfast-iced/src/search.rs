@@ -872,9 +872,12 @@ pub fn view<'a>(searching: &'a Searching, cx: Ctx<'a>) -> Option<Element<'a, Mes
         list = list.push(
             container(
                 column![
-                    text("Want to filter out search results from bots?")
-                        .size(14)
-                        .color(theme.text),
+                    text(crate::i18n::tr!(
+                        cx.i18n,
+                        "Want to filter out search results from bots?"
+                    ))
+                    .size(14)
+                    .color(theme.text),
                     link(
                         cx,
                         "Try adding authorType: user to your search.",

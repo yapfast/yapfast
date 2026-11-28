@@ -700,7 +700,10 @@ impl<'a> Page<'a> {
         };
         let shown = crate::sheet::backdrop(theme, card, MARGIN, crate::app::settings(Event::Close));
         let mut layers = vec![shown];
-        if let Some(review) = settings.marketplace.review_dialog(self.cx.look) {
+        if let Some(review) = settings
+            .marketplace
+            .review_dialog(self.cx.look, self.cx.i18n)
+        {
             let review = review.map(|event| crate::app::settings(Event::Marketplace(event)));
             let stock = settings.marketplace.protected_theme().unwrap_or(theme);
             let width = (self.cx.look.window.width - 32.0).min(560.0);

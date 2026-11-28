@@ -164,6 +164,58 @@ mod tests {
     }
 
     #[test]
+    fn translated_catalogs_cover_role_and_channel_permissions() {
+        use yapfast_core::{
+            application::{ROLE_PERMISSIONS, channel_groups, channel_permission},
+            chat::ChannelKind,
+        };
+
+        for language in LANGUAGES {
+            let Some(source) = language.source else {
+                continue;
+            };
+            let translations = catalog(source).unwrap();
+            for group in ROLE_PERMISSIONS {
+                let labels = std::iter::once(group.heading).chain(
+                    group.permissions.iter().flat_map(|info| {
+                        [Some(info.title), Some(info.description), info.warning]
+                            .into_iter()
+                            .flatten()
+                    }),
+                );
+                for label in labels {
+                    assert!(
+                        translations.contains_key(label),
+                        "{}: {label}",
+                        language.tag
+                    );
+                }
+            }
+            for kind in [ChannelKind::Text, ChannelKind::Voice, ChannelKind::Category] {
+                for &(heading, bits) in channel_groups(kind) {
+                    assert!(
+                        translations.contains_key(heading),
+                        "{}: {heading}",
+                        language.tag
+                    );
+                    for &bit in bits {
+                        for everyone in [true, false] {
+                            let (title, description) = channel_permission(bit, kind, everyone);
+                            for label in [title, description] {
+                                assert!(
+                                    translations.contains_key(label),
+                                    "{}: {label}",
+                                    language.tag
+                                );
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    #[test]
     fn interface_messages_fall_back_for_missing_empty_and_fuzzy_translations() {
         let source = r#"msgid ""
 msgstr "Content-Type: text/plain; charset=UTF-8\n"

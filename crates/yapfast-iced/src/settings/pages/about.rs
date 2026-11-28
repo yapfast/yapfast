@@ -66,7 +66,10 @@ impl<'a> Page<'a> {
                 ),
             ),
         );
-        let mut parts = vec![form::title(theme, "About"), card];
+        let mut parts = vec![
+            form::title(theme, crate::i18n::tr!(self.cx.i18n, "About")),
+            card,
+        ];
         parts.extend(self.updates_part());
         parts.push(
             switch(
@@ -95,7 +98,10 @@ impl<'a> Page<'a> {
                 .description("Not available yet.")
                 .view(self.cx.look),
         );
-        parts.push(form::heading(theme, "LINKS"));
+        parts.push(form::heading(
+            theme,
+            crate::i18n::tr!(self.cx.i18n, "LINKS"),
+        ));
         let ink = crate::theme::rgb(theme.text);
         let link = |label, icon, page| -> Element<'a, Message> {
             action(

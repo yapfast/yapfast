@@ -177,7 +177,7 @@ impl<'a> View<'a> {
         let mut body = Vec::new();
         if let Some(code) = &ask.code {
             body.push(
-                text("Check your email: we sent you a verification code. Enter it here to verify you’re really you.")
+                text(crate::i18n::tr!(self.cx.i18n, "Check your email: we sent you a verification code. Enter it here to verify you’re really you."))
                     .size(15)
                     .color(theme.secondary)
                     .into(),
@@ -202,13 +202,19 @@ impl<'a> View<'a> {
                     .color(theme.live)
                     .into()
             } else {
-                button(text("Didn’t receive a code or it expired? Resend it.").size(13))
-                    .padding(0)
-                    .on_press_maybe(
-                        (!ask.sending && !ask.resending).then(|| answer(OwnershipInput::Resend)),
-                    )
-                    .style(ink_style(theme.link, theme.accent_hover))
-                    .into()
+                button(
+                    text(crate::i18n::tr!(
+                        self.cx.i18n,
+                        "Didn’t receive a code or it expired? Resend it."
+                    ))
+                    .size(13),
+                )
+                .padding(0)
+                .on_press_maybe(
+                    (!ask.sending && !ask.resending).then(|| answer(OwnershipInput::Resend)),
+                )
+                .style(ink_style(theme.link, theme.accent_hover))
+                .into()
             };
             body.push(part.push(resend).into());
         } else {
@@ -247,7 +253,7 @@ impl<'a> View<'a> {
                 let ground = faded(theme.danger, 0.12);
                 body.push(
                     container(
-                        text("Partnered or Verified servers must reach out to the Community team for ownership transfer requests. However, our Partner and Verified Server Programs are currently paused and not able to handle any requests.")
+                        text(crate::i18n::tr!(self.cx.i18n, "Partnered or Verified servers must reach out to the Community team for ownership transfer requests. However, our Partner and Verified Server Programs are currently paused and not able to handle any requests."))
                             .size(13)
                             .color(theme.text),
                     )

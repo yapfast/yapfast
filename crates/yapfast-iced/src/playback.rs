@@ -691,11 +691,15 @@ pub fn clip_cell<'a>(
         } else if video.loading {
             layers = layers.push(
                 container(
-                    container(text("Loading...").size(13).color(Color::WHITE))
-                        .padding([0, 10])
-                        .height(28)
-                        .align_y(Alignment::Center)
-                        .style(|_| rounded(crate::style::SMOKE, 14)),
+                    container(
+                        text(crate::i18n::tr!(ctx.i18n, "Loading..."))
+                            .size(13)
+                            .color(Color::WHITE),
+                    )
+                    .padding([0, 10])
+                    .height(28)
+                    .align_y(Alignment::Center)
+                    .style(|_| rounded(crate::style::SMOKE, 14)),
                 )
                 .center(Length::Fill),
             );

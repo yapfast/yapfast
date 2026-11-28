@@ -487,24 +487,39 @@ impl Marketplace {
     /// Draws Marketplace or Add from URL. The Settings host owns the tabs,
     /// the error under them and the review, which it draws over the page
     /// ([`review_dialog`]).
-    pub fn view<'a>(&'a self, look: Look<'a>, themes: &'a Themes) -> Element<'a, Event> {
+    pub fn view<'a>(
+        &'a self,
+        look: Look<'a>,
+        themes: &'a Themes,
+        i18n: &'a crate::i18n::I18n,
+    ) -> Element<'a, Event> {
         match self.tab {
-            Tab::Marketplace => self.marketplace_view(look, themes),
-            Tab::AddFromUrl => self.url_view(look),
+            Tab::Marketplace => self.marketplace_view(look, themes, i18n),
+            Tab::AddFromUrl => self.url_view(look, i18n),
             Tab::Installed | Tab::Create => Space::new().height(0).into(),
         }
     }
 
-    fn marketplace_view<'a>(&'a self, look: Look<'a>, themes: &'a Themes) -> Element<'a, Event> {
+    fn marketplace_view<'a>(
+        &'a self,
+        look: Look<'a>,
+        themes: &'a Themes,
+        i18n: &'a crate::i18n::I18n,
+    ) -> Element<'a, Event> {
         let theme = look.theme;
-        let search = form::field(theme, SEARCH, "Search the marketplace", &self.query)
-            .on_input(Event::Search)
-            .padding(iced::Padding {
-                top: 9.0,
-                right: 36.0,
-                bottom: 9.0,
-                left: 12.0,
-            });
+        let search = form::field(
+            theme,
+            SEARCH,
+            crate::i18n::tr!(i18n, "Search the marketplace"),
+            &self.query,
+        )
+        .on_input(Event::Search)
+        .padding(iced::Padding {
+            top: 9.0,
+            right: 36.0,
+            bottom: 9.0,
+            left: 12.0,
+        });
         let search: Element<'a, Event> = iced::widget::stack![
             search,
             container(look.glyph(Icon::Search, 18, theme.muted))
@@ -531,7 +546,7 @@ impl Marketplace {
                 look,
                 Icon::TriangleAlert,
                 theme.loud,
-                "The marketplace can't be shown right now",
+                crate::i18n::tr!(i18n, "The marketplace can't be shown right now"),
                 Some(error.clone()),
                 vec![
                     self.ring(
@@ -539,7 +554,7 @@ impl Marketplace {
                         Spot::Retry,
                         controls::action(
                             theme,
-                            "Try again",
+                            crate::i18n::tr!(i18n, "Try again"),
                             Kind::Primary,
                             Some(Event::RetryCatalog),
                         )
@@ -551,7 +566,7 @@ impl Marketplace {
                     ),
                     controls::action(
                         theme,
-                        "Add from URL",
+                        crate::i18n::tr!(i18n, "Add from URL"),
                         Kind::Plain,
                         Some(Event::Tab(Tab::AddFromUrl)),
                     )
@@ -565,12 +580,15 @@ impl Marketplace {
                     look,
                     Icon::Check,
                     theme.live,
-                    "You have them all",
-                    Some("Every theme the marketplace lists is installed.".into()),
+                    crate::i18n::tr!(i18n, "You have them all"),
+                    Some(
+                        crate::i18n::tr!(i18n, "Every theme the marketplace lists is installed.")
+                            .into(),
+                    ),
                     vec![
                         controls::action(
                             theme,
-                            "See your themes",
+                            crate::i18n::tr!(i18n, "See your themes"),
                             Kind::Plain,
                             Some(Event::Tab(Tab::Installed)),
                         )
@@ -583,11 +601,11 @@ impl Marketplace {
                     Icon::Search,
                     theme.muted,
                     format!("No themes match \u{201c}{}\u{201d}", self.query.trim()),
-                    Some("Try another word, or a theme's author.".into()),
+                    Some(crate::i18n::tr!(i18n, "Try another word, or a theme's author.").into()),
                     vec![
                         controls::action(
                             theme,
-                            "Clear the search",
+                            crate::i18n::tr!(i18n, "Clear the search"),
                             Kind::Plain,
                             Some(Event::Search(String::new())),
                         )
@@ -603,7 +621,7 @@ impl Marketplace {
                         let mut line = row![].spacing(12);
                         for listing in pair {
                             line = line.push(
-                                container(self.listing_view(look, listing, picture))
+                                container(self.listing_view(look, listing, picture, i18n))
                                     .width(Length::FillPortion(1)),
                             );
                         }
@@ -632,6 +650,7 @@ impl Marketplace {
         look: Look<'a>,
         listing: &'a Listing,
         picture: f32,
+        i18n: &'a crate::i18n::I18n,
     ) -> Element<'a, Event> {
         let theme = look.theme;
         let preview: Element<'a, Event> = match self.previews.get(&listing.preview) {
@@ -692,7 +711,11 @@ impl Marketplace {
         body = body.push(
             controls::action(
                 theme,
-                if finding { "Fetching…" } else { "Install" },
+                if finding {
+                    crate::i18n::tr!(i18n, "Fetching…")
+                } else {
+                    crate::i18n::tr!(i18n, "Install")
+                },
                 Kind::Primary,
                 (self.fetching.is_none()).then(|| Event::FetchListed(listing.id.clone())),
             )
@@ -730,7 +753,7 @@ impl Marketplace {
         }
     }
 
-    fn url_view<'a>(&'a self, look: Look<'a>) -> Element<'a, Event> {
+    fn url_view<'a>(&'a self, look: Look<'a>, i18n: &'a crate::i18n::I18n) -> Element<'a, Event> {
         let theme = look.theme;
         let finding = self.fetching.is_some();
         let mut field = form::field(theme, URL, "https://github.com/ada/vaporwave", &self.url)
@@ -741,7 +764,7 @@ impl Marketplace {
         }
         column![
             form::group([
-                form::heading(theme, "GITHUB REPOSITORY"),
+                form::heading(theme, crate::i18n::tr!(i18n, "GITHUB REPOSITORY")),
                 row![
                     field,
                     self.ring(
@@ -749,7 +772,7 @@ impl Marketplace {
                         Spot::Find,
                         controls::action(
                             theme,
-                            if finding { "Finding…" } else { "Find theme" },
+                            if finding { crate::i18n::tr!(i18n, "Finding…") } else { crate::i18n::tr!(i18n, "Find theme") },
                             Kind::Primary,
                             (!finding && !self.url.trim().is_empty()).then_some(Event::FindUrl),
                         ),
@@ -771,30 +794,30 @@ impl Marketplace {
                     .into(),
                     None => form::note(
                         theme,
-                        "The address of a theme's public GitHub repository. A branch, tag or folder in the address works too.",
+                        crate::i18n::tr!(i18n, "The address of a theme's public GitHub repository. A branch, tag or folder in the address works too."),
                     ),
                 },
             ]),
             form::rule(theme),
             column![
-                form::heading(theme, "WHAT HAPPENS NEXT"),
+                form::heading(theme, crate::i18n::tr!(i18n, "WHAT HAPPENS NEXT")),
                 kit::step(
                     look,
                     Icon::Download,
-                    "Yapfast fetches the theme",
-                    "Straight from its repository, at the commit it's at now.",
+                    crate::i18n::tr!(i18n, "Yapfast fetches the theme"),
+                    crate::i18n::tr!(i18n, "Straight from its repository, at the commit it's at now."),
                 ),
                 kit::step(
                     look,
                     Icon::Shield,
-                    "Every file is checked",
-                    "A theme is data, never code: colours, fonts, pictures and sounds, each within limits.",
+                    crate::i18n::tr!(i18n, "Every file is checked"),
+                    crate::i18n::tr!(i18n, "A theme is data, never code: colours, fonts, pictures and sounds, each within limits."),
                 ),
                 kit::step(
                     look,
                     Icon::Eye,
-                    "You review it first",
-                    "You see what it changes and what it costs to run, and can try it for 30 seconds, before anything is installed.",
+                    crate::i18n::tr!(i18n, "You review it first"),
+                    crate::i18n::tr!(i18n, "You see what it changes and what it costs to run, and can try it for 30 seconds, before anything is installed."),
                 ),
             ]
             .spacing(16),
@@ -808,7 +831,11 @@ impl Marketplace {
     /// kept, as a dialog over Settings in the stock look: its name, tags,
     /// a card of facts, the switches, and Cancel, Try 30 s and Install in a
     /// footer that stays in reach while the rest scrolls.
-    pub fn review_dialog<'a>(&'a self, look: Look<'a>) -> Option<Element<'a, Event>> {
+    pub fn review_dialog<'a>(
+        &'a self,
+        look: Look<'a>,
+        i18n: &'a crate::i18n::I18n,
+    ) -> Option<Element<'a, Event>> {
         let review = self.review.as_ref()?;
         let look = Look {
             theme: &review.stock,
@@ -876,9 +903,9 @@ impl Marketplace {
                 kit::tag(
                     look,
                     if listed {
-                        "In the marketplace"
+                        crate::i18n::tr!(i18n, "In the marketplace")
                     } else {
-                        "Unreviewed source"
+                        crate::i18n::tr!(i18n, "Unreviewed source")
                     },
                     if listed { theme.live } else { theme.loud },
                     false,
@@ -890,7 +917,7 @@ impl Marketplace {
                 ),
                 kit::tag(
                     look,
-                    "No code · no permissions",
+                    crate::i18n::tr!(i18n, "No code · no permissions"),
                     theme.live,
                     false,
                     Some(Icon::Shield)
@@ -919,16 +946,23 @@ impl Marketplace {
                     review.fetched.rev.chars().take(7).collect::<String>()
                 ))
             ),
-            fact("Works in", value(review.modes().to_owned())),
+            fact(
+                crate::i18n::tr!(i18n, "Works in"),
+                value(review.modes().to_owned())
+            ),
         ]
         .spacing(10);
         if let Some(based_on) = &package.based_on {
-            facts = facts.push(fact("Remixes", value(based_on.clone())));
+            facts = facts.push(fact(
+                crate::i18n::tr!(i18n, "Remixes"),
+                value(based_on.clone()),
+            ));
         }
         facts = facts.push(fact(
-            "To run",
+            crate::i18n::tr!(i18n, "To run"),
             cost_line(
                 look,
+                i18n,
                 &review.fetched.report.cost.text(),
                 &package.notes,
                 self.cost_details.contains("review"),
@@ -944,16 +978,16 @@ impl Marketplace {
                 .into(),
         );
         if review.notification_sounds || review.interface_sounds {
-            let mut sounds = vec![form::heading(theme, "SOUNDS")];
+            let mut sounds = vec![form::heading(theme, crate::i18n::tr!(i18n, "SOUNDS"))];
             if review.notification_sounds {
                 sounds.push(
                     form::switch(
-                        "Notification sounds",
+                        crate::i18n::tr!(i18n, "Notification sounds"),
                         review.notify_on,
                         Some(Event::ReviewNotify(!review.notify_on)),
                     )
                     .description(
-                        "Its sounds for messages, mentions, calls and the rest, in place of Yapfast's.",
+                        crate::i18n::tr!(i18n, "Its sounds for messages, mentions, calls and the rest, in place of Yapfast's."),
                     )
                     .view(look),
                 );
@@ -961,12 +995,12 @@ impl Marketplace {
             if review.interface_sounds {
                 sounds.push(
                     form::switch(
-                        "Interface sounds — clicks, hovers, menus, send",
+                        crate::i18n::tr!(i18n, "Interface sounds — clicks, hovers, menus, send"),
                         review.interface_on,
                         Some(Event::ReviewInterface(!review.interface_on)),
                     )
                     .description(
-                        "Only while Yapfast is in front. You can change both later in Settings → Themes.",
+                        crate::i18n::tr!(i18n, "Only while Yapfast is in front. You can change both later in Settings → Themes."),
                     )
                     .view(look),
                 );
@@ -975,9 +1009,9 @@ impl Marketplace {
         }
         if let Some(content) = &review.content {
             parts.push(form::group([
-                form::heading(theme, "PEOPLE'S CONTENT"),
+                form::heading(theme, crate::i18n::tr!(i18n, "PEOPLE'S CONTENT")),
                 form::switch(
-                    "Let the theme style people's profiles and media",
+                    crate::i18n::tr!(i18n, "Let the theme style people's profiles and media"),
                     review.content_on,
                     Some(Event::ReviewContent(!review.content_on)),
                 )
@@ -998,10 +1032,25 @@ impl Marketplace {
                 .style(move |_| crate::style::fill(line)),
             container(
                 row![
-                    controls::action(theme, "Cancel", Kind::Ghost, Some(Event::CancelReview)),
+                    controls::action(
+                        theme,
+                        crate::i18n::tr!(i18n, "Cancel"),
+                        Kind::Ghost,
+                        Some(Event::CancelReview)
+                    ),
                     Space::new().width(Length::Fill),
-                    controls::action(theme, "Try 30 s", Kind::Plain, Some(Event::TryReview)),
-                    controls::action(theme, "Install", Kind::Primary, Some(Event::Install)),
+                    controls::action(
+                        theme,
+                        crate::i18n::tr!(i18n, "Try 30 s"),
+                        Kind::Plain,
+                        Some(Event::TryReview)
+                    ),
+                    controls::action(
+                        theme,
+                        crate::i18n::tr!(i18n, "Install"),
+                        Kind::Primary,
+                        Some(Event::Install)
+                    ),
                 ]
                 .spacing(8)
                 .align_y(Alignment::Center),
@@ -1084,6 +1133,7 @@ pub(crate) fn revert_trial(themes: &mut Themes, layout: &mut Layout) -> bool {
 /// leaves out of the theme.
 pub(super) fn cost_line<'a, M: Clone + 'a>(
     look: Look<'_>,
+    i18n: &'a crate::i18n::I18n,
     cost: &str,
     notes: &[String],
     expanded: bool,
@@ -1106,7 +1156,7 @@ pub(super) fn cost_line<'a, M: Clone + 'a>(
         ),
         None => (
             theme.muted,
-            "Not everything in it is used".to_owned(),
+            crate::i18n::tr!(i18n, "Not everything in it is used").to_owned(),
             [].as_slice(),
         ),
     };
@@ -1117,7 +1167,7 @@ pub(super) fn cost_line<'a, M: Clone + 'a>(
     let (muted, ink) = (theme.muted, theme.text);
     let details = button(
         row![
-            text("Details").size(13),
+            text(crate::i18n::tr!(i18n, "Details")).size(13),
             look.glyph(
                 if expanded {
                     Icon::ChevronUp

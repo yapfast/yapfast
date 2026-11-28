@@ -384,7 +384,7 @@ impl<'a> View<'a> {
             page = page.push(view);
         }
         if let Some(problem) = core.problem() {
-            page = page.push(form::error(theme, problem));
+            page = page.push(form::error(theme, self.cx.i18n.text(&problem).to_owned()));
         }
         if let Some(error) = &core.error {
             page = page.push(form::error(theme, error.as_str()));

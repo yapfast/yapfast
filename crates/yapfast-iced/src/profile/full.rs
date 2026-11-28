@@ -403,7 +403,7 @@ fn activity_tab<'a>(
     }
     if !profile.recent.is_empty() {
         list = list.push(
-            text("Recent activity")
+            text(crate::i18n::tr!(ctx.i18n, "Recent activity"))
                 .size(12)
                 .font(MEDIUM)
                 .color(inks.ink2),
@@ -524,9 +524,12 @@ fn board_cards<'a>(
         }
         if !widget.lists_games {
             card = card.push(
-                text("This one only shows in Discord for now.")
-                    .size(12)
-                    .color(inks.ink3),
+                text(crate::i18n::tr!(
+                    ctx.i18n,
+                    "This one only shows in Discord for now."
+                ))
+                .size(12)
+                .color(inks.ink3),
             );
         }
         list = list.push(
@@ -627,9 +630,12 @@ pub(super) fn editor_tab_page<'a>(
     let profile = look.profile();
     let heading = |words: String| text(words).size(13).font(SEMIBOLD).color(inks.ink2);
     let soon = || {
-        text("Adding more from Yapfast is coming soon.")
-            .size(12)
-            .color(inks.ink3)
+        text(crate::i18n::tr!(
+            ctx.i18n,
+            "Adding more from Yapfast is coming soon."
+        ))
+        .size(12)
+        .color(inks.ink3)
     };
     let page = match tab {
         Tab::Activity => {

@@ -400,7 +400,7 @@ impl<'a> View<'a> {
                 crate::i18n::tr!(self.cx.i18n, "They'll land in {place}.")
                     .replace("{place}", &place),
             ),
-            form::heading(theme, "INVITE LINK"),
+            form::heading(theme, crate::i18n::tr!(self.cx.i18n, "INVITE LINK")),
             link_box.into(),
         ];
         if invite.link.is_some() {
@@ -417,11 +417,11 @@ impl<'a> View<'a> {
             body.push(form::note_in(error.as_str(), theme.danger));
         }
         body.extend([
-            form::heading(theme, "EXPIRE AFTER"),
+            form::heading(theme, crate::i18n::tr!(self.cx.i18n, "EXPIRE AFTER")),
             controls::choices(theme, &AGES, choice.age, |index| {
                 message(Event::InviteAge(index))
             }),
-            form::heading(theme, "MAX NUMBER OF USES"),
+            form::heading(theme, crate::i18n::tr!(self.cx.i18n, "MAX NUMBER OF USES")),
             controls::choices(theme, &USES, choice.uses, |index| {
                 message(Event::InviteUses(index))
             }),
@@ -478,7 +478,7 @@ impl<'a> View<'a> {
                         "Paste an invite link or code to join a server you were invited to."
                     ),
                 ),
-                form::heading(theme, "INVITE LINK"),
+                form::heading(theme, crate::i18n::tr!(self.cx.i18n, "INVITE LINK")),
                 form::field(theme, JOIN_FIELD, "https://discord.gg/yapfast", typed)
                     .padding([8.0, 10.0])
                     .on_input(|link| message(Event::JoinLink(link)))

@@ -1143,13 +1143,16 @@ pub fn leave_question<'a>(
     let (ground, edge) = (theme.sidebar, theme.edge);
     let card = container(
         column![
-            text("Are you sure you want to go?")
+            text(crate::i18n::tr!(ctx.i18n, "Are you sure you want to go?"))
                 .size(17)
                 .font(BOLD)
                 .color(theme.text),
-            text("Any changes you made will be lost if you exit now.")
-                .size(14)
-                .color(theme.secondary),
+            text(crate::i18n::tr!(
+                ctx.i18n,
+                "Any changes you made will be lost if you exit now."
+            ))
+            .size(14)
+            .color(theme.secondary),
             container(
                 row![
                     controls::action(theme, "Back to editing", Kind::Ghost, Some(stay)),

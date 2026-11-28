@@ -39,7 +39,10 @@ impl<'a> Page<'a> {
         let theme = self.cx.look.theme;
         let prefs = &self.cx.layout.prefs;
         let shown = crate::updates::shown(self.cx.layout).unwrap_or_default();
-        let mut parts: Vec<Element<'a, Message>> = vec![form::heading(theme, "UPDATES")];
+        let mut parts: Vec<Element<'a, Message>> = vec![form::heading(
+            theme,
+            crate::i18n::tr!(self.cx.i18n, "UPDATES"),
+        )];
         if !shown.manager.is_empty() {
             parts.push(form::note(
                 theme,

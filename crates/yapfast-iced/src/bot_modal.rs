@@ -211,7 +211,12 @@ impl<'a> View<'a> {
         body = body.push(
             row![
                 Space::new().width(Length::Fill),
-                controls::action(theme, "Cancel", Kind::Ghost, close.clone()),
+                controls::action(
+                    theme,
+                    crate::i18n::tr!(self.cx.i18n, "Cancel"),
+                    Kind::Ghost,
+                    close.clone()
+                ),
                 controls::action(
                     theme,
                     label,
@@ -273,10 +278,13 @@ impl<'a> View<'a> {
                 ),
                 None => Space::new().into(),
             },
-            UNSUPPORTED => text("Yapfast can't fill this part yet.")
-                .size(14)
-                .color(theme.secondary)
-                .into(),
+            UNSUPPORTED => text(crate::i18n::tr!(
+                self.cx.i18n,
+                "Yapfast can't fill this part yet."
+            ))
+            .size(14)
+            .color(theme.secondary)
+            .into(),
             3 | 5..=8 => {
                 let summary: String = field
                     .values
@@ -451,7 +459,10 @@ impl<'a> View<'a> {
             let (ground, edge, accent) = (theme.sunken, theme.edge, theme.accent);
             let face = row![
                 self.cx.look.glyph(Icon::CirclePlus, 20, theme.secondary),
-                text("Choose files").size(14).font(MEDIUM).color(theme.text),
+                text(crate::i18n::tr!(self.cx.i18n, "Choose files"))
+                    .size(14)
+                    .font(MEDIUM)
+                    .color(theme.text),
                 text(format!("Up to {}", field.max_values))
                     .size(13)
                     .color(theme.secondary),

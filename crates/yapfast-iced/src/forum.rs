@@ -525,7 +525,7 @@ pub fn view<'a>(ctx: crate::ctx::Ctx<'a>) -> Option<Element<'a, Message>> {
         top = top.push(
             controls::action(
                 theme,
-                "New Post",
+                crate::i18n::tr!(ctx.i18n, "New Post"),
                 Kind::Primary,
                 Some(Message::Forum(Event::NewPost)),
             )
@@ -576,9 +576,13 @@ pub fn view<'a>(ctx: crate::ctx::Ctx<'a>) -> Option<Element<'a, Message>> {
         }
         if forum.loading() {
             list = list.push(
-                container(text("Loading...").size(13).color(theme.muted))
-                    .padding(8)
-                    .center_x(Length::Fill),
+                container(
+                    text(crate::i18n::tr!(ctx.i18n, "Loading..."))
+                        .size(13)
+                        .color(theme.muted),
+                )
+                .padding(8)
+                .center_x(Length::Fill),
             );
         }
         page = page.push(
@@ -660,11 +664,16 @@ fn post_card<'a>(ctx: crate::ctx::Ctx<'a>, card: &'a Card) -> Element<'a, Messag
     if card.new {
         let accent = theme.accent;
         title = title.push(
-            container(text("NEW").size(10).font(BOLD).color(theme.on_accent))
-                .padding([0, 5])
-                .height(16)
-                .align_y(Alignment::Center)
-                .style(move |_| rounded(accent, 8)),
+            container(
+                text(crate::i18n::tr!(ctx.i18n, "NEW"))
+                    .size(10)
+                    .font(BOLD)
+                    .color(theme.on_accent),
+            )
+            .padding([0, 5])
+            .height(16)
+            .align_y(Alignment::Center)
+            .style(move |_| rounded(accent, 8)),
         );
     }
     words = words.push(container(title).width(Length::Fill));
@@ -726,7 +735,7 @@ fn post_card<'a>(ctx: crate::ctx::Ctx<'a>, card: &'a Card) -> Element<'a, Messag
                 .into(),
             None => {
                 let words: Element<'a, Message> = if *spoiler {
-                    text("SPOILER")
+                    text(crate::i18n::tr!(ctx.i18n, "SPOILER"))
                         .size(10)
                         .font(BOLD)
                         .color(theme.muted)
@@ -773,7 +782,13 @@ fn new_post_view<'a>(ctx: crate::ctx::Ctx<'a>) -> Element<'a, Message> {
         ctx,
         row![
             ctx.look.glyph(Icon::Thread, 18, theme.muted),
-            container(text("New Post").size(15).font(BOLD).color(theme.text)).width(Length::Fill),
+            container(
+                text(crate::i18n::tr!(ctx.i18n, "New Post"))
+                    .size(15)
+                    .font(BOLD)
+                    .color(theme.text)
+            )
+            .width(Length::Fill),
             ctx.look
                 .icon_button(Icon::X, "Close", Message::Forum(Event::Close))
                 .below(),
@@ -803,7 +818,7 @@ fn new_post_view<'a>(ctx: crate::ctx::Ctx<'a>) -> Element<'a, Message> {
         }
         let add = controls::action(
             theme,
-            "Add tags",
+            crate::i18n::tr!(ctx.i18n, "Add tags"),
             Kind::Ghost,
             (!posting && more).then_some(Message::Forum(Event::TagsMenu(true))),
         )
@@ -885,7 +900,7 @@ fn guidelines_view<'a>(ctx: crate::ctx::Ctx<'a>, guidelines: &'a Body) -> Elemen
     let mut guide = column![
         row![
             container(
-                text("Post Guidelines")
+                text(crate::i18n::tr!(ctx.i18n, "Post Guidelines"))
                     .size(14)
                     .font(BOLD)
                     .color(theme.text)
@@ -958,7 +973,7 @@ fn tags_menu<'a>(
     let theme = ctx.look.theme;
     let mut list = column![
         container(
-            text("Select up to 5 tags")
+            text(crate::i18n::tr!(ctx.i18n, "Select up to 5 tags"))
                 .size(12)
                 .font(BOLD)
                 .color(theme.muted)

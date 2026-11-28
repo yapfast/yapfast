@@ -133,7 +133,7 @@ impl<'a> Page<'a> {
         let entries = custom_font::entries();
         let note = self.s.font_note.clone().unwrap_or_else(custom_font::note);
         let mut parts: Vec<Element<'a, Message>> = vec![
-            form::heading(theme, "FONT"),
+            form::heading(theme, crate::i18n::tr!(self.cx.i18n, "FONT")),
             form::note(
                 theme,
                 "Draw all of Yapfast in your own font. Choose its TTF, OTF, TTC or WOFF files, every weight and italic you have; WOFF2 isn't supported. Code and emoji keep their fonts.",

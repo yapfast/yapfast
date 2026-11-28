@@ -650,11 +650,11 @@ impl<'a> View<'a> {
         };
         let tip = container(
             column![
-                text("Protip:")
+                text(crate::i18n::tr!(self.cx.i18n, "Protip:"))
                     .size(14)
                     .font(BOLD)
                     .color(crate::style::hex(0x5eb479)),
-                text("Users with the \"Pin Messages\" permission can pin a message from its context menu.")
+                text(crate::i18n::tr!(self.cx.i18n, "Users with the \"Pin Messages\" permission can pin a message from its context menu."))
                     .size(14)
                     .color(theme.text)
                     .center(),
@@ -772,9 +772,14 @@ impl<'a> View<'a> {
         let searchable = app.may(&list.room, Permission::ReadHistory);
         let (public, private) = app.thread_starts(&list.room);
         let can_create = public || private;
-        let mut heading = row![text("Threads").size(16).font(BOLD).color(theme.text)]
-            .spacing(10)
-            .align_y(Alignment::Center);
+        let mut heading = row![
+            text(crate::i18n::tr!(self.cx.i18n, "Threads"))
+                .size(16)
+                .font(BOLD)
+                .color(theme.text)
+        ]
+        .spacing(10)
+        .align_y(Alignment::Center);
         if searchable {
             heading = heading
                 .push(bar(theme.line, 1, 24))
@@ -791,7 +796,7 @@ impl<'a> View<'a> {
         let create = can_create.then(|| {
             controls::action(
                 theme,
-                "Create",
+                crate::i18n::tr!(self.cx.i18n, "Create"),
                 Kind::Primary,
                 Some(Message::Popover(Event::CreateThread)),
             )
@@ -813,14 +818,17 @@ impl<'a> View<'a> {
         } else if sections_empty {
             let mut empty = column![
                 self.cx.look.glyph(Icon::Thread, 48, theme.faint),
-                text("There are no threads.")
+                text(crate::i18n::tr!(self.cx.i18n, "There are no threads."))
                     .size(17)
                     .font(BOLD)
                     .color(theme.text),
-                text("Stay focused on a conversation with a thread - a temporary text channel.")
-                    .size(14)
-                    .color(theme.muted)
-                    .center(),
+                text(crate::i18n::tr!(
+                    self.cx.i18n,
+                    "Stay focused on a conversation with a thread - a temporary text channel."
+                ))
+                .size(14)
+                .color(theme.muted)
+                .center(),
             ]
             .spacing(8)
             .align_x(Alignment::Center);
@@ -828,7 +836,7 @@ impl<'a> View<'a> {
                 empty = empty.push(
                     container(controls::action(
                         theme,
-                        "Create Thread",
+                        crate::i18n::tr!(self.cx.i18n, "Create Thread"),
                         Kind::Primary,
                         Some(Message::Popover(Event::CreateThread)),
                     ))
@@ -859,9 +867,13 @@ impl<'a> View<'a> {
             }
             if list.loading {
                 rows = rows.push(
-                    container(text("Loading...").size(13).color(theme.muted))
-                        .padding(8)
-                        .center_x(Length::Fill),
+                    container(
+                        text(crate::i18n::tr!(self.cx.i18n, "Loading..."))
+                            .size(13)
+                            .color(theme.muted),
+                    )
+                    .padding(8)
+                    .center_x(Length::Fill),
                 );
             }
             scroll_view(rows)

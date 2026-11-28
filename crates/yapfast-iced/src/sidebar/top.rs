@@ -155,7 +155,7 @@ impl<'a> super::View<'a> {
     }
 
     /// Discord's boost goal under the server's name: a pill whose pink
-    /// fill is the share of the goal the boosts reach, "Boost Goal" and
+    /// fill is the share of the goal the boosts reach, crate::i18n::tr!(self.cx.i18n, "Boost Goal") and
     /// how many of the goal's boosts, with a line under the row.
     pub(super) fn boost_goal(self, boosts: u32) -> Element<'a, Message> {
         let theme = self.cx.look.theme;
@@ -203,7 +203,7 @@ impl<'a> super::View<'a> {
             .width(Length::Fill)
             .height(Length::Fill);
         let words = row![
-            text("Boost Goal")
+            text(crate::i18n::tr!(self.cx.i18n, "Boost Goal"))
                 .size(14.0)
                 .font(SEMIBOLD)
                 .color(theme.text)

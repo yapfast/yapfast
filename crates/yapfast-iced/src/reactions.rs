@@ -213,10 +213,14 @@ impl<'a> View<'a> {
         }
         if window.loading || state.more_reactors() {
             people = people.push(
-                container(text("Loading...").size(14).color(theme.secondary))
-                    .center_x(Length::Fill)
-                    .height(ROW)
-                    .align_y(Alignment::Center),
+                container(
+                    text(crate::i18n::tr!(self.cx.i18n, "Loading..."))
+                        .size(14)
+                        .color(theme.secondary),
+                )
+                .center_x(Length::Fill)
+                .height(ROW)
+                .align_y(Alignment::Center),
             );
         }
         if let Some(error) = &window.error {

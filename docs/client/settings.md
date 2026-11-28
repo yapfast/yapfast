@@ -122,7 +122,7 @@ recording. Each change is kept at once in
   language tag in `layout.json`. Translated text updates immediately,
   including Settings navigation, labels and hints in the conversation
   sidebar and header, the voice dock, message history controls, the
-  friend requests screen, context menus and server settings navigation.
+  friend requests screen, context menus, and role and channel permissions.
   Settings search
   matches translated section names. Text outside the catalogs uses its
   English source string.

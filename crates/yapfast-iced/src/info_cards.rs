@@ -597,7 +597,7 @@ impl<'a> View<'a> {
         if let Some(nick) = &server.nick {
             body = body.push(
                 column![
-                    text("THEIR NICKNAME")
+                    text(crate::i18n::tr!(self.cx.i18n, "THEIR NICKNAME"))
                         .size(12)
                         .font(BOLD)
                         .color(theme.muted),
@@ -609,7 +609,7 @@ impl<'a> View<'a> {
         body = body.push(
             controls::action(
                 theme,
-                "Go to server",
+                crate::i18n::tr!(self.cx.i18n, "Go to server"),
                 Kind::Primary,
                 Some(Message::Info(Event::GoToServer(server.id.clone()))),
             )

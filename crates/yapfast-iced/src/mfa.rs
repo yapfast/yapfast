@@ -1,4 +1,4 @@
-//! Discord's "Multi-Factor Authentication" prompt: for a request Discord
+//! Discord's crate::i18n::tr!(cx.i18n, "Multi-Factor Authentication") prompt: for a request Discord
 //! holds back until this account confirms, with a code from an
 //! authenticator app or a text, the password, or a backup code; then the
 //! request goes again. Cancelling fails the request. The core keeps the
@@ -34,7 +34,7 @@ const WAIT: u32 = 10;
 /// What's done in the prompt.
 #[derive(Clone, Debug)]
 pub enum Event {
-    /// Use a method, or with none list them ("Verify with something else").
+    /// Use a method, or with none list them (crate::i18n::tr!(cx.i18n, "Verify with something else")).
     Choose(Option<MfaMethod>),
     Write(String),
     Resend,
@@ -151,12 +151,14 @@ pub fn view<'a>(mfa: &'a Mfa, cx: Ctx<'a>) -> Option<Element<'a, Message>> {
         ),
     };
     let note = |words: String| text(words).size(13).color(theme.muted).width(Length::Fill);
-    let close = cx
-        .look
-        .icon_button(Icon::X, "Cancel", Message::Mfa(Event::Cancel));
+    let close = cx.look.icon_button(
+        Icon::X,
+        crate::i18n::tr!(cx.i18n, "Cancel"),
+        Message::Mfa(Event::Cancel),
+    );
     let mut body = column![
         row![
-            text("Multi-Factor Authentication")
+            text(crate::i18n::tr!(cx.i18n, "Multi-Factor Authentication"))
                 .size(18)
                 .font(BOLD)
                 .color(theme.text)
@@ -195,7 +197,7 @@ pub fn view<'a>(mfa: &'a Mfa, cx: Ctx<'a>) -> Option<Element<'a, Message>> {
     }
     if warning {
         body = body.push(
-            text("Slow down! Are you sure?")
+            text(crate::i18n::tr!(cx.i18n, "Slow down! Are you sure?"))
                 .size(16)
                 .font(BOLD)
                 .color(theme.text),
@@ -226,7 +228,7 @@ pub fn view<'a>(mfa: &'a Mfa, cx: Ctx<'a>) -> Option<Element<'a, Message>> {
         body = body.push(
             action(
                 theme,
-                "I’m sure, use a backup code",
+                crate::i18n::tr!(cx.i18n, "I’m sure, use a backup code"),
                 Kind::Primary,
                 (left == 0).then_some(Message::Mfa(Event::Confirm)),
             )
@@ -264,7 +266,7 @@ pub fn view<'a>(mfa: &'a Mfa, cx: Ctx<'a>) -> Option<Element<'a, Message>> {
     if !listing && choices.len() > 1 {
         buttons = buttons.push(action(
             theme,
-            "Verify with something else",
+            crate::i18n::tr!(cx.i18n, "Verify with something else"),
             Kind::Ghost,
             open.then_some(Message::Mfa(Event::Choose(None))),
         ));
@@ -272,7 +274,7 @@ pub fn view<'a>(mfa: &'a Mfa, cx: Ctx<'a>) -> Option<Element<'a, Message>> {
     if !listing && prompt.method == Some(MfaMethod::Sms) && prompt.phone.is_some() {
         buttons = buttons.push(action(
             theme,
-            "Resend Code",
+            crate::i18n::tr!(cx.i18n, "Resend Code"),
             Kind::Ghost,
             open.then_some(Message::Mfa(Event::Resend)),
         ));
@@ -280,7 +282,7 @@ pub fn view<'a>(mfa: &'a Mfa, cx: Ctx<'a>) -> Option<Element<'a, Message>> {
     buttons = buttons.push(Space::new().width(Length::Fill));
     buttons = buttons.push(action(
         theme,
-        "Cancel",
+        crate::i18n::tr!(cx.i18n, "Cancel"),
         Kind::Ghost,
         Some(Message::Mfa(Event::Cancel)),
     ));

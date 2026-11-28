@@ -1503,3 +1503,1305 @@ msgstr "Eine Nachricht senden, wenn jemand den Server boostet."
 
 msgid "Send helpful tips for server setup."
 msgstr "Tipps zur Servereinrichtung senden."
+
+msgid "View Channels"
+msgstr "Kanäle ansehen"
+
+msgid "Allows members to view channels by default (excluding private channels)."
+msgstr "Kanäle standardmäßig sehen. Private Kanäle benötigen gesonderten Zugriff."
+
+msgid "Manage Channels"
+msgstr "Kanäle verwalten"
+
+msgid "Allows members to create, edit, or delete channels."
+msgstr "Kanäle erstellen, bearbeiten und löschen."
+
+msgid "Manage Roles"
+msgstr "Rollen verwalten"
+
+msgid "Allows members to create new roles and edit or delete roles lower than their highest role. Also allows members to change permissions of individual channels that they have access to."
+msgstr "Rollen erstellen und Rollen unterhalb der höchsten eigenen Rolle bearbeiten oder löschen. Berechtigungen zugänglicher Kanäle ändern."
+
+msgid "Create Expressions"
+msgstr "Ausdrucksmittel erstellen"
+
+msgid "Allows members to add custom emoji, stickers, and sounds in this server."
+msgstr "Eigene Emojis, Sticker und Sounds zum Server hinzufügen."
+
+msgid "Manage Expressions"
+msgstr "Ausdrucksmittel verwalten"
+
+msgid "Allows members to edit or remove custom emoji, stickers, and sounds in this server."
+msgstr "Eigene Emojis, Sticker und Sounds bearbeiten oder entfernen."
+
+msgid "View Audit Log"
+msgstr "Audit-Log ansehen"
+
+msgid "Allows members to view a record of who made which changes in this server."
+msgstr "Sehen, wer welche Änderungen auf dem Server vorgenommen hat."
+
+msgid "View Server Insights"
+msgstr "Serverstatistiken ansehen"
+
+msgid "Allows members to view Server Insights, which shows data on community growth, engagement, and more. This will allow them to see certain data about channel activity, even for channels they cannot access."
+msgstr "Wachstum und Aktivität der Community sowie bestimmte Daten zu nicht zugänglichen Kanälen sehen."
+
+msgid "Manage Webhooks"
+msgstr "Webhooks verwalten"
+
+msgid "Allows members to create, edit, or delete webhooks, which can post messages from other apps or sites into this server."
+msgstr "Webhooks erstellen, bearbeiten und löschen, die Nachrichten aus Apps oder Websites veröffentlichen."
+
+msgid "Manage Server"
+msgstr "Server verwalten"
+
+msgid "Allow members to change this server's name, switch regions, view all invites, add apps to this server and create and update AutoMod rules."
+msgstr "Servernamen und Region ändern, alle Einladungen einsehen, Apps hinzufügen und AutoMod-Regeln verwalten."
+
+msgid "Create Invite"
+msgstr "Einladungen erstellen"
+
+msgid "Allows members to invite new people to this server."
+msgstr "Neue Mitglieder auf den Server einladen."
+
+msgid "Change Nickname"
+msgstr "Eigenen Spitznamen ändern"
+
+msgid "Allows members to change their own nickname, a custom name for just this server."
+msgstr "Den eigenen Spitznamen auf diesem Server ändern."
+
+msgid "Manage Nicknames"
+msgstr "Spitznamen verwalten"
+
+msgid "Allows members to change the nicknames of other members."
+msgstr "Spitznamen anderer Mitglieder ändern."
+
+msgid "Kick, Approve, and Reject Members"
+msgstr "Mitglieder kicken, annehmen und ablehnen"
+
+msgid "Kick will remove other members from this server. Kicked members will be able to rejoin if they have another invite. If the server enables Member Requirements, this permission enables the ability to approve or reject members who request to join."
+msgstr "Mitglieder entfernen, die mit einer neuen Einladung zurückkehren können. Bei aktivierten Mitgliedschaftsvoraussetzungen auch Beitrittsanfragen annehmen oder ablehnen."
+
+msgid "Ban Members"
+msgstr "Mitglieder bannen"
+
+msgid "Allows members to permanently ban and delete the message history of other members from this server."
+msgstr "Mitglieder dauerhaft bannen und ihren Nachrichtenverlauf auf dem Server löschen."
+
+msgid "Timeout Members"
+msgstr "Mitgliedern eine Auszeit geben"
+
+msgid "When you put a user in timeout they will not be able to send messages in chat, reply within threads, react to messages, or speak in voice or Stage channels."
+msgstr "Mitglieder in einer Auszeit können keine Nachrichten, Thread-Antworten oder Reaktionen senden und in Sprach- oder Bühnenkanälen nicht sprechen."
+
+msgid "Send Messages and Create Posts"
+msgstr "Nachrichten senden und Beiträge erstellen"
+
+msgid "Allow members to send messages in text channels and create posts in forum channels."
+msgstr "In Textkanälen schreiben und Beiträge in Forenkanälen erstellen."
+
+msgid "Send Messages in Threads and Posts"
+msgstr "In Threads und Beiträgen schreiben"
+
+msgid "Allow members to send messages in threads and in posts on forum channels."
+msgstr "Nachrichten in Threads und Forenbeiträgen senden."
+
+msgid "Create Public Threads"
+msgstr "Öffentliche Threads erstellen"
+
+msgid "Allow members to create threads that everyone in a channel can view."
+msgstr "Threads erstellen, die alle im Kanal sehen können."
+
+msgid "Create Private Threads"
+msgstr "Private Threads erstellen"
+
+msgid "Allow members to create invite-only threads."
+msgstr "Threads erstellen, die nur per Einladung zugänglich sind."
+
+msgid "Embed Links"
+msgstr "Links einbetten"
+
+msgid "Allows links that members share to show embedded content in text channels."
+msgstr "Für geteilte Links Vorschauen in Textkanälen anzeigen."
+
+msgid "Attach Files"
+msgstr "Dateien anhängen"
+
+msgid "Allows members to upload files or media in text channels."
+msgstr "Dateien oder Medien in Textkanälen hochladen."
+
+msgid "Add Reactions"
+msgstr "Reaktionen hinzufügen"
+
+msgid "Allows members to add new emoji reactions to a message. If this permission is disabled, members can still react using any existing reactions on a message."
+msgstr "Neue Emoji-Reaktionen hinzufügen. Vorhandene Reaktionen bleiben auch ohne diese Berechtigung nutzbar."
+
+msgid "Use External Emoji"
+msgstr "Externe Emojis verwenden"
+
+msgid "Allows members to use emoji from other servers, if they’re a Discord Nitro member."
+msgstr "Mit Discord Nitro Emojis anderer Server verwenden."
+
+msgid "Use External Stickers"
+msgstr "Externe Sticker verwenden"
+
+msgid "Allows members to use stickers from other servers, if they’re a Discord Nitro member."
+msgstr "Mit Discord Nitro Sticker anderer Server verwenden."
+
+msgid "Mention @everyone, @here, and All Roles"
+msgstr "@everyone, @here und alle Rollen erwähnen"
+
+msgid "Allows members to use @everyone (everyone in the server) or @here (only online members in that channel). They can also @mention all roles, even if the role’s “Allow anyone to mention this role” permission is disabled."
+msgstr "Mit @everyone den ganzen Server, mit @here anwesende Mitglieder im Kanal und alle Rollen unabhängig von deren Einstellungen erwähnen."
+
+msgid "Manage Messages"
+msgstr "Nachrichten verwalten"
+
+msgid "Allows members to delete or remove embeds from messages by other members."
+msgstr "Nachrichten anderer Mitglieder löschen oder Einbettungen daraus entfernen."
+
+msgid "Pin Messages"
+msgstr "Nachrichten anheften"
+
+msgid "Allows members to pin or unpin any message."
+msgstr "Beliebige Nachrichten anheften oder loslösen."
+
+msgid "Bypass Slowmode"
+msgstr "Langsammodus umgehen"
+
+msgid "Allows members to send messages without being affected by slowmode."
+msgstr "Ohne Wartezeit durch den Langsammodus schreiben."
+
+msgid "Manage Threads and Posts"
+msgstr "Threads und Beiträge verwalten"
+
+msgid "Allows members to rename, delete, close, and turn on slow mode for threads and posts. They can also view private threads."
+msgstr "Threads und Beiträge umbenennen, löschen, schließen und den Langsammodus aktivieren. Auch private Threads ansehen."
+
+msgid "Read Message History"
+msgstr "Nachrichtenverlauf lesen"
+
+msgid "Allows members to read previous messages sent in channels. If this permission is disabled, members only see messages sent when they are online. This does not fully apply to threads and forum posts."
+msgstr "Frühere Nachrichten lesen. Ohne dieses Recht sind nur Nachrichten sichtbar, die während der eigenen Onlinezeit gesendet wurden. Das gilt für Threads und Foren nur eingeschränkt."
+
+msgid "Send Text-to-Speech Messages"
+msgstr "Text-zu-Sprache-Nachrichten senden"
+
+msgid "Allows members to send text-to-speech messages by starting a message with /tts. These messages can be heard by anyone focused on the channel."
+msgstr "Mit /tts vorgelesene Nachrichten senden. Sie sind für Personen hörbar, die den Kanal gerade geöffnet haben."
+
+msgid "Send Voice Messages"
+msgstr "Sprachnachrichten senden"
+
+msgid "Allows members to send voice messages."
+msgstr "Sprachnachrichten senden."
+
+msgid "Create Polls"
+msgstr "Umfragen erstellen"
+
+msgid "Allows members to create polls."
+msgstr "Umfragen erstellen."
+
+msgid "Connect"
+msgstr "Verbinden"
+
+msgid "Allows members to join voice channels and hear others."
+msgstr "Sprachkanälen beitreten und andere hören."
+
+msgid "Speak"
+msgstr "Sprechen"
+
+msgid "Allows members to talk in voice channels. If this permission is disabled, members are default muted until somebody with the “Mute Members” permission un-mutes them."
+msgstr "In Sprachkanälen sprechen. Ohne dieses Recht bleibt das Mikrofon stumm, bis jemand mit dem Recht zum Stummschalten es freigibt."
+
+msgid "Video"
+msgstr "Video"
+
+msgid "Allows members to share their video, screen share, or stream a game in this server."
+msgstr "Kamera oder Bildschirm teilen oder ein Spiel streamen."
+
+msgid "Use Soundboard"
+msgstr "Soundboard verwenden"
+
+msgid "Allows members to send sounds from server soundboard."
+msgstr "Sounds vom Server-Soundboard abspielen."
+
+msgid "Use External Sounds"
+msgstr "Externe Sounds verwenden"
+
+msgid "Allows members to use sounds from other servers, if they're a Discord Nitro member."
+msgstr "Mit Discord Nitro Sounds von anderen Servern abspielen."
+
+msgid "Use Voice Activity"
+msgstr "Sprachaktivierung verwenden"
+
+msgid "Allows members to speak in voice channels by simply talking. If this permission is disabled, members are required to use Push-to-talk. Good for controlling background noise or noisy members."
+msgstr "Ohne Tastendruck sprechen. Ohne diese Berechtigung ist Push-to-Talk erforderlich, was Hintergrundgeräusche reduzieren kann."
+
+msgid "Priority Speaker"
+msgstr "Priorisierter Sprecher"
+
+msgid "Allows members to be more easily heard in voice channels. When activated, the volume of others without this permission will be automatically lowered."
+msgstr "Deutlicher zu hören sein. Bei Aktivierung werden andere ohne dieses Recht automatisch leiser."
+
+msgid "Mute Members"
+msgstr "Mitglieder stummschalten"
+
+msgid "Allows members to mute other members in voice channels for everyone."
+msgstr "Andere Mitglieder im Sprachkanal für alle stummschalten."
+
+msgid "Deafen Members"
+msgstr "Ton und Mikrofon anderer Mitglieder deaktivieren"
+
+msgid "Allows members to deafen other members in voice channels, which means they won’t be able to speak or hear others."
+msgstr "Ton und Mikrofon anderer Mitglieder deaktivieren, sodass sie weder hören noch sprechen können."
+
+msgid "Move Members"
+msgstr "Mitglieder verschieben"
+
+msgid "Allows members to disconnect or move other members between voice channels that the member with this permission has access to."
+msgstr "Andere Mitglieder trennen oder zwischen zugänglichen Sprachkanälen verschieben."
+
+msgid "Set Voice Channel Status"
+msgstr "Sprachkanalstatus setzen"
+
+msgid "Allows members to create and edit voice channel status."
+msgstr "Den Status eines Sprachkanals setzen und bearbeiten."
+
+msgid "Use Application Commands"
+msgstr "App-Befehle verwenden"
+
+msgid "Allows members to use commands from applications, including slash commands and context menu commands."
+msgstr "App-Befehle verwenden, darunter Slash-Befehle und Kontextmenübefehle."
+
+msgid "Use Activities"
+msgstr "Aktivitäten verwenden"
+
+msgid "Allows members to use Activities."
+msgstr "Aktivitäten starten."
+
+msgid "Use External Apps"
+msgstr "Externe Apps verwenden"
+
+msgid "Allows apps that members have added to their account to post messages. When disabled, the messages will be private."
+msgstr "Apps, die Mitglieder ihrem Konto hinzugefügt haben, dürfen Nachrichten veröffentlichen. Ohne dieses Recht bleiben die Nachrichten privat."
+
+msgid "Request to Speak"
+msgstr "Rederecht anfragen"
+
+msgid "Allow requests to speak in Stage channels. Stage moderators manually approve or deny each request."
+msgstr "Auf einer Bühne Rederecht anfragen. Moderatoren nehmen jede Anfrage manuell an oder lehnen sie ab."
+
+msgid "Create Events"
+msgstr "Events erstellen"
+
+msgid "Allows members to create events."
+msgstr "Events erstellen."
+
+msgid "Manage Events"
+msgstr "Events verwalten"
+
+msgid "Allows members to edit and cancel events."
+msgstr "Events bearbeiten und absagen."
+
+msgid "Administrator"
+msgstr "Administrator"
+
+msgid "Members with this permission will have every permission and will also bypass all channel specific permissions or restrictions (for example, these members would get access to all private channels)."
+msgstr "Alle Berechtigungen erhalten und kanalspezifische Einschränkungen umgehen, einschließlich des Zugriffs auf private Kanäle."
+
+msgid "General Server Permissions"
+msgstr "Allgemeine Serverberechtigungen"
+
+msgid "Membership Permissions"
+msgstr "Mitgliedschaftsberechtigungen"
+
+msgid "Text Channel Permissions"
+msgstr "Textkanalberechtigungen"
+
+msgid "Voice Channel Permissions"
+msgstr "Sprachkanalberechtigungen"
+
+msgid "Apps Permissions"
+msgstr "App-Berechtigungen"
+
+msgid "Stage Channel Permissions"
+msgstr "Bühnenkanalberechtigungen"
+
+msgid "Events Permissions"
+msgstr "Eventberechtigungen"
+
+msgid "Advanced Permissions"
+msgstr "Erweiterte Berechtigungen"
+
+msgid "This is a dangerous permission to grant."
+msgstr "Diese Berechtigung zu erteilen ist gefährlich."
+
+msgid "Display"
+msgstr "Anzeige"
+
+msgid "Permissions"
+msgstr "Berechtigungen"
+
+msgid "Clear permissions"
+msgstr "Berechtigungen zurücksetzen"
+
+msgid "Search permissions"
+msgstr "Berechtigungen suchen"
+
+msgid "You cannot clear permissions because it would remove one or more permissions from you."
+msgstr "Du kannst die Berechtigungen nicht zurücksetzen, da du dadurch eigene Rechte verlieren würdest."
+
+msgid "You cannot modify this permission because none of your roles have it."
+msgstr "Keine deiner Rollen hat diese Berechtigung."
+
+msgid "You cannot modify this permission because removing it would remove it from you."
+msgstr "Du kannst diese Berechtigung nicht entziehen, da du sie dadurch selbst verlieren würdest."
+
+msgid "This role is automatically managed by an integration."
+msgstr "Diese Rolle wird automatisch von einer Integration verwaltet."
+
+msgid "This role is automatically managed by Discord for Server Boosting. It cannot be manually assigned to members or deleted."
+msgstr "Discord verwaltet diese Rolle automatisch für Server-Boosts. Sie kann nicht manuell zugewiesen oder gelöscht werden."
+
+msgid "Overview"
+msgstr "Übersicht"
+
+msgid "Delete Category"
+msgstr "Kategorie löschen"
+
+msgid "Delete Channel"
+msgstr "Kanal löschen"
+
+msgid "CHANNEL TOPIC"
+msgstr "KANALTHEMA"
+
+msgid "SLOWMODE"
+msgstr "LANGSAMMODUS"
+
+msgid "ADVANCED PERMISSIONS"
+msgstr "ERWEITERTE BERECHTIGUNGEN"
+
+msgid "ROLES/MEMBERS"
+msgstr "ROLLEN UND MITGLIEDER"
+
+msgid "ROLES"
+msgstr "ROLLEN"
+
+msgid "Add:"
+msgstr "Hinzufügen"
+
+msgid "Let everyone know how to use this channel!"
+msgstr "Beschreibe, wofür dieser Kanal gedacht ist."
+
+msgid "Members will be restricted to sending one message and creating one thread per this interval, unless they have Bypass Slowmode, Manage Channel or Manage Messages permissions."
+msgstr "Pro Intervall können Mitglieder eine Nachricht senden und einen Thread erstellen. Ausgenommen sind Mitglieder mit Berechtigungen zum Umgehen des Langsammodus oder zum Verwalten des Kanals oder der Nachrichten."
+
+msgid "Age-Restricted Channel"
+msgstr "Altersbeschränkter Kanal"
+
+msgid "Users will need to confirm they are of over legal age to view the content in this channel. Age-restricted channels are exempt from the explicit content filter."
+msgstr "Um diesen Kanal anzusehen, müssen Nutzer ihre Volljährigkeit bestätigen. Der Filter für explizite Inhalte gilt hier nicht."
+
+msgid "Category Settings"
+msgstr "Kategorieeinstellungen"
+
+msgid "Channel Permissions"
+msgstr "Kanalberechtigungen"
+
+msgid "Use permissions to customize who can do what in this category."
+msgstr "Lege fest, wer in dieser Kategorie welche Aktionen ausführen darf."
+
+msgid "Use permissions to customize who can do what in this channel."
+msgstr "Lege fest, wer in diesem Kanal welche Aktionen ausführen darf."
+
+msgid "Sync Now"
+msgstr "Jetzt synchronisieren"
+
+msgid "Private Category"
+msgstr "Private Kategorie"
+
+msgid "Private Channel"
+msgstr "Privater Kanal"
+
+msgid "By making a category private, only select members and roles will be able to view this category. Linked channels in this category will automatically match to this setting."
+msgstr "Nur ausgewählte Mitglieder und Rollen können die private Kategorie sehen. Synchronisierte Kanäle übernehmen diese Einstellung automatisch."
+
+msgid "By making a channel private, only select members and roles will have access to view or connect to this channel."
+msgstr "Nur ausgewählte Mitglieder und Rollen können den privaten Kanal sehen oder ihm beitreten."
+
+msgid "By making a channel private, only select members and roles will be able to view this channel."
+msgstr "Nur ausgewählte Mitglieder und Rollen können den privaten Kanal sehen."
+
+msgid "Add a role or member"
+msgstr "Rolle oder Mitglied hinzufügen"
+
+msgid "Delete Permission Settings"
+msgstr "Berechtigungseinstellungen löschen"
+
+msgid "Pretty sure you don't want to do this"
+msgstr "Diese Aktion entzieht dir den Zugriff"
+
+msgid "NEW"
+msgstr "NEU"
+
+msgid "SPOILER"
+msgstr "SPOILER"
+
+msgid "New Post"
+msgstr "Neuer Beitrag"
+
+msgid "Post Guidelines"
+msgstr "Beitragsrichtlinien"
+
+msgid "Select up to 5 tags"
+msgstr "Wähle bis zu 5 Tags"
+
+msgid "Forward To"
+msgstr "Weiterleiten an"
+
+msgid "End the poll now? This will close it immediately and reveal the results."
+msgstr "Umfrage jetzt beenden? Die Abstimmung wird sofort geschlossen und die Ergebnisse werden angezeigt."
+
+msgid "View original message to interact"
+msgstr "Öffne die ursprüngliche Nachricht, um abzustimmen"
+
+msgid "PINNED CHANNELS"
+msgstr "ANGEHEFTETE KANÄLE"
+
+msgid "OFFICIAL"
+msgstr "OFFIZIELL"
+
+msgid "Boost Goal"
+msgstr "Boost-Ziel"
+
+msgid "INVITE LINK"
+msgstr "EINLADUNGSLINK"
+
+msgid "EXPIRE AFTER"
+msgstr "GÜLTIGKEITSDAUER"
+
+msgid "MAX NUMBER OF USES"
+msgstr "MAXIMALE ANZAHL VON NUTZUNGEN"
+
+msgid "Check your email: we sent you a verification code. Enter it here to verify you’re really you."
+msgstr "Wir haben dir per E-Mail einen Bestätigungscode gesendet. Gib ihn hier ein."
+
+msgid "Didn’t receive a code or it expired? Resend it."
+msgstr "Keinen Code erhalten oder ist er abgelaufen? Erneut senden."
+
+msgid "Partnered or Verified servers must reach out to the Community team for ownership transfer requests. However, our Partner and Verified Server Programs are currently paused and not able to handle any requests."
+msgstr "Wende dich zur Übertragung eines Partner- oder verifizierten Servers an das Community-Team. Diese Programme pausieren derzeit und nehmen keine Anfragen an."
+
+msgid "Allows members to invite new people to this server via a direct invite link to these channels."
+msgstr "Neue Mitglieder über direkte Einladungslinks zu diesen Kanälen auf den Server einladen."
+
+msgid "Allows members to invite new people to this server via a direct invite link to this channel. The recipient will automatically join the voice channel if they have permission to connect."
+msgstr "Neue Mitglieder über einen direkten Link zu diesem Kanal auf den Server einladen. Haben sie das Recht zum Verbinden, treten sie dem Sprachkanal automatisch bei."
+
+msgid "Allows members to invite new people to this server via a direct invite link to this channel."
+msgstr "Neue Mitglieder über einen direkten Link zu diesem Kanal auf den Server einladen."
+
+msgid "Manage Channel"
+msgstr "Kanal verwalten"
+
+msgid "Allows members to change these channels’ name, description, and text / voice settings. They can also delete these channels."
+msgstr "Namen, Beschreibungen sowie Text- oder Spracheinstellungen dieser Kanäle ändern und die Kanäle löschen."
+
+msgid "Allows members to change this channel’s name, description, and voice settings. They can also delete the channel."
+msgstr "Namen, Beschreibung und Spracheinstellungen dieses Kanals ändern und ihn löschen."
+
+msgid "Allows members to change this channel’s name, description, and text settings. They can also delete the channel."
+msgstr "Namen, Beschreibung und Texteinstellungen dieses Kanals ändern und ihn löschen."
+
+msgid "View Channel"
+msgstr "Kanal ansehen"
+
+msgid "Allows members to view these channels by default. Disabling this for @everyone will make text channels private. Disabling this and the Connect permission for @everyone will make voice channels private."
+msgstr "Diese Kanäle standardmäßig sehen. Wird das Recht für @everyone deaktiviert, werden Textkanäle privat. Für private Sprachkanäle zusätzlich das Recht zum Verbinden deaktivieren."
+
+msgid "Allows members to view this channel by default. Disabling this and the Connect permission for @everyone will make this channel private."
+msgstr "Diesen Kanal standardmäßig sehen. Um ihn privat zu machen, für @everyone sowohl das Ansehen als auch das Verbinden deaktivieren."
+
+msgid "Allows members to view this channel by default. Disabling this for @everyone will make this channel private."
+msgstr "Diesen Kanal standardmäßig sehen. Wird das Recht für @everyone deaktiviert, wird der Kanal privat."
+
+msgid "Allows members to view this channel by default."
+msgstr "Diesen Kanal standardmäßig sehen."
+
+msgid "Allows members to view these channels by default."
+msgstr "Diese Kanäle standardmäßig sehen."
+
+msgid "Send Messages"
+msgstr "Nachrichten senden"
+
+msgid "Allows members to send messages in this channel."
+msgstr "Nachrichten in diesem Kanal senden."
+
+msgid "Allow members to send messages and create posts in these channels."
+msgstr "Nachrichten in diesen Kanälen senden und Beiträge erstellen."
+
+msgid "Manage Permissions"
+msgstr "Berechtigungen verwalten"
+
+msgid "Allows members to change this channel’s permissions."
+msgstr "Berechtigungen für diesen Kanal ändern."
+
+msgid "Allows members to change these channels’ permissions."
+msgstr "Berechtigungen für diese Kanäle ändern."
+
+msgid "Allows members to create, edit, or delete webhooks in this channel, which can post messages from other apps or sites."
+msgstr "Webhooks erstellen, bearbeiten und löschen, die Nachrichten aus Apps oder Websites in diesem Kanal veröffentlichen."
+
+msgid "Allows members to create, edit, or delete webhooks in these channels, which can post messages from other apps or sites."
+msgstr "Webhooks erstellen, bearbeiten und löschen, die Nachrichten aus Apps oder Websites in diesen Kanälen veröffentlichen."
+
+msgid "General Channel Permissions"
+msgstr "Allgemeine Kanalberechtigungen"
+
+msgid "General Category Permissions"
+msgstr "Allgemeine Kategorieberechtigungen"
+
+msgid "Voice Channel Chat Permissions"
+msgstr "Chatberechtigungen des Sprachkanals"
+
+msgid "Allows links that members share to show embedded content in this channel."
+msgstr "Vorschauen für geteilte Links anzeigen."
+
+msgid "Allows links that members share to show embedded content in these channels."
+msgstr "Vorschauen für geteilte Links anzeigen."
+
+msgid "Allows members to upload files or media in this channel."
+msgstr "Dateien und Medien hochladen."
+
+msgid "Allows members to upload files or media in these channels."
+msgstr "Dateien und Medien hochladen."
+
+msgid "Allows members to use emoji from other servers in this channel, if they’re a Discord Nitro member."
+msgstr "Mit Discord Nitro Emojis anderer Server verwenden."
+
+msgid "Allows members to use emoji from other servers in these channels, if they’re a Discord Nitro member."
+msgstr "Mit Discord Nitro Emojis anderer Server verwenden."
+
+msgid "Allows members to use stickers from other servers in this channel, if they’re a Discord Nitro member."
+msgstr "Mit Discord Nitro Sticker anderer Server verwenden."
+
+msgid "Allows members to use stickers from other servers in these channels, if they’re a Discord Nitro member."
+msgstr "Mit Discord Nitro Sticker anderer Server verwenden."
+
+msgid "Allows members to use @everyone or @here (only online members) in this channel. They can also @mention all roles in this channel, even if the role’s “Allow anyone to mention this role” permission is disabled."
+msgstr "Mit @everyone alle, mit @here anwesende Mitglieder und alle Rollen unabhängig von deren Einstellungen erwähnen."
+
+msgid "Allows members to use @everyone or @here (only online members) in these channels. They can also @mention all roles in these channels, even if the role’s “Allow anyone to mention this role” permission is disabled."
+msgstr "Mit @everyone alle, mit @here anwesende Mitglieder und alle Rollen unabhängig von deren Einstellungen erwähnen."
+
+msgid "Allows members to delete or remove embeds from messages by other members in this channel."
+msgstr "Nachrichten anderer Mitglieder löschen oder Einbettungen daraus entfernen."
+
+msgid "Allows members to delete or remove embeds from messages by other members in these channels."
+msgstr "Nachrichten anderer Mitglieder löschen oder Einbettungen daraus entfernen."
+
+msgid "Allows members to pin or unpin any message in this channel."
+msgstr "Beliebige Nachrichten anheften oder loslösen."
+
+msgid "Allows members to pin or unpin any message in these channels."
+msgstr "Beliebige Nachrichten anheften oder loslösen."
+
+msgid "Allows members to send messages in this channel without being affected by slowmode."
+msgstr "Nachrichten ohne Wartezeit durch den Langsammodus senden."
+
+msgid "Allows members to send messages in these channels without being affected by slowmode."
+msgstr "Nachrichten ohne Wartezeit durch den Langsammodus senden."
+
+msgid "Allows members to read previous messages sent in this channel. If this permission is disabled, members only see messages sent when they are online."
+msgstr "Frühere Nachrichten lesen. Ohne dieses Recht sind nur Nachrichten sichtbar, die während der eigenen Onlinezeit gesendet wurden."
+
+msgid "Allows members to read previous messages sent in these channels. If this permission is disabled, members only see messages sent when they are online."
+msgstr "Frühere Nachrichten lesen. Ohne dieses Recht sind nur Nachrichten sichtbar, die während der eigenen Onlinezeit gesendet wurden."
+
+msgid "Allows members to send text-to-speech messages in this channel by starting a message with /tts. These messages can be heard by anyone focused on this channel."
+msgstr "Mit /tts vorgelesene Nachrichten senden. Sie sind für Personen hörbar, die den Kanal gerade geöffnet haben."
+
+msgid "Allows members to send text-to-speech messages in these channels by starting a message with /tts. These messages can be heard by anyone focused on that channel."
+msgstr "Mit /tts vorgelesene Nachrichten senden. Sie sind für Personen hörbar, die den Kanal gerade geöffnet haben."
+
+msgid "Allows members to use commands from applications in this channel, including slash commands and context menu commands."
+msgstr "App-Befehle verwenden, darunter Slash-Befehle und Kontextmenübefehle."
+
+msgid "Allows members to use commands from applications in these channels, including slash commands and context menu commands."
+msgstr "App-Befehle verwenden, darunter Slash-Befehle und Kontextmenübefehle."
+
+msgid "Allows members to create polls in this channel."
+msgstr "Umfragen erstellen."
+
+msgid "Allows members to create polls in these channels."
+msgstr "Umfragen erstellen."
+
+msgid "Allows members to talk in this voice channel. If this permission is disabled, members are default muted until somebody with the “Mute Members” permission un-mutes them."
+msgstr "Im Sprachkanal sprechen. Ohne dieses Recht bleibt das Mikrofon stumm, bis jemand mit dem Recht zum Stummschalten es freigibt."
+
+msgid "Allows members to talk in these voice channels. If this permission is disabled, members are default muted until somebody with the “Mute Members” permission un-mutes them."
+msgstr "Im Sprachkanal sprechen. Ohne dieses Recht bleibt das Mikrofon stumm, bis jemand mit dem Recht zum Stummschalten es freigibt."
+
+msgid "Allows members to share their video, screen share, or stream a game in this voice channel."
+msgstr "Kamera oder Bildschirm teilen oder ein Spiel streamen."
+
+msgid "Allows members to share their video, screen share, or stream a game in these voice channels."
+msgstr "Kamera oder Bildschirm teilen oder ein Spiel streamen."
+
+msgid "Allows members to use Activities in this channel."
+msgstr "Aktivitäten starten."
+
+msgid "Allows members to use Activities in these channels."
+msgstr "Aktivitäten starten."
+
+msgid "Allows apps that members have added to their account to post messages in this channel. When disabled, the messages will be private."
+msgstr "Apps, die Mitglieder ihrem Konto hinzugefügt haben, dürfen Nachrichten veröffentlichen. Ohne dieses Recht bleiben die Nachrichten privat."
+
+msgid "Allows apps that members have added to their account to post messages in these channels. When disabled, the messages will be private."
+msgstr "Apps, die Mitglieder ihrem Konto hinzugefügt haben, dürfen Nachrichten veröffentlichen. Ohne dieses Recht bleiben die Nachrichten privat."
+
+msgid "Allows members to send sounds from server soundboard in this voice channel."
+msgstr "Sounds vom Server-Soundboard abspielen."
+
+msgid "Allows members to send sounds from server soundboard in these voice channels."
+msgstr "Sounds vom Server-Soundboard abspielen."
+
+msgid "Allows members to speak in this voice channel by simply talking. If this permission is disabled, members are required to use Push-to-talk. Good for controlling background noise or noisy members."
+msgstr "Ohne Tastendruck sprechen. Ohne diese Berechtigung ist Push-to-Talk erforderlich, was Hintergrundgeräusche reduzieren kann."
+
+msgid "Allows members to speak in these voice channels by simply talking. If this permission is disabled, members are required to use Push-to-talk. Good for controlling background noise or noisy members."
+msgstr "Ohne Tastendruck sprechen. Ohne diese Berechtigung ist Push-to-Talk erforderlich, was Hintergrundgeräusche reduzieren kann."
+
+msgid "Allows members to be more easily heard in this voice channel. When activated, the volume of others without this permission will be automatically lowered. Priority Speaker is activated by using the Push to Talk (Priority) keybind."
+msgstr "Mit der Taste für Push-to-Talk mit Priorität deutlicher zu hören sein. Andere ohne dieses Recht werden automatisch leiser."
+
+msgid "Allows members to be more easily heard in these voice channels. When activated, the volume of others without this permission will be automatically lowered. Priority Speaker is activated by using the Push to Talk (Priority) keybind."
+msgstr "Mit der Taste für Push-to-Talk mit Priorität deutlicher zu hören sein. Andere ohne dieses Recht werden automatisch leiser."
+
+msgid "Allows members to mute other members in this voice channel for everyone."
+msgstr "Andere Mitglieder im Sprachkanal für alle stummschalten."
+
+msgid "Allows members to mute other members in these voice channels for everyone."
+msgstr "Andere Mitglieder im Sprachkanal für alle stummschalten."
+
+msgid "Allows members to deafen other members in this voice channel, which means they won’t be able to speak or hear others."
+msgstr "Ton und Mikrofon anderer Mitglieder deaktivieren, sodass sie weder hören noch sprechen können."
+
+msgid "Allows members to deafen other members in these voice channels, which means they won’t be able to speak or hear others."
+msgstr "Ton und Mikrofon anderer Mitglieder deaktivieren, sodass sie weder hören noch sprechen können."
+
+msgid "Allows members to disconnect other members from this channel. They will also be able to move somebody into other channels that they have this permission in."
+msgstr "Andere Mitglieder trennen oder in Kanäle verschieben, in denen du diese Berechtigung hast."
+
+msgid "Allows members to disconnect other members from these channels. They will also be able to move somebody into other channels that they have this permission in."
+msgstr "Andere Mitglieder trennen oder in Kanäle verschieben, in denen du diese Berechtigung hast."
+
+msgid "Allow members to create threads that everyone in this channel can view."
+msgstr "Threads erstellen, die alle im Kanal sehen können."
+
+msgid "Allow members to create threads that everyone in these channels can view."
+msgstr "Threads erstellen, die alle im Kanal sehen können."
+
+msgid "Allow members to create invite-only threads in this channel."
+msgstr "Threads erstellen, die nur per Einladung zugänglich sind."
+
+msgid "Allow members to create invite-only threads in these channels."
+msgstr "Threads erstellen, die nur per Einladung zugänglich sind."
+
+msgid "Allows members to edit and cancel events in this channel."
+msgstr "Events bearbeiten und absagen."
+
+msgid "Allows members to edit and cancel events in these channels."
+msgstr "Events bearbeiten und absagen."
+
+msgid "Allows members to create events in this channel."
+msgstr "Events erstellen."
+
+msgid "Allows members to create events in these channels."
+msgstr "Events erstellen."
+
+msgid "Allows members to add new emoji reactions to a message in these channels. If this permission is disabled, members can still react using any existing reactions on a message."
+msgstr "Neue Emoji-Reaktionen hinzufügen. Vorhandene Reaktionen bleiben auch ohne diese Berechtigung nutzbar."
+
+msgid "Allows members to add new emoji reactions to a message in this channel and send reactions in voice channels. If this permission is disabled, members can still react using any existing reactions on a message."
+msgstr "Neue Emoji-Reaktionen zu Nachrichten hinzufügen und Reaktionen im Sprachkanal senden. Vorhandene Nachrichtenreaktionen bleiben auch ohne diese Berechtigung nutzbar."
+
+msgid "Allows members to add new emoji reactions to a message in this channel. If this permission is disabled, members can still react using any existing reactions on a message."
+msgstr "Neue Emoji-Reaktionen hinzufügen. Vorhandene Reaktionen bleiben auch ohne diese Berechtigung nutzbar."
+
+msgid "Allows members to join these voice channels and hear others. Disabling this and the View Channel permissions for @everyone will make these channels private."
+msgstr "Diesen Sprachkanälen beitreten und andere hören. Um die Kanäle privat zu machen, die Rechte zum Verbinden und Ansehen für @everyone deaktivieren."
+
+msgid "Allows members to join this voice channel and hear others. Disabling this and the View Channel permissions for @everyone will make this channel private."
+msgstr "Diesem Sprachkanal beitreten und andere hören. Um den Kanal privat zu machen, die Rechte zum Verbinden und Ansehen für @everyone deaktivieren."
+
+msgid "Allows members to join these voice channels and hear others."
+msgstr "Diesen Sprachkanälen beitreten und andere hören."
+
+msgid "Allows members to join this voice channel and hear others."
+msgstr "Diesem Sprachkanal beitreten und andere hören."
+
+msgid "Manage Threads"
+msgstr "Threads verwalten"
+
+msgid "Allows members to rename, delete, close, and turn on slow mode for threads in this channel. They can also view private threads."
+msgstr "Threads umbenennen, löschen, schließen und den Langsammodus aktivieren. Auch private Threads ansehen."
+
+msgid "Allows members to rename, delete, close, and turn on slow mode for threads and posts in these channels. They can also view private threads."
+msgstr "Threads und Beiträge umbenennen, löschen, schließen und den Langsammodus aktivieren. Auch private Threads ansehen."
+
+msgid "Send Messages in Threads"
+msgstr "In Threads schreiben"
+
+msgid "Allow members to send messages in threads under this channel."
+msgstr "Nachrichten in Threads des Kanals senden."
+
+msgid "Allow members to send messages in threads and posts under these channels."
+msgstr "Nachrichten in Threads und Beiträgen dieser Kanäle senden."
+
+msgid "Allows members to send voice messages in this channel. Requires the \"Attach Files\" permission as well."
+msgstr "Sprachnachrichten senden. Dazu ist auch die Berechtigung zum Anhängen von Dateien nötig."
+
+msgid "Allows members to send voice messages in these channels. Requires the \"Attach Files\" permission as well."
+msgstr "Sprachnachrichten senden. Dazu ist auch die Berechtigung zum Anhängen von Dateien nötig."
+
+msgid "Custom Keybinds"
+msgstr "Eigene Tastenkürzel"
+
+msgid "Default Keybinds"
+msgstr "Standard-Tastenkürzel"
+
+msgid "FONT"
+msgstr "SCHRIFT"
+
+msgid "LINKS"
+msgstr "LINKS"
+
+msgid "My account"
+msgstr "Mein Konto"
+
+msgid "Game activity"
+msgstr "Spielaktivität"
+
+msgid "CUSTOM GAMES"
+msgstr "EIGENE SPIELE"
+
+msgid "NEVER SHOW AS A GAME"
+msgstr "NIE ALS SPIEL ANZEIGEN"
+
+msgid "SOUND SET"
+msgstr "TONPAKET"
+
+msgid "Blocked accounts"
+msgstr "Blockierte Konten"
+
+msgid "UPDATES"
+msgstr "UPDATES"
+
+msgid "THEME"
+msgstr "DESIGN"
+
+msgid "PROFILES"
+msgstr "PROFILE"
+
+msgid "MEMBER LIST"
+msgstr "MITGLIEDERLISTE"
+
+msgid "START FROM"
+msgstr "ALS GRUNDLAGE VERWENDEN"
+
+msgid "EVERY COLOUR"
+msgstr "ALLE FARBEN"
+
+msgid "Voice & video"
+msgstr "Sprache und Video"
+
+msgid "MICROPHONE"
+msgstr "MIKROFON"
+
+msgid "SPEAKERS"
+msgstr "LAUTSPRECHER"
+
+msgid "CAMERA"
+msgstr "KAMERA"
+
+msgid "PREVIEW"
+msgstr "VORSCHAU"
+
+msgid "INPUT MODE"
+msgstr "EINGABEMODUS"
+
+msgid "NOISE SUPPRESSION IN DISCORD CALLS"
+msgstr "GERÄUSCHUNTERDRÜCKUNG IN DISCORD-ANRUFEN"
+
+msgid "NOISE SUPPRESSION STRENGTH"
+msgstr "STÄRKE DER GERÄUSCHUNTERDRÜCKUNG"
+
+msgid "SOUNDBOARD VOLUME"
+msgstr "SOUNDBOARD-LAUTSTÄRKE"
+
+msgid "ENTRANCE SOUNDS"
+msgstr "BEITRITTSTÖNE"
+
+msgid "PUSH TO TALK KEYBIND"
+msgstr "TASTE FÜR PUSH-TO-TALK"
+
+msgid "PUSH TO TALK RELEASE DELAY"
+msgstr "VERZÖGERUNG NACH LOSLASSEN DER PUSH-TO-TALK-TASTE"
+
+msgid "INPUT SENSITIVITY IN DISCORD CALLS"
+msgstr "MIKROFONEMPFINDLICHKEIT IN DISCORD-ANRUFEN"
+
+msgid "Input sensitivity"
+msgstr "Mikrofonempfindlichkeit"
+
+msgid "MIC TEST"
+msgstr "MIKROFONTEST"
+
+msgid "INSTALLED"
+msgstr "INSTALLIERT"
+
+msgid "THEMES THAT COULDN'T BE OPENED"
+msgstr "DESIGNS, DIE NICHT GEÖFFNET WERDEN KONNTEN"
+
+msgid "YOUR THEMES"
+msgstr "DEINE DESIGNS"
+
+msgid "Click one to show it, or its pencil to edit it."
+msgstr "Klicke auf ein Design, um es anzuzeigen, oder auf den Stift, um es zu bearbeiten."
+
+msgid "PEOPLE'S CONTENT"
+msgstr "INHALTE ANDERER PERSONEN"
+
+msgid "SOUNDS"
+msgstr "TÖNE"
+
+msgid "THEME OPTIONS"
+msgstr "DESIGNOPTIONEN"
+
+msgid "PERFORMANCE"
+msgstr "LEISTUNG"
+
+msgid "MOTION"
+msgstr "ANIMATION"
+
+msgid "Active account"
+msgstr "Aktives Konto"
+
+msgid "Local preview: sample data. Nothing leaves this computer."
+msgstr "Lokale Vorschau mit Beispieldaten. Die Daten bleiben auf diesem Computer."
+
+msgid "Browse Channels"
+msgstr "Kanäle durchsuchen"
+
+msgid "Protip:"
+msgstr "Tipp"
+
+msgid "There are no threads."
+msgstr "Es gibt noch keine Threads."
+
+msgid "Stay focused on a conversation with a thread - a temporary text channel."
+msgstr "Erstelle einen Thread, um ein Thema in einem eigenen temporären Textkanal zu besprechen."
+
+msgid "Multi-Factor Authentication"
+msgstr "Mehrstufige Authentifizierung"
+
+msgid "Slow down! Are you sure?"
+msgstr "Bist du sicher?"
+
+msgid "Manage Accounts"
+msgstr "Konten verwalten"
+
+msgid "Playing"
+msgstr "Spielt"
+
+msgid "CLEAR AFTER"
+msgstr "LÖSCHEN NACH"
+
+msgid "PREVIOUS CHANNELS"
+msgstr "LETZTE KANÄLE"
+
+msgid "MENTIONS"
+msgstr "ERWÄHNUNGEN"
+
+msgid "Nothing goes by that name."
+msgstr "Unter diesem Namen wurde nichts gefunden."
+
+msgid "Start a search with @ for people, # for text channels, ! for voice channels or * for servers."
+msgstr "Beginne die Suche mit @ für Personen, # für Textkanäle, ! für Sprachkanäle oder * für Server."
+
+msgid "Allow Multiple Answers"
+msgstr "Mehrere Antworten erlauben"
+
+msgid "Are you sure you want to go?"
+msgstr "Möchtest du den Editor verlassen?"
+
+msgid "Any changes you made will be lost if you exit now."
+msgstr "Wenn du jetzt gehst, gehen deine Änderungen verloren."
+
+msgid "Upload to "
+msgstr "Hochladen nach "
+
+msgid "You can add comments before uploading."
+msgstr "Vor dem Hochladen kannst du einen Kommentar hinzufügen."
+
+msgid "ex. True"
+msgstr "Z. B. True"
+
+msgid "Filters"
+msgstr "Filter"
+
+msgid "Unable to add filter"
+msgstr "Filter kann nicht hinzugefügt werden"
+
+msgid "You have reached the maximum length for a search query."
+msgstr "Die Suchanfrage hat die maximale Länge erreicht."
+
+msgid "No results"
+msgstr "Keine Ergebnisse"
+
+msgid "dates, author type, and more"
+msgstr "Datum, Autorentyp und mehr"
+
+msgid "Role is locked because it is your highest ranked role. Please ask a higher rank or Server Owner for help."
+msgstr "Diese Rolle ist gesperrt, weil sie deine höchste Rolle ist. Bitte den Serverinhaber oder jemanden mit einer höheren Rolle um Hilfe."
+
+msgid "Role is locked because it is a higher rank than your highest role."
+msgstr "Diese Rolle ist gesperrt, weil sie über deiner höchsten Rolle steht."
+
+msgid "Edit Role — {name}"
+msgstr "Rolle bearbeiten – {name}"
+
+msgid "Manage Members ({count})"
+msgstr "Mitglieder verwalten ({count})"
+
+msgid "Give it a name."
+msgstr "Gib einen Namen ein."
+
+msgid "Names can be up to 100 characters."
+msgstr "Namen dürfen höchstens 100 Zeichen lang sein."
+
+msgid "Topics can be up to 1024 characters."
+msgstr "Kanalthemen dürfen höchstens 1024 Zeichen lang sein."
+
+msgid "The server name must be between 2 and 100 characters."
+msgstr "Der Servername muss zwischen 2 und 100 Zeichen lang sein."
+
+msgid "The description can be up to 300 characters."
+msgstr "Die Beschreibung darf höchstens 300 Zeichen lang sein."
+
+msgid "Give the role a name."
+msgstr "Gib der Rolle einen Namen."
+
+msgid "Role names can be up to 100 characters."
+msgstr "Rollennamen dürfen höchstens 100 Zeichen lang sein."
+
+msgid "Forwarded"
+msgstr "Weitergeleitet"
+
+msgid "The application did not respond"
+msgstr "Die Anwendung hat nicht geantwortet"
+
+msgid "used"
+msgstr "verwendete"
+
+msgid "Dismiss message"
+msgstr "Nachricht ausblenden"
+
+msgid "Only you can see this ·"
+msgstr "Nur du kannst das sehen ·"
+
+msgid "Blocked user"
+msgstr "Blockierte Person"
+
+msgid "Blocked message."
+msgstr "Nachricht einer blockierten Person."
+
+msgid "Show it"
+msgstr "Anzeigen"
+
+msgid "Ignored user"
+msgstr "Ignorierte Person"
+
+msgid "Ignored message."
+msgstr "Nachricht einer ignorierten Person."
+
+msgid "Show more"
+msgstr "Mehr anzeigen"
+
+msgid "Show less"
+msgstr "Weniger anzeigen"
+
+msgid "Not sent yet. Yapfast sends it when the connection returns."
+msgstr "Noch nicht gesendet. Yapfast sendet die Nachricht, sobald die Verbindung wiederhergestellt ist."
+
+msgid "Not sent."
+msgstr "Nachricht nicht gesendet."
+
+msgid "Not sent. The server refused this message."
+msgstr "Der Server hat die Nachricht abgelehnt."
+
+msgid "Users with the \"Pin Messages\" permission can pin a message from its context menu."
+msgstr "Mit der Berechtigung zum Anheften können Mitglieder Nachrichten über das Kontextmenü anheften."
+
+msgid "Yapfast can't fill this part yet."
+msgstr "Yapfast unterstützt dieses Feld noch nicht."
+
+msgid "Choose files"
+msgstr "Dateien auswählen"
+
+msgid "No matching options."
+msgstr "Keine passenden Optionen."
+
+msgid "Voice Privacy Code"
+msgstr "Datenschutzcode für den Sprachanruf"
+
+msgid "Changes apply immediately"
+msgstr "Änderungen werden sofort übernommen"
+
+msgid "INPUT LEVEL"
+msgstr "EINGANGSPEGEL"
+
+msgid "Loading sounds..."
+msgstr "Sounds werden geladen …"
+
+msgid "Yapfast can't show this part of the message yet."
+msgstr "Yapfast kann diesen Teil der Nachricht noch nicht anzeigen."
+
+msgid "THEIR NICKNAME"
+msgstr "SPITZNAME"
+
+msgid "Private Profile"
+msgstr "Privates Profil"
+
+msgid "View full bio"
+msgstr "Vollständige Bio ansehen"
+
+msgid "Recent activity"
+msgstr "Letzte Aktivitäten"
+
+msgid "This one only shows in Discord for now."
+msgstr "Dies ist derzeit nur in Discord sichtbar."
+
+msgid "Adding more from Yapfast is coming soon."
+msgstr "Das Hinzufügen in Yapfast ist bald möglich."
+
+msgid "Click to add a note"
+msgstr "Klicke, um eine Notiz hinzuzufügen"
+
+msgid "Reading..."
+msgstr "Wird gelesen …"
+
+msgid "Set a custom status"
+msgstr "Eigenen Status festlegen"
+
+msgid "Make unique profiles for each server"
+msgstr "Erstelle ein eigenes Profil für jeden Server"
+
+msgid "You can use markdown and links if you'd like."
+msgstr "Du kannst Markdown und Links verwenden."
+
+msgid "Change Display Name Style"
+msgstr "Stil des Anzeigenamens ändern"
+
+msgid "Colours and effects don't show in servers, and may look different across Discord."
+msgstr "Farben und Effekte erscheinen auf Servern nicht und können in Discord unterschiedlich aussehen."
+
+msgid "Banner color"
+msgstr "Bannerfarbe"
+
+msgid "Not a colour"
+msgstr "Ungültige Farbe"
+
+msgid "Server Tag"
+msgstr "Server-Tag"
+
+msgid "No banner"
+msgstr "Kein Banner"
+
+msgid "Effect on"
+msgstr "Effekt aktiv"
+
+msgid "Main Profile"
+msgstr "Hauptprofil"
+
+msgid "Your stream is still running!"
+msgstr "Dein Stream läuft weiter!"
+
+msgid "We’ve paused this preview to save your resources."
+msgstr "Die Vorschau wurde pausiert, um dein Gerät zu entlasten."
+
+msgid "This channel is unencrypted. Yapfast only joins encrypted voice channels."
+msgstr "Dieser Kanal ist unverschlüsselt. Yapfast tritt nur verschlüsselten Sprachkanälen bei."
+
+msgid "Trending GIFs"
+msgstr "Beliebte GIFs"
+
+msgid "Your perfect GIF is in another castle. Try the suggested keywords below!"
+msgstr "Keine passenden GIFs gefunden. Probiere einen der vorgeschlagenen Suchbegriffe."
+
+msgid "Want to filter out search results from bots?"
+msgstr "Möchtest du Suchergebnisse von Bots ausblenden?"
+
+msgid "Search the marketplace"
+msgstr "Im Marktplatz suchen"
+
+msgid "The marketplace can't be shown right now"
+msgstr "Der Marktplatz ist gerade nicht verfügbar"
+
+msgid "Add from URL"
+msgstr "Per URL hinzufügen"
+
+msgid "You have them all"
+msgstr "Du hast bereits alle Designs"
+
+msgid "Every theme the marketplace lists is installed."
+msgstr "Alle Designs aus dem Marktplatz sind installiert."
+
+msgid "See your themes"
+msgstr "Deine Designs ansehen"
+
+msgid "Try another word, or a theme's author."
+msgstr "Versuche einen anderen Suchbegriff oder den Namen eines Autors."
+
+msgid "Clear the search"
+msgstr "Suche leeren"
+
+msgid "Fetching…"
+msgstr "Wird geladen …"
+
+msgid "Install"
+msgstr "Installieren"
+
+msgid "GITHUB REPOSITORY"
+msgstr "GITHUB-REPOSITORY"
+
+msgid "Finding…"
+msgstr "Wird gesucht …"
+
+msgid "Find theme"
+msgstr "Design finden"
+
+msgid "The address of a theme's public GitHub repository. A branch, tag or folder in the address works too."
+msgstr "Link zum öffentlichen GitHub-Repository des Designs. Ein Branch, Tag oder Ordner im Link funktioniert ebenfalls."
+
+msgid "WHAT HAPPENS NEXT"
+msgstr "WIE ES WEITERGEHT"
+
+msgid "Yapfast fetches the theme"
+msgstr "Yapfast lädt das Design"
+
+msgid "Straight from its repository, at the commit it's at now."
+msgstr "Direkt aus dem Repository, auf dem aktuellen Commit."
+
+msgid "Every file is checked"
+msgstr "Jede Datei wird geprüft"
+
+msgid "A theme is data, never code: colours, fonts, pictures and sounds, each within limits."
+msgstr "Ein Design enthält nur Daten: Farben, Schriften, Bilder und Sounds, jeweils innerhalb festgelegter Grenzen."
+
+msgid "You review it first"
+msgstr "Du prüfst das Design zuerst"
+
+msgid "You see what it changes and what it costs to run, and can try it for 30 seconds, before anything is installed."
+msgstr "Vor der Installation siehst du die Änderungen und den Ressourcenbedarf und kannst das Design 30 Sekunden lang ausprobieren."
+
+msgid "In the marketplace"
+msgstr "Im Marktplatz"
+
+msgid "Unreviewed source"
+msgstr "Ungeprüfte Quelle"
+
+msgid "No code · no permissions"
+msgstr "Kein Code · keine Berechtigungen"
+
+msgid "Works in"
+msgstr "Funktioniert in"
+
+msgid "Remixes"
+msgstr "Basiert auf"
+
+msgid "To run"
+msgstr "Ressourcenbedarf"
+
+msgid "Notification sounds"
+msgstr "Benachrichtigungstöne"
+
+msgid "Its sounds for messages, mentions, calls and the rest, in place of Yapfast's."
+msgstr "Die Sounds des Designs für Nachrichten, Erwähnungen, Anrufe und andere Ereignisse verwenden."
+
+msgid "Interface sounds — clicks, hovers, menus, send"
+msgstr "Oberflächentöne für Klicks, Zeiger, Menüs und Senden"
+
+msgid "Only while Yapfast is in front. You can change both later in Settings → Themes."
+msgstr "Nur wenn Yapfast im Vordergrund ist. Beides lässt sich unter Einstellungen → Designs ändern."
+
+msgid "Let the theme style people's profiles and media"
+msgstr "Profile und Medien anderer Personen mit dem Design gestalten"
+
+msgid "Try 30 s"
+msgstr "30 Sek. ausprobieren"
+
+msgid "Details"
+msgstr "Details"
+
+msgid "Not everything in it is used"
+msgstr "Einige Elemente des Designs werden nicht verwendet"
+
+msgid "Add an account"
+msgstr "Konto hinzufügen"
+
+msgid "Switch"
+msgstr "Wechseln"
+
+msgid "Follow category"
+msgstr "Kategorie folgen"
+
+msgid "Okay"
+msgstr "OK"
+
+msgid "Add tags"
+msgstr "Tags hinzufügen"
+
+msgid "Create"
+msgstr "Erstellen"
+
+msgid "Go to server"
+msgstr "Zum Server wechseln"
+
+msgid "I’m sure, use a backup code"
+msgstr "Backup-Code verwenden"
+
+msgid "Verify with something else"
+msgstr "Andere Bestätigungsmethode wählen"
+
+msgid "Resend Code"
+msgstr "Code erneut senden"
+
+msgid "Retry"
+msgstr "Erneut versuchen"
+
+msgid "Show results"
+msgstr "Ergebnisse anzeigen"
+
+msgid "Apply Filters"
+msgstr "Filter anwenden"
+
+msgid "Back to editing"
+msgstr "Zur Bearbeitung zurück"
+
+msgid "Add date"
+msgstr "Datum hinzufügen"
+
+msgid "Surprise Me"
+msgstr "Überrasch mich"
+
+msgid "Apply"
+msgstr "Anwenden"
+
+msgid "Default"
+msgstr "Standard"
+
+msgid "Browse themes"
+msgstr "Designs durchsuchen"
