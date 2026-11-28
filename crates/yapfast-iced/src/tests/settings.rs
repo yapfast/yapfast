@@ -1567,9 +1567,17 @@ fn preferences_are_kept_across_a_restart() {
         "{time}"
     );
     open(&mut app, Section::Notifications);
-    interact(&mut app, |ui| {
-        ui.click("Flash the taskbar").expect("the switch");
-    });
+    // Only Windows offers it, as Discord's client does.
+    if cfg!(windows) {
+        interact(&mut app, |ui| {
+            ui.click("Flash the taskbar").expect("the switch");
+        });
+    } else {
+        assert!(!shows(&app, "Flash the taskbar"));
+        let _ = app.update(crate::settings::pref_message(
+            crate::settings::Pref::FlashTaskbar(false),
+        ));
+    }
     open(&mut app, Section::Advanced);
     interact(&mut app, |ui| {
         ui.click("Developer Mode").expect("the switch");

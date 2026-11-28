@@ -109,8 +109,14 @@ own, which a stream hands to the event loop as messages; nothing polls.
   front (`App::reads`), said with each of the timeline's reports and as
   the focus changes, so what comes while Yapfast is behind stays unread.
 - New messages: a sound unless it's
-  the conversation in front; while Yapfast isn't in front the taskbar
-  flashes and a notification shows, as the settings allow. A click on the
+  the conversation in front; while Yapfast isn't in front a notification
+  shows, as the settings allow, and on Windows the taskbar flashes with
+  it ("Flash the taskbar", on by default), as Discord's client flashes
+  only on Windows and only with a notification. Linux asks the desktop
+  for nothing: on Wayland winit's `request_user_attention` is an
+  xdg-activation `activate`, which a compositor set to honour them
+  (Hyprland's `misc:focus_on_activate`, sway's focus) answers by focusing
+  the window and switching to its workspace. A click on the
   notification opens its conversation, closing Settings, and brings the
   window back.
   On Windows the taskbar icon counts the mentions and unread DMs that

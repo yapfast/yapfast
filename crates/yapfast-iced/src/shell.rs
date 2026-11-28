@@ -843,8 +843,12 @@ impl App {
 
     /// A new message the core says to tell of: it sounds unless it's in the
     /// conversation in front (a call rings instead); while Yapfast isn't in
-    /// front, the taskbar flashes and a notification shows, as the settings
-    /// allow.
+    /// front, a notification shows, as the settings allow, and on Windows
+    /// the taskbar flashes with it, as Discord's client flashes only there
+    /// and only with a notification. Linux asks nothing of the desktop: on
+    /// Wayland, winit's attention request is an xdg-activation, which some
+    /// compositors answer by focusing the window and switching to its
+    /// workspace.
     fn alert(&self, alert: Alert) -> Task<Message> {
         let focused = self.shell.focused;
         let reading = focused && self.client.state().selected.as_ref() == Some(&alert.room);
@@ -860,17 +864,16 @@ impl App {
         }
         let prefs = &self.layout.prefs;
         let mut task = Task::none();
-        if !focused
-            && !alert.call
-            && prefs.flash_taskbar.unwrap_or(true)
-            && let Some(id) = self.shell.window
-        {
-            task = window::request_user_attention(id, Some(window::UserAttention::Informational));
-        }
         if prefs.notifications.unwrap_or(true)
             && !focused
             && let Some(notifier) = &self.shell.notifier
         {
+            if flashes(alert.call, prefs.flash_taskbar)
+                && let Some(id) = self.shell.window
+            {
+                task =
+                    window::request_user_attention(id, Some(window::UserAttention::Informational));
+            }
             notifier.show(alert, prefs.notification_text.unwrap_or(true));
         }
         task
@@ -1051,4 +1054,11 @@ impl App {
             _ => None,
         })
     }
+}
+
+/// Whether a message's notification flashes the taskbar: on Windows, as
+/// "Flash the taskbar" has it (on unless turned off), never for a call,
+/// which rings; never elsewhere.
+fn flashes(call: bool, flash_taskbar: Option<bool>) -> bool {
+    cfg!(windows) && !call && flash_taskbar.unwrap_or(true)
 }
