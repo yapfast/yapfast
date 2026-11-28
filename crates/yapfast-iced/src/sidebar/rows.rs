@@ -474,11 +474,11 @@ pub fn sidebar_in(
         .any(|row| matches!(row, SideRow::Room(_) | SideRow::Heading { .. }))
     {
         let empty = if state.rooms_in(navigation).next().is_some() {
-            "No matching conversations."
+            crate::i18n::tr_mark!("No matching conversations.")
         } else if direct {
-            "No direct messages yet. Existing DMs appear here after syncing."
+            crate::i18n::tr_mark!("No direct messages yet. Existing DMs appear here after syncing.")
         } else {
-            "No channels in this server that you can see."
+            crate::i18n::tr_mark!("No channels in this server that you can see.")
         };
         rows.push(SideRow::Empty(empty));
     }
@@ -743,9 +743,9 @@ fn favorite_rows(
         }
     }
     if rows.is_empty() {
-        rows.push(SideRow::Empty(
-            "No Favorites yet. Right-click a Discord channel or DM to add one.",
-        ));
+        rows.push(SideRow::Empty(crate::i18n::tr_mark!(
+            "No Favorites yet. Right-click a Discord channel or DM to add one."
+        )));
     }
     rows
 }

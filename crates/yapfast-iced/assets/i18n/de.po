@@ -573,3 +573,237 @@ msgstr "Erwähnungen bleiben hier 7 Tage lang sichtbar."
 
 msgid "More channels with mentions"
 msgstr "Weitere Kanäle mit Erwähnungen"
+
+msgid "Hide member list"
+msgstr "Mitgliederliste ausblenden"
+
+msgid "Show member list"
+msgstr "Mitgliederliste anzeigen"
+
+msgid "Show voice channel"
+msgstr "Sprachkanal anzeigen"
+
+msgid "Open chat"
+msgstr "Chat öffnen"
+
+msgid "Join Voice Call"
+msgstr "An Sprachanruf teilnehmen"
+
+msgid "Start Voice Call"
+msgstr "Sprachanruf starten"
+
+msgid "Start Video Call"
+msgstr "Videoanruf starten"
+
+msgid "Threads"
+msgstr "Threads"
+
+msgid "Notification settings, muted"
+msgstr "Benachrichtigungseinstellungen (stummgeschaltet)"
+
+msgid "Notification settings"
+msgstr "Benachrichtigungseinstellungen"
+
+msgid "Pinned messages"
+msgstr "Angeheftete Nachrichten"
+
+msgid "Add friends to DM"
+msgstr "Freunde zur Direktnachricht hinzufügen"
+
+msgid "Add friends to the group"
+msgstr "Freunde zur Gruppe hinzufügen"
+
+msgid "Hide profile"
+msgstr "Profil ausblenden"
+
+msgid "Show profile"
+msgstr "Profil anzeigen"
+
+msgid "New message"
+msgstr "Neue Nachricht"
+
+msgid "Browse channels"
+msgstr "Kanäle durchsuchen"
+
+msgid "Create Channel"
+msgstr "Kanal erstellen"
+
+msgid "Create invite"
+msgstr "Einladung erstellen"
+
+msgid "Official Discord Message"
+msgstr "Offizielle Discord-Nachricht"
+
+msgid "Wave"
+msgstr "Winken"
+
+msgid "Find or start a conversation"
+msgstr "Unterhaltung finden oder starten"
+
+msgid "Find a conversation"
+msgstr "Unterhaltung finden"
+
+msgid "Invite people"
+msgstr "Leute einladen"
+
+msgid "Speaking is restricted in this channel"
+msgstr "Sprechen ist in diesem Kanal eingeschränkt"
+
+msgid "Connected on another client"
+msgstr "Über einen anderen Client verbunden"
+
+msgid "No requests"
+msgstr "Keine Anfragen"
+
+msgid "Friend requests and messages from people you don't know show up here."
+msgstr "Hier erscheinen Freundschaftsanfragen und Nachrichten von Personen, die du nicht kennst."
+
+msgid "Maybe spam"
+msgstr "Möglicherweise Spam"
+
+msgid "Sent you a friend request and a message"
+msgstr "Hat dir eine Freundschaftsanfrage und eine Nachricht gesendet"
+
+msgid "Sent you a friend request"
+msgstr "Hat dir eine Freundschaftsanfrage gesendet"
+
+msgid "You sent a friend request"
+msgstr "Du hast eine Freundschaftsanfrage gesendet"
+
+msgid "Wants to message you"
+msgstr "Möchte dir eine Nachricht senden"
+
+msgid "Cancel"
+msgstr "Abbrechen"
+
+msgid "Open to read their message"
+msgstr "Öffne die Unterhaltung, um die Nachricht zu lesen"
+
+msgid "New"
+msgstr "Neu"
+
+msgid "Active Now"
+msgstr "Jetzt aktiv"
+
+msgid "It's quiet for now..."
+msgstr "Hier ist es gerade ruhig …"
+
+msgid "When a friend starts an activity — like playing a game or hanging out on voice — we'll show it here!"
+msgstr "Hier siehst du, wenn Freunde ein Spiel starten oder einem Sprachkanal beitreten."
+
+msgid "Search {target}"
+msgstr "{target} durchsuchen"
+
+msgid "No matching conversations."
+msgstr "Keine passenden Unterhaltungen."
+
+msgid "No direct messages yet. Existing DMs appear here after syncing."
+msgstr "Noch keine Direktnachrichten. Bestehende Unterhaltungen erscheinen nach der Synchronisierung."
+
+msgid "No channels in this server that you can see."
+msgstr "Du kannst auf diesem Server keine Kanäle sehen."
+
+msgid "No Favorites yet. Right-click a Discord channel or DM to add one."
+msgstr "Noch keine Favoriten. Klicke mit der rechten Maustaste auf einen Discord-Kanal oder eine Direktnachricht, um sie hinzuzufügen."
+
+msgid "REQUESTS"
+msgstr "ANFRAGEN"
+
+msgid "SENT"
+msgstr "GESENDET"
+
+msgid "SPAM"
+msgstr "SPAM"
+
+msgid "Voice disconnected"
+msgstr "Sprachverbindung getrennt"
+
+msgid "Joining voice..."
+msgstr "Sprachverbindung wird hergestellt …"
+
+msgid "Preview voice"
+msgstr "Vorschau der Sprachverbindung"
+
+msgid "Voice connected"
+msgstr "Sprachverbindung hergestellt"
+
+msgid "Reconnecting voice..."
+msgstr "Sprachverbindung wird wiederhergestellt …"
+
+msgid "Leaving voice..."
+msgstr "Sprachverbindung wird getrennt …"
+
+msgid "Turn off noise suppression"
+msgstr "Geräuschunterdrückung ausschalten"
+
+msgid "Turn on noise suppression"
+msgstr "Geräuschunterdrückung einschalten"
+
+msgid "Leave voice"
+msgstr "Sprachkanal verlassen"
+
+msgid "Open Soundboard"
+msgstr "Soundboard öffnen"
+
+msgid "Starting camera..."
+msgstr "Kamera wird gestartet …"
+
+msgid "Turn off camera"
+msgstr "Kamera ausschalten"
+
+msgid "Turn on camera"
+msgstr "Kamera einschalten"
+
+msgid "Switch screen or window"
+msgstr "Bildschirm oder Fenster wechseln"
+
+msgid "Share your screen"
+msgstr "Bildschirm teilen"
+
+msgid "Your screen"
+msgstr "Dein Bildschirm"
+
+msgid "Stop sharing"
+msgstr "Bildschirmfreigabe beenden"
+
+msgid "Newer messages"
+msgstr "Neuere Nachrichten"
+
+msgid "Earlier messages"
+msgstr "Ältere Nachrichten"
+
+msgid "Welcome to"
+msgstr "Willkommen auf"
+
+msgid "This is the beginning of this server."
+msgstr "Hier beginnt der Serververlauf."
+
+msgid "Unblock"
+msgstr "Blockierung aufheben"
+
+msgid "Accept Request"
+msgstr "Anfrage annehmen"
+
+msgid "Ignore Request"
+msgstr "Anfrage ignorieren"
+
+msgid "Friend Request Sent"
+msgstr "Freundschaftsanfrage gesendet"
+
+msgid "Remove Friend"
+msgstr "Freund entfernen"
+
+msgid "Block"
+msgstr "Blockieren"
+
+msgid "Loading conversation..."
+msgstr "Unterhaltung wird geladen …"
+
+msgid "Mark as read"
+msgstr "Als gelesen markieren"
+
+msgid "Jump to present"
+msgstr "Zu den neuesten Nachrichten springen"
+
+msgid "You're viewing older messages"
+msgstr "Du siehst dir ältere Nachrichten an"

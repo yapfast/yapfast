@@ -573,3 +573,237 @@ msgstr "Упоминания сохраняются здесь на 7 дней."
 
 msgid "More channels with mentions"
 msgstr "Другие каналы с упоминаниями"
+
+msgid "Hide member list"
+msgstr "Скрыть список участников"
+
+msgid "Show member list"
+msgstr "Показать список участников"
+
+msgid "Show voice channel"
+msgstr "Показать голосовой канал"
+
+msgid "Open chat"
+msgstr "Открыть чат"
+
+msgid "Join Voice Call"
+msgstr "Присоединиться к звонку"
+
+msgid "Start Voice Call"
+msgstr "Начать голосовой звонок"
+
+msgid "Start Video Call"
+msgstr "Начать видеозвонок"
+
+msgid "Threads"
+msgstr "Ветки"
+
+msgid "Notification settings, muted"
+msgstr "Настройки уведомлений (звук выключен)"
+
+msgid "Notification settings"
+msgstr "Настройки уведомлений"
+
+msgid "Pinned messages"
+msgstr "Закреплённые сообщения"
+
+msgid "Add friends to DM"
+msgstr "Добавить друзей в переписку"
+
+msgid "Add friends to the group"
+msgstr "Добавить друзей в группу"
+
+msgid "Hide profile"
+msgstr "Скрыть профиль"
+
+msgid "Show profile"
+msgstr "Показать профиль"
+
+msgid "New message"
+msgstr "Новое сообщение"
+
+msgid "Browse channels"
+msgstr "Обзор каналов"
+
+msgid "Create Channel"
+msgstr "Создать канал"
+
+msgid "Create invite"
+msgstr "Создать приглашение"
+
+msgid "Official Discord Message"
+msgstr "Официальное сообщение Discord"
+
+msgid "Wave"
+msgstr "Помахать"
+
+msgid "Find or start a conversation"
+msgstr "Найти или начать разговор"
+
+msgid "Find a conversation"
+msgstr "Найти разговор"
+
+msgid "Invite people"
+msgstr "Пригласить людей"
+
+msgid "Speaking is restricted in this channel"
+msgstr "В этом канале нельзя говорить"
+
+msgid "Connected on another client"
+msgstr "Подключено в другом клиенте"
+
+msgid "No requests"
+msgstr "Нет запросов"
+
+msgid "Friend requests and messages from people you don't know show up here."
+msgstr "Здесь появятся запросы в друзья и сообщения от незнакомых людей."
+
+msgid "Maybe spam"
+msgstr "Возможно, спам"
+
+msgid "Sent you a friend request and a message"
+msgstr "Отправил(а) вам запрос в друзья и сообщение"
+
+msgid "Sent you a friend request"
+msgstr "Отправил(а) вам запрос в друзья"
+
+msgid "You sent a friend request"
+msgstr "Вы отправили запрос в друзья"
+
+msgid "Wants to message you"
+msgstr "Хочет написать вам"
+
+msgid "Cancel"
+msgstr "Отмена"
+
+msgid "Open to read their message"
+msgstr "Откройте переписку, чтобы прочитать сообщение"
+
+msgid "New"
+msgstr "Новое"
+
+msgid "Active Now"
+msgstr "Активность друзей"
+
+msgid "It's quiet for now..."
+msgstr "Пока здесь тихо…"
+
+msgid "When a friend starts an activity — like playing a game or hanging out on voice — we'll show it here!"
+msgstr "Здесь будет видно, когда кто-то из друзей начнёт играть или присоединится к голосовому каналу."
+
+msgid "Search {target}"
+msgstr "Поиск в {target}"
+
+msgid "No matching conversations."
+msgstr "Подходящих разговоров нет."
+
+msgid "No direct messages yet. Existing DMs appear here after syncing."
+msgstr "Личных сообщений пока нет. Существующие переписки появятся после синхронизации."
+
+msgid "No channels in this server that you can see."
+msgstr "На этом сервере нет доступных вам каналов."
+
+msgid "No Favorites yet. Right-click a Discord channel or DM to add one."
+msgstr "В избранном пока пусто. Чтобы добавить канал или переписку Discord, щёлкните по ним правой кнопкой мыши."
+
+msgid "REQUESTS"
+msgstr "ЗАПРОСЫ"
+
+msgid "SENT"
+msgstr "ОТПРАВЛЕННЫЕ"
+
+msgid "SPAM"
+msgstr "СПАМ"
+
+msgid "Voice disconnected"
+msgstr "Голосовая связь отключена"
+
+msgid "Joining voice..."
+msgstr "Подключение к голосовому каналу…"
+
+msgid "Preview voice"
+msgstr "Предпросмотр голосовой связи"
+
+msgid "Voice connected"
+msgstr "Голосовая связь подключена"
+
+msgid "Reconnecting voice..."
+msgstr "Восстановление голосовой связи…"
+
+msgid "Leaving voice..."
+msgstr "Отключение голосовой связи…"
+
+msgid "Turn off noise suppression"
+msgstr "Выключить шумоподавление"
+
+msgid "Turn on noise suppression"
+msgstr "Включить шумоподавление"
+
+msgid "Leave voice"
+msgstr "Отключиться от голосового канала"
+
+msgid "Open Soundboard"
+msgstr "Открыть звуковую панель"
+
+msgid "Starting camera..."
+msgstr "Включение камеры…"
+
+msgid "Turn off camera"
+msgstr "Выключить камеру"
+
+msgid "Turn on camera"
+msgstr "Включить камеру"
+
+msgid "Switch screen or window"
+msgstr "Сменить экран или окно"
+
+msgid "Share your screen"
+msgstr "Показать свой экран"
+
+msgid "Your screen"
+msgstr "Ваш экран"
+
+msgid "Stop sharing"
+msgstr "Остановить демонстрацию"
+
+msgid "Newer messages"
+msgstr "Более новые сообщения"
+
+msgid "Earlier messages"
+msgstr "Более ранние сообщения"
+
+msgid "Welcome to"
+msgstr "Добро пожаловать на сервер"
+
+msgid "This is the beginning of this server."
+msgstr "Это начало истории сервера."
+
+msgid "Unblock"
+msgstr "Разблокировать"
+
+msgid "Accept Request"
+msgstr "Принять запрос"
+
+msgid "Ignore Request"
+msgstr "Игнорировать запрос"
+
+msgid "Friend Request Sent"
+msgstr "Запрос в друзья отправлен"
+
+msgid "Remove Friend"
+msgstr "Удалить из друзей"
+
+msgid "Block"
+msgstr "Заблокировать"
+
+msgid "Loading conversation..."
+msgstr "Загрузка переписки…"
+
+msgid "Mark as read"
+msgstr "Отметить как прочитанное"
+
+msgid "Jump to present"
+msgstr "К последним сообщениям"
+
+msgid "You're viewing older messages"
+msgstr "Вы просматриваете старые сообщения"

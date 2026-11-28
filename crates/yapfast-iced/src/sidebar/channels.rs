@@ -121,14 +121,22 @@ impl<'a> super::View<'a> {
                 badge,
             } => column![
                 self.link_row(
-                    ("screen:friends", Icon::Users, "Friends"),
+                    (
+                        "screen:friends",
+                        Icon::Users,
+                        crate::i18n::tr!(self.cx.i18n, "Friends")
+                    ),
                     *friends,
                     "",
                     Message::Side(Event::Friends),
                     true
                 ),
                 self.link_row(
-                    ("screen:requests", Icon::Inbox, "Requests"),
+                    (
+                        "screen:requests",
+                        Icon::Inbox,
+                        crate::i18n::tr!(self.cx.i18n, "Requests")
+                    ),
                     *requests,
                     badge,
                     Message::Side(Event::Requests),
@@ -143,7 +151,7 @@ impl<'a> super::View<'a> {
             })
             .into(),
             SideRow::DmHeading => row![
-                text("Direct Messages")
+                text(crate::i18n::tr!(self.cx.i18n, "Direct Messages"))
                     .size(12.0)
                     .font(SEMIBOLD)
                     .color(theme.muted)
@@ -152,7 +160,7 @@ impl<'a> super::View<'a> {
                     .look
                     .icon_button(
                         Icon::UserPlus,
-                        "Add a friend",
+                        crate::i18n::tr!(self.cx.i18n, "Add a friend"),
                         Message::Friends(crate::friends::Event::OpenAdd)
                     )
                     .size(24.0, 16)
@@ -161,7 +169,7 @@ impl<'a> super::View<'a> {
                     .look
                     .icon_button(
                         Icon::SquarePen,
-                        "New message",
+                        crate::i18n::tr!(self.cx.i18n, "New message"),
                         Message::Switcher(crate::switcher::Event::OpenNewDm)
                     )
                     .size(24.0, 16)
@@ -176,7 +184,11 @@ impl<'a> super::View<'a> {
             .align_y(Alignment::Center)
             .into(),
             SideRow::Browse { open } => container(self.link_row(
-                ("screen:browse", Icon::Hash, "Browse channels"),
+                (
+                    "screen:browse",
+                    Icon::Hash,
+                    crate::i18n::tr!(self.cx.i18n, "Browse channels"),
+                ),
                 *open,
                 "",
                 Message::Side(Event::Browse),
@@ -208,7 +220,7 @@ impl<'a> super::View<'a> {
             } => self.heading(name, fold, *collapsed, place),
             SideRow::Room(room) => self.room_rows(room, place),
             SideRow::Empty(words) => container(
-                text(*words)
+                text(self.cx.i18n.text(words))
                     .size(theme.type_size("body", 14.0))
                     .font(theme.font("body", REGULAR))
                     .color(theme.muted),
@@ -581,7 +593,7 @@ impl<'a> super::View<'a> {
                 .look
                 .icon_button(
                     Icon::Add,
-                    "Create Channel",
+                    crate::i18n::tr!(self.cx.i18n, "Create Channel"),
                     Message::Side(Event::CreateIn(fold.to_owned())),
                 )
                 .size(CHAT_BUTTON, 16)
@@ -727,7 +739,7 @@ impl<'a> super::View<'a> {
     /// screens' rows are `tall`, Discord's 38 px with its own greys.
     pub(super) fn link_row(
         self,
-        (id, icon, label): (&'static str, Icon, &'static str),
+        (id, icon, label): (&'static str, Icon, &'a str),
         selected: bool,
         badge: &str,
         message: Message,
@@ -1163,7 +1175,7 @@ impl<'a> super::View<'a> {
                     .look
                     .icon_button(
                         Icon::UserPlus,
-                        "Create invite",
+                        crate::i18n::tr!(self.cx.i18n, "Create invite"),
                         Message::Side(Event::InviteTo(room.id.clone())),
                     )
                     .size(CHAT_BUTTON, 16),
@@ -1177,7 +1189,7 @@ impl<'a> super::View<'a> {
                     .look
                     .icon_button(
                         Icon::Forum,
-                        "Open chat",
+                        crate::i18n::tr!(self.cx.i18n, "Open chat"),
                         Message::Side(Event::OpenChat(room.id.clone())),
                     )
                     .size(CHAT_BUTTON, 16),

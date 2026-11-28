@@ -491,10 +491,14 @@ pub fn view<'a>(ctx: crate::ctx::Ctx<'a>) -> Element<'a, Message> {
     // Discord's cards run from 17 px in to 16 px short of the right, and a
     // dark theme's column is a shade under the chat's.
     let mut page = column![
-        text(theme.heading("Active Now").into_owned())
-            .size(theme.header_size(20.0))
-            .font(theme.header_font(BOLD))
-            .color(theme.text)
+        text(
+            theme
+                .heading(crate::i18n::tr!(ctx.i18n, "Active Now"))
+                .into_owned()
+        )
+        .size(theme.header_size(20.0))
+        .font(theme.header_font(BOLD))
+        .color(theme.text)
     ]
     .spacing(10)
     .padding(Padding {
@@ -507,14 +511,14 @@ pub fn view<'a>(ctx: crate::ctx::Ctx<'a>) -> Element<'a, Message> {
     if ctx.active_now.is_empty() {
         page = page.push(
             column![
-                text("It's quiet for now...")
+                text(crate::i18n::tr!(ctx.i18n, "It's quiet for now..."))
                     .size(theme.type_size("headings", 16.0))
                     .font(theme.font("headings", BOLD))
                     .color(theme.text)
                     .width(Length::Fill)
                     .align_x(Alignment::Center),
                 text(
-                    "When a friend starts an activity \u{2014} like playing a game or hanging out on voice \u{2014} we'll show it here!"
+                    crate::i18n::tr!(ctx.i18n, "When a friend starts an activity \u{2014} like playing a game or hanging out on voice \u{2014} we'll show it here!")
                 )
                 .size(theme.type_size("body", 13.0))
                 .font(theme.font("body", crate::fonts::REGULAR))

@@ -119,10 +119,12 @@ recording. Each change is kept at once in
   supported desktop language at startup, matching regional tags to their
   base language (for example, `de-AT` to `de`). If no supported language is
   available, Yapfast uses English. An explicit choice is saved as a
-  language tag in `layout.json`. Settings navigation and the Language &
-  Time, Advanced, Messages, Notifications and Accessibility pages update immediately.
-  Search matches translated section names. Other screens use their
-  English source text.
+  language tag in `layout.json`. Translated text updates immediately,
+  including Settings navigation, labels and hints in the conversation
+  sidebar and header, the voice dock, message history controls and the
+  friend requests screen. Settings search
+  matches translated section names. Text outside the catalogs uses its
+  English source string.
 
   Time format offers Auto, 12-hour and 24-hour. Auto uses the system's
   regional time setting at startup and falls back to 24-hour if it is
@@ -163,7 +165,7 @@ recording. Each change is kept at once in
   ```sh
   git ls-files -- 'crates/yapfast-iced/src/*.rs' |
     xgettext --language=Rust --from-code=UTF-8 --keyword='tr!:2' \
-      --keyword='tr_mark!:1' --files-from=- --output=settings.pot
+      --keyword='tr_mark!:1' --files-from=- --output=interface.pot
   ```
 - Appearance (`appearance.rs`): each theme as a small window in its own
   colours, as many 150 px or wider across as fit; a click shows one and

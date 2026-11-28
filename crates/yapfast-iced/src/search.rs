@@ -254,7 +254,7 @@ impl Searching {
 /// something's typed.
 pub fn header_search<'a>(
     searching: &'a Searching,
-    placeholder: &str,
+    placeholder: String,
     cx: Ctx<'a>,
 ) -> Element<'a, Message> {
     let theme = cx.look.theme;
@@ -269,7 +269,7 @@ pub fn header_search<'a>(
     let input = Field::new(
         &searching.draft,
         iced::widget::Id::new(FIELD),
-        placeholder.into(),
+        placeholder,
         |event| match event {
             field::Event::Escape => Message::Search(Event::Escape),
             event => Message::Search(Event::Field(event)),

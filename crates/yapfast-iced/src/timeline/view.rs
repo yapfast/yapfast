@@ -555,12 +555,16 @@ pub(super) fn edge_button<'a>(
             format!("Couldn't load {which} messages. Retry"),
         )
     } else if newer {
-        (Icon::History, theme.secondary, "Newer messages".to_owned())
+        (
+            Icon::History,
+            theme.secondary,
+            crate::i18n::tr!(ctx.i18n, "Newer messages").to_owned(),
+        )
     } else {
         (
             Icon::History,
             theme.secondary,
-            "Earlier messages".to_owned(),
+            crate::i18n::tr!(ctx.i18n, "Earlier messages").to_owned(),
         )
     };
     let face = row![
@@ -617,11 +621,17 @@ pub(super) fn welcome<'a>(ctx: crate::ctx::Ctx<'a>) -> Element<'a, Message> {
     let note = match &edge.intro {
         Intro::Server(name) => {
             block = block
-                .push(title("Welcome to".to_owned(), SEMIBOLD))
+                .push(title(
+                    crate::i18n::tr!(ctx.i18n, "Welcome to").to_owned(),
+                    SEMIBOLD,
+                ))
                 .push(title(name.clone(), SEMIBOLD));
-            text("This is the beginning of this server.")
-                .size(theme.type_size("body", 14.0))
-                .font(theme.font("body", crate::fonts::REGULAR))
+            text(crate::i18n::tr!(
+                ctx.i18n,
+                "This is the beginning of this server."
+            ))
+            .size(theme.type_size("body", 14.0))
+            .font(theme.font("body", crate::fonts::REGULAR))
         }
         _ => {
             let field = theme.field;
@@ -752,7 +762,7 @@ fn direct_welcome<'a>(ctx: crate::ctx::Ctx<'a>) -> Element<'a, Message> {
             );
     }
     let button_face =
-        |words: &'static str, rest: Color, lit: Color, ink: Color, press: Option<Message>| {
+        |words: &'a str, rest: Color, lit: Color, ink: Color, press: Option<Message>| {
             button(
                 container(text(words).size(14).font(SEMIBOLD).color(ink))
                     .padding([0, 16])
@@ -786,26 +796,47 @@ fn direct_welcome<'a>(ctx: crate::ctx::Ctx<'a>) -> Element<'a, Message> {
         // Discord's buttons by how this account stands with them: a
         // blocked person only unblocks; a bot can't be befriended.
         if ctx.state.is_blocked(person) {
-            actions = actions.push(secondary("Unblock", relate(Relate::Unblock)));
+            actions = actions.push(secondary(
+                crate::i18n::tr!(ctx.i18n, "Unblock"),
+                relate(Relate::Unblock),
+            ));
         } else {
             match ctx.state.relation(person) {
                 Relation::Stranger => {
-                    actions = actions.push(primary("Add Friend", relate(Relate::Befriend)));
+                    actions = actions.push(primary(
+                        crate::i18n::tr!(ctx.i18n, "Add Friend"),
+                        relate(Relate::Befriend),
+                    ));
                 }
                 Relation::Incoming => {
                     actions = actions
-                        .push(primary("Accept Request", relate(Relate::Befriend)))
-                        .push(secondary("Ignore Request", relate(Relate::Ignore)));
+                        .push(primary(
+                            crate::i18n::tr!(ctx.i18n, "Accept Request"),
+                            relate(Relate::Befriend),
+                        ))
+                        .push(secondary(
+                            crate::i18n::tr!(ctx.i18n, "Ignore Request"),
+                            relate(Relate::Ignore),
+                        ));
                 }
                 Relation::Outgoing => {
-                    actions = actions.push(primary("Friend Request Sent", None));
+                    actions = actions.push(primary(
+                        crate::i18n::tr!(ctx.i18n, "Friend Request Sent"),
+                        None,
+                    ));
                 }
                 Relation::Friend => {
-                    actions = actions.push(secondary("Remove Friend", relate(Relate::Unfriend)));
+                    actions = actions.push(secondary(
+                        crate::i18n::tr!(ctx.i18n, "Remove Friend"),
+                        relate(Relate::Unfriend),
+                    ));
                 }
                 Relation::Bot | Relation::Me => {}
             }
-            actions = actions.push(secondary("Block", relate(Relate::Block)));
+            actions = actions.push(secondary(
+                crate::i18n::tr!(ctx.i18n, "Block"),
+                relate(Relate::Block),
+            ));
         }
     }
     // Its own height, taller where the sentence wraps: the row's measure
@@ -879,7 +910,10 @@ pub(super) fn conversation_start<'a>(ctx: crate::ctx::Ctx<'a>) -> Element<'a, Me
         }
     }
     let (title, size) = if !edge.ready {
-        ("Loading conversation...".to_owned(), 18)
+        (
+            crate::i18n::tr!(ctx.i18n, "Loading conversation...").to_owned(),
+            18,
+        )
     } else if edge.direct || edge.thread {
         (edge.name.clone(), 28)
     } else {
@@ -970,7 +1004,7 @@ pub(super) fn unread_bar<'a>(ctx: crate::ctx::Ctx<'a>) -> Option<Element<'a, Mes
     .style(|_, _| button::Style::default());
     let mark = button(
         row![
-            text("Mark as read")
+            text(crate::i18n::tr!(ctx.i18n, "Mark as read"))
                 .size(14)
                 .font(SEMIBOLD)
                 .color(ink)
@@ -1015,7 +1049,7 @@ pub(super) fn present_bar<'a>(ctx: crate::ctx::Ctx<'a>) -> Element<'a, Message> 
     let (rest, lit) = (theme.accent, theme.accent_hover);
     let on_accent = theme.on_accent;
     let go = button(
-        text("Jump to present")
+        text(crate::i18n::tr!(ctx.i18n, "Jump to present"))
             .size(14)
             .font(SEMIBOLD)
             .color(on_accent)
@@ -1026,7 +1060,7 @@ pub(super) fn present_bar<'a>(ctx: crate::ctx::Ctx<'a>) -> Element<'a, Message> 
     .on_press(Message::Timeline(Event::JumpPresent))
     .style(crate::controls::lit_style(Some(rest), lit, 8.0));
     let face = row![
-        text("You're viewing older messages")
+        text(crate::i18n::tr!(ctx.i18n, "You're viewing older messages"))
             .size(theme.type_size("body", 14.0))
             .font(theme.font("body", MEDIUM))
             .color(words)

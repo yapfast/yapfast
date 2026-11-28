@@ -38,10 +38,13 @@ impl<'a> super::View<'a> {
             None if self.cx.layout.dm_search_switcher => {
                 let (ground, hint) = (theme.field, theme.muted);
                 button(
-                    text("Find or start a conversation")
-                        .size(13)
-                        .color(hint)
-                        .wrapping(text::Wrapping::None),
+                    text(crate::i18n::tr!(
+                        self.cx.i18n,
+                        "Find or start a conversation"
+                    ))
+                    .size(13)
+                    .color(hint)
+                    .wrapping(text::Wrapping::None),
                 )
                 .padding([8, 10])
                 .width(Length::Fill)
@@ -57,20 +60,23 @@ impl<'a> super::View<'a> {
             None => {
                 let (ground, ink, hint, selection) =
                     (theme.field, theme.text, theme.muted, theme.selection);
-                text_input("Find a conversation", &self.s.filter)
-                    .id(FILTER)
-                    .on_input(|filter| Message::Side(Event::Filter(filter)))
-                    .size(13)
-                    .padding([8, 10])
-                    .style(move |_, _| text_input::Style {
-                        background: ground.into(),
-                        border: crate::style::round(6),
-                        icon: ink,
-                        placeholder: hint,
-                        value: ink,
-                        selection,
-                    })
-                    .into()
+                text_input(
+                    crate::i18n::tr!(self.cx.i18n, "Find a conversation"),
+                    &self.s.filter,
+                )
+                .id(FILTER)
+                .on_input(|filter| Message::Side(Event::Filter(filter)))
+                .size(13)
+                .padding([8, 10])
+                .style(move |_, _| text_input::Style {
+                    background: ground.into(),
+                    border: crate::style::round(6),
+                    icon: ink,
+                    placeholder: hint,
+                    value: ink,
+                    selection,
+                })
+                .into()
             }
             // As Slint: a server whose name opens no menu has it as a plain
             // title, 16 px bold in the window's face.
@@ -98,7 +104,7 @@ impl<'a> super::View<'a> {
                             .look
                             .icon_button(
                                 Icon::UserPlus,
-                                "Invite people",
+                                crate::i18n::tr!(self.cx.i18n, "Invite people"),
                                 Message::Side(Event::Invite),
                             )
                             .size(INVITE, 20)
