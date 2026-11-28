@@ -211,9 +211,17 @@ pub fn found_view<'a>(
         .width(Length::Fill)
         .on_press(jump.clone())
         .style(controls::outlined_lit_style(rest, lit, edge, edge, 8.0));
-    let jump_button = container(controls::action(theme, "Jump", Kind::Plain, Some(jump)).small())
-        .width(Length::Fill)
-        .padding(8)
-        .align_x(Alignment::End);
+    let jump_button = container(
+        controls::action(
+            theme,
+            crate::i18n::tr!(ctx.i18n, "Jump"),
+            Kind::Plain,
+            Some(jump),
+        )
+        .small(),
+    )
+    .width(Length::Fill)
+    .padding(8)
+    .align_x(Alignment::End);
     crate::widgets::Hover::new(card, jump_button).into()
 }

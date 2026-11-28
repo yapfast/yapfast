@@ -794,7 +794,7 @@ fn new_post_view<'a>(ctx: crate::ctx::Ctx<'a>) -> Element<'a, Message> {
                 .below(),
         ],
     );
-    let heading = |words: &'static str| text(words).size(12).font(BOLD).color(theme.muted);
+    let heading = |words: &'a str| text(words).size(12).font(BOLD).color(theme.muted);
     let title = controls::field(theme, TITLE, "Title", &post.title, false, !posting);
     let title = if posting {
         title
@@ -803,9 +803,10 @@ fn new_post_view<'a>(ctx: crate::ctx::Ctx<'a>) -> Element<'a, Message> {
             .on_input(|title| Message::Forum(Event::Title(title)))
             .on_submit(Message::Focus(BODY))
     };
-    let mut fields = column![column![heading("POST TITLE"), title].spacing(8)]
-        .spacing(16)
-        .padding(16);
+    let mut fields =
+        column![column![heading(crate::i18n::tr!(ctx.i18n, "POST TITLE")), title].spacing(8)]
+            .spacing(16)
+            .padding(16);
     let info = app.forum_info(&post.room).unwrap_or_default();
     let choices = app.post_tags(&post.room);
     if !choices.is_empty() {

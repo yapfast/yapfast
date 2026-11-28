@@ -939,10 +939,13 @@ fn aside_list<'a>(ctx: crate::ctx::Ctx<'a>, aside: &'a Aside) -> Element<'a, Mes
         if !aside.ready {
             return crate::timeline::view::messages_skeleton(ctx);
         }
-        let words = text(format!("This is the start of the {} thread.", aside.name))
-            .size(14)
-            .color(theme.muted)
-            .center();
+        let words = text(
+            crate::i18n::tr!(ctx.i18n, "This is the start of the {name} thread.")
+                .replace("{name}", &aside.name),
+        )
+        .size(14)
+        .color(theme.muted)
+        .center();
         return container(words)
             .padding([0, 16])
             .center(Length::Fill)
@@ -1070,7 +1073,7 @@ fn new_thread_view<'a>(ctx: crate::ctx::Ctx<'a>) -> Option<Element<'a, Message>>
         };
         fields = fields.push(
             form::switch(
-                "Private Thread",
+                crate::i18n::tr!(ctx.i18n, "Private Thread"),
                 form.private,
                 (!form.only_private && !form.starting)
                     .then_some(Message::Thread(Event::Private(!form.private))),
@@ -1155,8 +1158,18 @@ pub fn leave_question<'a>(
             .color(theme.secondary),
             container(
                 row![
-                    controls::action(theme, "Back to editing", Kind::Ghost, Some(stay)),
-                    controls::action(theme, "Exit", Kind::Danger, Some(leave)),
+                    controls::action(
+                        theme,
+                        crate::i18n::tr!(ctx.i18n, "Back to editing"),
+                        Kind::Ghost,
+                        Some(stay)
+                    ),
+                    controls::action(
+                        theme,
+                        crate::i18n::tr!(ctx.i18n, "Exit"),
+                        Kind::Danger,
+                        Some(leave)
+                    ),
                 ]
                 .spacing(8)
             )

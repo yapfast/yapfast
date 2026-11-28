@@ -63,7 +63,11 @@ pub enum Event {
     Select(SoundSlot, Choice),
     Preview(SoundSlot),
     Choose(SoundSlot),
-    Chosen(widget::Id, SoundSlot, Option<Result<Arc<[i16]>, String>>),
+    Chosen(
+        widget::Id,
+        SoundSlot,
+        Option<Result<Arc<[i16]>, custom_sounds::DecodeError>>,
+    ),
     Remove(SoundSlot),
 }
 
@@ -117,7 +121,7 @@ impl Settings {
                                 custom_sounds::decode(slot, picked.path())
                             })
                             .await
-                            .unwrap_or_else(|_| Err("Couldn't read the selected sound.".into())),
+                            .unwrap_or(Err(custom_sounds::DecodeError::Worker)),
                         )
                     },
                     move |result| message(Event::Chosen(id.clone(), slot, result)),
@@ -135,11 +139,17 @@ impl Settings {
                 }
                 files.picking = None;
                 if let Some(result) = result {
-                    match result.and_then(|samples| {
-                        custom_sounds::save(cx.client.root(), slot, &samples)
-                            .map_err(|error| format!("Couldn't save the sound. {error}"))?;
-                        Ok(samples)
-                    }) {
+                    match result
+                        .map_err(|error| error.text(cx.i18n))
+                        .and_then(|samples| {
+                            custom_sounds::save(cx.client.root(), slot, &samples).map_err(
+                                |error| {
+                                    crate::i18n::tr!(cx.i18n, "Couldn't save the sound. {error}")
+                                        .replace("{error}", &error.to_string())
+                                },
+                            )?;
+                            Ok(samples)
+                        }) {
                         Ok(samples) => {
                             cx.layout.voice.custom_sounds.insert(slot, samples);
                             select(cx, slot, Choice::File);
@@ -161,7 +171,11 @@ impl Settings {
                     files.error = None;
                 }
                 Err(error) => {
-                    files.error = Some((slot, format!("Couldn't remove the sound. {error}")));
+                    files.error = Some((
+                        slot,
+                        crate::i18n::tr!(cx.i18n, "Couldn't remove the sound. {error}")
+                            .replace("{error}", &error.to_string()),
+                    ));
                 }
             },
         }
@@ -200,7 +214,13 @@ fn preview(cx: &Cx<'_>, files: &mut Editor, slot: SoundSlot) {
     };
     match Ringer::preview(tone, cx.state().voice.speaker.as_deref()) {
         Ok(preview) => files.ring_preview = Some(preview),
-        Err(error) => files.error = Some((slot, format!("Couldn't play the sound. {error}"))),
+        Err(error) => {
+            files.error = Some((
+                slot,
+                crate::i18n::tr!(cx.i18n, "Couldn't play the sound. {error}")
+                    .replace("{error}", &error.to_string()),
+            ));
+        }
     }
 }
 
@@ -218,7 +238,10 @@ impl<'a> Page<'a> {
             form::title(theme, crate::i18n::tr!(self.cx.i18n, "Sounds")),
             form::note(
                 theme,
-                "Call tones and sounds for messages, voice and streams play on the speakers chosen for calls.",
+                crate::i18n::tr!(
+                    self.cx.i18n,
+                    "Call tones and sounds for messages, voice and streams play on the speakers chosen for calls."
+                ),
             ),
             form::group([
                 form::heading(theme, crate::i18n::tr!(self.cx.i18n, "SOUND SET")),
@@ -238,7 +261,7 @@ impl<'a> Page<'a> {
                 Pref::AdjustEach,
             ),
             form::switch(
-                "Custom sound set",
+                crate::i18n::tr!(self.cx.i18n, "Custom sound set"),
                 custom,
                 Some(message(Event::Enable(!custom))),
             )
@@ -254,7 +277,7 @@ impl<'a> Page<'a> {
         if custom {
             each = each.push(form::note(
                 theme,
-                "WAV, Ogg, Opus and MP3 files can be up to 1 MiB, with a 4-second limit for events and a 6-second limit for call tones.",
+                crate::i18n::tr!(self.cx.i18n, "WAV, Ogg, Opus and MP3 files can be up to 1 MiB, with a 4-second limit for events and a 6-second limit for call tones."),
             ));
             for (slot, name) in [
                 (SoundSlot::Ring, "Incoming call"),

@@ -126,11 +126,19 @@ pub(super) fn full_view<'a>(
     let mut tabs = row![].spacing(20).height(40);
     for entry in &look.tabs {
         let label = match entry {
-            Tab::Board => "Board",
-            Tab::Activity => "Activity",
-            Tab::Wishlist => "Wishlist",
-            Tab::Friends => look.friends_label.as_str(),
-            Tab::Servers => look.servers_label.as_str(),
+            Tab::Board => crate::i18n::tr!(ctx.i18n, "Board").into(),
+            Tab::Activity => crate::i18n::tr!(ctx.i18n, "Activity").into(),
+            Tab::Wishlist => crate::i18n::tr!(ctx.i18n, "Wishlist").into(),
+            Tab::Friends => super::look::mutual_label(
+                ctx.i18n,
+                false,
+                look.mutuals_known.then_some(look.profile().friends.len()),
+            ),
+            Tab::Servers => super::look::mutual_label(
+                ctx.i18n,
+                true,
+                look.mutuals_known.then_some(look.profile().servers.len()),
+            ),
         };
         let face = crate::controls::tab(
             crate::controls::Tab {
@@ -431,7 +439,7 @@ fn activity_tab<'a>(
         if let Some(at) = entry.at {
             let music = if entry.music { "\u{266b} " } else { "" };
             lines = lines.push(
-                text(format!("{music}{}", time_ago(at)))
+                text(format!("{music}{}", time_ago(ctx.i18n, at)))
                     .size(12)
                     .color(inks.ink3),
             );
@@ -639,7 +647,10 @@ pub(super) fn editor_tab_page<'a>(
     };
     let page = match tab {
         Tab::Activity => {
-            let mut list = column![heading("Current activity".to_owned())].spacing(10);
+            let mut list = column![heading(
+                crate::i18n::tr!(ctx.i18n, "Current activity").to_owned()
+            )]
+            .spacing(10);
             if look.activities.is_empty() {
                 list = list.push(note(inks.ink3, "Nothing going on right now."));
             }
@@ -661,7 +672,9 @@ pub(super) fn editor_tab_page<'a>(
                     if profile.widgets.is_empty() {
                         list = list.push(note(inks.ink2, "Nothing on your board yet."));
                     } else {
-                        list = list.push(heading("Your Widgets".to_owned()));
+                        list = list.push(heading(
+                            crate::i18n::tr!(ctx.i18n, "Your Widgets").to_owned(),
+                        ));
                     }
                     list = list.push(soon());
                 }

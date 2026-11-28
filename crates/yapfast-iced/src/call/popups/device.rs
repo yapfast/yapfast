@@ -221,7 +221,7 @@ pub(super) fn device_menu<'a>(ctx: crate::ctx::Ctx<'a>, input: bool) -> Element<
             };
             menu = menu.push(separator(theme)).push(
                 column![
-                    heading(theme, "NOISE SUPPRESSION", 0.0),
+                    heading(theme, crate::i18n::tr!(ctx.i18n, "NOISE SUPPRESSION"), 0.0),
                     controls::choices(
                         theme,
                         &["DeepFilterNet", "RNNoise", "Off"],

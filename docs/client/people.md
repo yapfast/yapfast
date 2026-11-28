@@ -180,7 +180,8 @@ member list, the DMs, and the lists still to come build on it.
   opens its person's menu, a voice channel's row the channel. Its column
   is a shade darker than the conversation, each card 16 px round with a
   lighter head, the person's status dot on their avatar, no rules between
-  rows, rows at least 83 px tall and a game's icon 24 px.
+  rows, rows at least 83 px tall and a game's icon 24 px. Activity labels,
+  group summaries and durations follow the current interface language.
 - Requests: friend requests and message requests, a person's on one row
   with Accept and Ignore (or Cancel for those sent) and their latest
   message, which opens the conversation, with its time today on the clock

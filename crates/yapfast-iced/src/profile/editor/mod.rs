@@ -763,7 +763,7 @@ fn editor_tabs<'a>(
         };
         heads = heads.push(crate::controls::tab(
             crate::controls::Tab {
-                label,
+                label: label.into(),
                 chosen: *entry == tab,
                 ink: inks.ink,
                 rest: inks.ink2,

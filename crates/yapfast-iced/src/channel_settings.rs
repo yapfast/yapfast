@@ -324,7 +324,7 @@ impl<'a> View<'a> {
                 undo: input(ChannelInput::Undo),
                 save: input(ChannelInput::Save),
             }
-            .view(theme)
+            .view(theme, |source| self.cx.i18n.text(source))
         });
         let frame = sheet(nav, page, input(ChannelInput::Close), "Channel settings")
             .bar(bar)

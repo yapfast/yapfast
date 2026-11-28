@@ -99,7 +99,7 @@ pub fn active_now_sync(app: &mut App) {
         return;
     }
     app.active_now_made = made;
-    let cards = cards(app.client.state());
+    let cards = cards(app.client.state(), &app.i18n);
     if cards != app.active_now {
         app.active_now = cards;
     }
@@ -124,33 +124,55 @@ pub fn active_now_pictures(app: &App) -> Vec<String> {
 }
 
 /// "13m", "1h", "2d", as Discord's Active Now times a game.
-fn since(seconds: u64) -> String {
+fn since(seconds: u64, i18n: &crate::i18n::I18n) -> String {
     match seconds {
-        seconds if seconds < 3600 => format!("{}m", (seconds / 60).max(1)),
-        seconds if seconds < 86400 => format!("{}h", seconds / 3600),
-        seconds => format!("{}d", seconds / 86400),
+        seconds if seconds < 3600 => crate::i18n::tr!(i18n, "{count}m")
+            .replace("{count}", &(seconds / 60).max(1).to_string()),
+        seconds if seconds < 86400 => {
+            crate::i18n::tr!(i18n, "{count}h").replace("{count}", &(seconds / 3600).to_string())
+        }
+        seconds => {
+            crate::i18n::tr!(i18n, "{count}d").replace("{count}", &(seconds / 86400).to_string())
+        }
     }
 }
 
 /// "01:19:45 elapsed".
-fn elapsed(seconds: u64) -> String {
-    format!(
-        "{:02}:{:02}:{:02} elapsed",
+fn elapsed(seconds: u64, i18n: &crate::i18n::I18n) -> String {
+    let time = format!(
+        "{:02}:{:02}:{:02}",
         seconds / 3600,
         seconds / 60 % 60,
         seconds % 60
-    )
+    );
+    crate::i18n::tr!(i18n, "{time} elapsed").replace("{time}", &time)
 }
 
 /// "A", "A and B", "A, B, and 1 other", "A, B, and 4 others".
-fn names(names: &[&str]) -> String {
+fn names(names: &[&str], i18n: &crate::i18n::I18n) -> String {
+    use yapfast_core::themes::chrome::fill;
+
     match names {
         [] => String::new(),
         [one] => (*one).to_owned(),
-        [one, two] => format!("{one} and {two}"),
+        [one, two] => fill(
+            crate::i18n::tr!(i18n, "{one} and {two}"),
+            &[("one", one), ("two", two)],
+        ),
         [one, two, rest @ ..] => {
-            let others = if rest.len() == 1 { "other" } else { "others" };
-            format!("{one}, {two}, and {} {others}", rest.len())
+            let template = if rest.len() == 1 {
+                crate::i18n::tr!(i18n, "{one}, {two}, and 1 other")
+            } else {
+                crate::i18n::tr!(i18n, "{one}, {two}, and {count} others")
+            };
+            fill(
+                template,
+                &[
+                    ("one", one),
+                    ("two", two),
+                    ("count", &rest.len().to_string()),
+                ],
+            )
         }
     }
 }
@@ -186,7 +208,7 @@ type Spot<'a> = (&'a str, &'a str, &'a str);
 /// game party, and everyone else has their own. Each friend counts by
 /// their first activity, and a card needs a voice channel or an activity
 /// Discord can name.
-fn cards(state: &AppState) -> Vec<Card> {
+fn cards(state: &AppState, i18n: &crate::i18n::I18n) -> Vec<Card> {
     let spots = voice_spots(state);
     let mut groups: Vec<Vec<&Friend>> = Vec::new();
     let mut index: HashMap<Group<'_>, usize> = HashMap::new();
@@ -217,7 +239,7 @@ fn cards(state: &AppState) -> Vec<Card> {
                 let room = state.rooms.iter().find(|room| room.id == spot.0)?;
                 Some((*spot, &**room))
             });
-            group_card(state, room, friends)
+            group_card(state, room, friends, i18n)
         })
         .collect();
     cards.sort_by(|(one, _), (other, _)| one.cmp(other));
@@ -228,6 +250,7 @@ fn group_card(
     state: &AppState,
     room: Option<(Spot<'_>, &ChatRoom)>,
     friends: &[&Friend],
+    i18n: &crate::i18n::I18n,
 ) -> Option<(Order, Card)> {
     // Each application once, with the friends at it, the latest started
     // first.
@@ -279,8 +302,8 @@ fn group_card(
             .join(" "),
     );
     let card = match room {
-        Some((spot, room)) => voice_card(state, spot, room, friends, doing.first()),
-        None => doing_card(friends, &doing),
+        Some((spot, room)) => voice_card(state, spot, room, friends, doing.first(), i18n),
+        None => doing_card(friends, &doing, i18n),
     };
     Some((order, card))
 }
@@ -326,6 +349,7 @@ fn voice_card(
     room: &ChatRoom,
     friends: &[&Friend],
     doing: Option<&Doing<'_>>,
+    i18n: &crate::i18n::I18n,
 ) -> Card {
     let server = state
         .servers
@@ -351,31 +375,35 @@ fn voice_card(
     rows.extend(
         activity
             .filter(|activity| has_details(activity))
-            .map(detail_row),
+            .map(|activity| detail_row(activity, i18n)),
     );
     card(
         friends,
-        activity.map_or("In a Voice Channel".to_owned(), self::doing),
+        activity.map_or_else(
+            || crate::i18n::tr!(i18n, "In a Voice Channel").to_owned(),
+            |activity| self::doing(activity, i18n),
+        ),
         activity
             .and_then(|activity| activity.start)
             .map(|ms| ms / 1000),
         activity.and_then(|activity| activity.large_image.as_deref()),
         rows,
+        i18n,
     )
 }
 
 /// Friends in no voice channel: one, or a game party, and what they're
 /// doing.
-fn doing_card(friends: &[&Friend], doing: &[Doing<'_>]) -> Card {
+fn doing_card(friends: &[&Friend], doing: &[Doing<'_>], i18n: &crate::i18n::I18n) -> Card {
     let first = &doing[0];
     let activity = first.activity;
-    let what = self::doing(activity);
+    let what = self::doing(activity, i18n);
     let mut rows: Vec<CardRow> = doing
         .iter()
         .map(|doing| doing.activity)
         .filter(|activity| has_details(activity))
         .take(2)
-        .map(detail_row)
+        .map(|activity| detail_row(activity, i18n))
         .collect();
     if first.friends.len() > 1 {
         let (faces, more) = faces(
@@ -387,7 +415,8 @@ fn doing_card(friends: &[&Friend], doing: &[Doing<'_>]) -> Card {
         rows.push(CardRow {
             kind: RowKind::Game,
             title: what.clone(),
-            detail: format!("{} People", first.friends.len()),
+            detail: crate::i18n::tr!(i18n, "{count} People")
+                .replace("{count}", &first.friends.len().to_string()),
             icon: activity.large_image.as_deref().map(str::to_owned),
             named: what.clone(),
             start: None,
@@ -402,6 +431,7 @@ fn doing_card(friends: &[&Friend], doing: &[Doing<'_>]) -> Card {
         activity.start.map(|ms| ms / 1000),
         activity.large_image.as_deref(),
         rows,
+        i18n,
     )
 }
 
@@ -412,11 +442,12 @@ fn card(
     start: Option<u64>,
     icon: Option<&str>,
     rows: Vec<CardRow>,
+    i18n: &crate::i18n::I18n,
 ) -> Card {
     let first = friends[0];
     let names: Vec<&str> = friends.iter().map(|friend| friend.name.as_str()).collect();
     Card {
-        title: self::names(&names),
+        title: self::names(&names, i18n),
         doing,
         start,
         face: someone(&first.id, &first.name, first.avatar.as_deref()),
@@ -427,16 +458,22 @@ fn card(
 }
 
 /// How a card says it: "Dota 2", "Listening to Spotify".
-fn doing(activity: &Activity) -> String {
+fn doing(activity: &Activity, i18n: &crate::i18n::I18n) -> String {
     match activity.kind {
         ActivityKind::Playing => activity.name.to_string(),
-        ActivityKind::Streaming => format!(
-            "Streaming {}",
-            activity.details.as_deref().unwrap_or(&activity.name)
+        ActivityKind::Streaming => crate::i18n::tr!(i18n, "Streaming {name}").replace(
+            "{name}",
+            activity.details.as_deref().unwrap_or(&activity.name),
         ),
-        ActivityKind::Listening => format!("Listening to {}", activity.name),
-        ActivityKind::Watching => format!("Watching {}", activity.name),
-        ActivityKind::Competing => format!("Competing in {}", activity.name),
+        ActivityKind::Listening => {
+            crate::i18n::tr!(i18n, "Listening to {name}").replace("{name}", &activity.name)
+        }
+        ActivityKind::Watching => {
+            crate::i18n::tr!(i18n, "Watching {name}").replace("{name}", &activity.name)
+        }
+        ActivityKind::Competing => {
+            crate::i18n::tr!(i18n, "Competing in {name}").replace("{name}", &activity.name)
+        }
         ActivityKind::Hang => activity.name.to_string(),
     }
 }
@@ -447,15 +484,15 @@ fn has_details(activity: &Activity) -> bool {
     activity.details.is_some() || activity.state.is_some()
 }
 
-fn detail_row(activity: &Activity) -> CardRow {
+fn detail_row(activity: &Activity, i18n: &crate::i18n::I18n) -> CardRow {
     let title = activity.details.as_deref().unwrap_or(&activity.name);
     CardRow {
         kind: RowKind::Detail,
         title: title.to_owned(),
-        detail: activity
-            .state
-            .as_deref()
-            .map_or_else(|| format!("with {}", activity.name), str::to_owned),
+        detail: activity.state.as_deref().map_or_else(
+            || crate::i18n::tr!(i18n, "with {name}").replace("{name}", &activity.name),
+            str::to_owned,
+        ),
         icon: activity
             .small_image
             .as_deref()
@@ -563,7 +600,7 @@ fn active_card<'a>(ctx: crate::ctx::Ctx<'a>, card: &'a Card, now: u64) -> Elemen
     let theme = ctx.look.theme;
     let since = card
         .start
-        .map(|start| format!(" \u{2013} {}", since(now.saturating_sub(start))))
+        .map(|start| format!(" \u{2013} {}", since(now.saturating_sub(start), ctx.i18n)))
         .unwrap_or_default();
     // Discord's dark Active Now card: a lighter head over a darker body,
     // joined by a step of colour rather than a line.
@@ -662,7 +699,10 @@ fn active_row<'a>(ctx: crate::ctx::Ctx<'a>, entry: &'a CardRow) -> Element<'a, M
     {
         words = words.push(
             crate::widgets::live_text(std::time::Duration::from_secs(1), move || {
-                elapsed((yapfast_core::clock::now_ms() / 1000).saturating_sub(start))
+                elapsed(
+                    (yapfast_core::clock::now_ms() / 1000).saturating_sub(start),
+                    ctx.i18n,
+                )
             })
             .size(12)
             .color(theme.muted),
@@ -784,10 +824,14 @@ mod tests {
 
     #[test]
     fn names_shorten_as_discords_active_now_does() {
-        assert_eq!(names(&["A"]), "A");
-        assert_eq!(names(&["A", "B"]), "A and B");
-        assert_eq!(names(&["A", "B", "C"]), "A, B, and 1 other");
-        assert_eq!(names(&["A", "B", "C", "D", "E"]), "A, B, and 3 others");
+        let english = crate::i18n::I18n::new(Some("en"));
+        assert_eq!(names(&["A"], &english), "A");
+        assert_eq!(names(&["A", "B"], &english), "A and B");
+        assert_eq!(names(&["A", "B", "C"], &english), "A, B, and 1 other");
+        assert_eq!(
+            names(&["A", "B", "C", "D", "E"], &english),
+            "A, B, and 3 others"
+        );
     }
 
     /// Discord's NowPlayingViewStore: a card per party or per person, never
@@ -795,6 +839,7 @@ mod tests {
     /// first, Spotify last, then by name.
     #[test]
     fn active_now_groups_and_orders_cards_as_discords_does() {
+        let english = crate::i18n::I18n::new(Some("en"));
         let friend = |id: &str, name: &str, activity: serde_json::Value| Friend {
             id: id.into(),
             name: name.into(),
@@ -839,12 +884,16 @@ mod tests {
                 serde_json::json!({"type": 0, "name": "Solitaire"}),
             ),
         ];
-        let cards = cards(&state);
+        let cards = cards(&state, &english);
         let titles: Vec<&str> = cards.iter().map(|card| card.title.as_str()).collect();
         assert_eq!(titles, ["Cara and Dan", "Ann", "bob", "Eve"]);
         assert_eq!(cards[0].doing, "Dota 2");
         assert!(cards[0].rows.iter().any(|row| row.detail == "2 People"));
         assert_eq!(cards[3].doing, "Listening to Spotify");
+        let russian = crate::i18n::I18n::new(Some("ru"));
+        assert_eq!(super::cards(&state, &russian)[3].doing, "Слушает Spotify");
+        let german = crate::i18n::I18n::new(Some("de"));
+        assert_eq!(super::cards(&state, &german)[3].doing, "Hört Spotify");
     }
 
     #[test]
@@ -857,10 +906,11 @@ mod tests {
 
     #[test]
     fn times_read_as_discords_active_now() {
-        assert_eq!(since(30), "1m");
-        assert_eq!(since(13 * 60), "13m");
-        assert_eq!(since(2 * 3600), "2h");
-        assert_eq!(since(3 * 86400), "3d");
-        assert_eq!(elapsed(4785), "01:19:45 elapsed");
+        let english = crate::i18n::I18n::new(Some("en"));
+        assert_eq!(since(30, &english), "1m");
+        assert_eq!(since(13 * 60, &english), "13m");
+        assert_eq!(since(2 * 3600, &english), "2h");
+        assert_eq!(since(3 * 86400, &english), "3d");
+        assert_eq!(elapsed(4785, &english), "01:19:45 elapsed");
     }
 }

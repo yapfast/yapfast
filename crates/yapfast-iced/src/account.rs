@@ -344,23 +344,26 @@ pub fn view<'a>(ctx: crate::ctx::Ctx<'a>) -> Element<'a, Message> {
         ctx.layout.deafen_on_join,
     );
     let (mic, mic_label) = if account.speaking_blocked {
-        (Icon::MicOff, "Speaking is restricted in this channel")
+        (
+            Icon::MicOff,
+            crate::i18n::tr!(ctx.i18n, "Speaking is restricted in this channel"),
+        )
     } else if account.shown_muted(join) {
         (
             Icon::MicOff,
             if account.in_call {
-                "Unmute"
+                crate::i18n::tr!(ctx.i18n, "Unmute")
             } else {
-                "Join calls unmuted"
+                crate::i18n::tr!(ctx.i18n, "Join calls unmuted")
             },
         )
     } else {
         (
             Icon::Mic,
             if account.in_call {
-                "Mute"
+                crate::i18n::tr!(ctx.i18n, "Mute")
             } else {
-                "Join calls muted"
+                crate::i18n::tr!(ctx.i18n, "Join calls muted")
             },
         )
     };
@@ -368,18 +371,18 @@ pub fn view<'a>(ctx: crate::ctx::Ctx<'a>) -> Element<'a, Message> {
         (
             Icon::HeadphoneOff,
             if account.in_call {
-                "Undeafen"
+                crate::i18n::tr!(ctx.i18n, "Undeafen")
             } else {
-                "Join calls undeafened"
+                crate::i18n::tr!(ctx.i18n, "Join calls undeafened")
             },
         )
     } else {
         (
             Icon::Headphones,
             if account.in_call {
-                "Deafen"
+                crate::i18n::tr!(ctx.i18n, "Deafen")
             } else {
-                "Join calls deafened"
+                crate::i18n::tr!(ctx.i18n, "Join calls deafened")
             },
         )
     };
@@ -426,7 +429,7 @@ pub fn view<'a>(ctx: crate::ctx::Ctx<'a>) -> Element<'a, Message> {
     let toggle = |event| toggles.then_some(Message::Account(event));
     // In a call, a gel theme's mute and deafen are gel buttons (the
     // as asked): the danger gel while on.
-    let device = |icon, label: &'static str, on: bool, glyph, event| -> Element<'a, Message> {
+    let device = |icon, label: &'a str, on: bool, glyph, event| -> Element<'a, Message> {
         let message = if matches!(event, Event::Mute) && account.speaking_blocked {
             None
         } else {
@@ -456,7 +459,10 @@ pub fn view<'a>(ctx: crate::ctx::Ctx<'a>) -> Element<'a, Message> {
             account.shown_muted(join),
             row![
                 device(mic, mic_label, account.shown_muted(join), 20, Event::Mute),
-                caret("Input options", crate::call::Popup::Input),
+                caret(
+                    crate::i18n::tr!(ctx.i18n, "Input options"),
+                    crate::call::Popup::Input
+                ),
             ]
             .align_y(Alignment::Center),
         ),
@@ -470,7 +476,10 @@ pub fn view<'a>(ctx: crate::ctx::Ctx<'a>) -> Element<'a, Message> {
                     21,
                     Event::Deafen
                 ),
-                caret("Output options", crate::call::Popup::Output),
+                caret(
+                    crate::i18n::tr!(ctx.i18n, "Output options"),
+                    crate::call::Popup::Output
+                ),
             ]
             .align_y(Alignment::Center),
         ),
@@ -483,7 +492,7 @@ pub fn view<'a>(ctx: crate::ctx::Ctx<'a>) -> Element<'a, Message> {
         controls.push(tinted_button(
             ctx,
             Icon::Refresh,
-            "Reconnect",
+            crate::i18n::tr!(ctx.i18n, "Reconnect"),
             theme.secondary,
             20,
             (!state.busy).then_some(Message::Account(Event::Reconnect)),
@@ -494,7 +503,7 @@ pub fn view<'a>(ctx: crate::ctx::Ctx<'a>) -> Element<'a, Message> {
     let controls = controls.push(tinted_button(
         ctx,
         Icon::Settings,
-        "Settings",
+        crate::i18n::tr!(ctx.i18n, "Settings"),
         theme.text,
         24,
         Some(crate::app::settings(crate::settings::Event::Reopen)),
@@ -626,7 +635,7 @@ fn ring_and_dot<'a>(
 fn tinted_button<'a>(
     ctx: crate::ctx::Ctx<'a>,
     icon: Icon,
-    label: &'static str,
+    label: &'a str,
     ink: iced::Color,
     glyph: u32,
     message: Option<Message>,

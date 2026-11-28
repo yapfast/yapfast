@@ -303,7 +303,12 @@ impl<'a> View<'a> {
             text(question).size(15).color(theme.secondary),
             row![
                 Space::new().width(Length::Fill),
-                action(theme, "Cancel", Kind::Ghost, Some(input(RoleInput::Cancel))),
+                action(
+                    theme,
+                    crate::i18n::tr!(self.cx.i18n, "Cancel"),
+                    Kind::Ghost,
+                    Some(input(RoleInput::Cancel))
+                ),
                 action(theme, answer, Kind::Danger, Some(input(RoleInput::Confirm))),
             ]
             .spacing(8)

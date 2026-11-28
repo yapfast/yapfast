@@ -224,19 +224,19 @@ impl<'a> View<'a> {
                 form::heading(theme, crate::i18n::tr!(self.cx.i18n, "ROLE COLOR")),
                 form::note(
                     theme,
-                    "Members use the color of the highest role they have on the roles list."
+                    crate::i18n::tr!(self.cx.i18n, "Members use the color of the highest role they have on the roles list.")
                 ),
                 self.role_colours(draft.color, &draft.id, editable, screen),
             ]),
             self.role_icon(core, page, role, rules, editable, screen),
             form::switch(
-                "Display role members separately from online members",
+                crate::i18n::tr!(self.cx.i18n, "Display role members separately from online members"),
                 draft.hoist,
                 editable.then(|| input(RoleInput::Hoist)),
             )
             .view(self.cx.look),
             form::switch(
-                "Allow anyone to @mention this role",
+                crate::i18n::tr!(self.cx.i18n, "Allow anyone to @mention this role"),
                 draft.mentionable,
                 editable.then(|| input(RoleInput::Mentionable)),
             )
@@ -396,7 +396,7 @@ impl<'a> View<'a> {
         let mut buttons = vec![
             action(
                 theme,
-                "Choose Image",
+                crate::i18n::tr!(self.cx.i18n, "Choose Image"),
                 Kind::Plain,
                 (usable && !reading).then(|| message(SettingsEvent::Pick(ServerPicture::RoleIcon))),
             )
@@ -406,7 +406,7 @@ impl<'a> View<'a> {
             buttons.push(
                 action(
                     theme,
-                    "Remove Icon",
+                    crate::i18n::tr!(self.cx.i18n, "Remove Icon"),
                     Kind::Ghost,
                     usable.then(|| message(SettingsEvent::Remove(ServerPicture::RoleIcon))),
                 )
@@ -431,7 +431,7 @@ impl<'a> View<'a> {
             field,
             action(
                 theme,
-                "Use Emoji",
+                crate::i18n::tr!(self.cx.i18n, "Use Emoji"),
                 Kind::Ghost,
                 (usable && !typed.is_empty()).then(|| local(Event::UseEmoji)),
             )
@@ -441,7 +441,10 @@ impl<'a> View<'a> {
             form::heading(theme, crate::i18n::tr!(self.cx.i18n, "ROLE ICON")),
             form::note(
                 theme,
-                "Upload an image under 256 KB or use an emoji. We recommend at least 64x64 pixels. Members will see the icon for their highest role if they have multiple roles.",
+                crate::i18n::tr!(
+                    self.cx.i18n,
+                    "Upload an image under 256 KB or use an emoji. We recommend at least 64x64 pixels. Members will see the icon for their highest role if they have multiple roles."
+                ),
             ),
             row![
                 container(shown)

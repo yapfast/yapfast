@@ -271,7 +271,7 @@ pub(super) fn profile_body<'a>(
     if mode.large() && !look.friends_since.is_empty() {
         body = body.push(
             column![
-                title("Friends Since", inks.ink),
+                title(crate::i18n::tr!(ctx.i18n, "Friends Since"), inks.ink),
                 text(look.friends_since.as_str()).size(14).color(inks.ink2),
             ]
             .spacing(6),
@@ -1158,10 +1158,14 @@ fn mutual_line<'a>(
         line = line.push(link(
             row![
                 faces,
-                text(look.mutual_friends.as_str())
-                    .size(12)
-                    .font(REGULAR)
-                    .color(ink2),
+                text(super::look::mutual_label(
+                    ctx.i18n,
+                    false,
+                    Some(profile.friends.len())
+                ))
+                .size(12)
+                .font(REGULAR)
+                .color(ink2),
             ]
             .spacing(4)
             .align_y(Alignment::Center)
@@ -1193,10 +1197,14 @@ fn mutual_line<'a>(
             servers = servers.push(icons);
         }
         servers = servers.push(
-            text(look.mutual_servers.as_str())
-                .size(12)
-                .font(REGULAR)
-                .color(ink2),
+            text(super::look::mutual_label(
+                ctx.i18n,
+                true,
+                Some(profile.servers.len()),
+            ))
+            .size(12)
+            .font(REGULAR)
+            .color(ink2),
         );
         line = line.push(link(servers.into(), Tab::Servers));
     }
@@ -1340,7 +1348,7 @@ fn connections<'a>(
     inks: &Inks,
 ) -> Element<'a, Message> {
     let profile = shown.look.profile();
-    let mut list = column![title("Connections", inks.ink)].spacing(8);
+    let mut list = column![title(crate::i18n::tr!(ctx.i18n, "Connections"), inks.ink)].spacing(8);
     for connection in &profile.connections {
         let mut name = row![
             text(connection.name.as_str())
@@ -1410,9 +1418,15 @@ fn note_editor<'a>(ctx: crate::ctx::Ctx<'a>, inks: &Inks) -> Element<'a, Message
         value: ink,
         selection: Color { a: 0.35, ..accent },
     });
-    column![title("Note (only visible to you)", inks.ink), field]
-        .spacing(6)
-        .into()
+    column![
+        title(
+            crate::i18n::tr!(ctx.i18n, "Note (only visible to you)"),
+            inks.ink
+        ),
+        field
+    ]
+    .spacing(6)
+    .into()
 }
 
 /// The card's box that messages them in their DM, its smile at the end.

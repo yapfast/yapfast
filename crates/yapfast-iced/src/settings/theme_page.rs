@@ -71,7 +71,10 @@ impl<'a> Page<'a> {
             form::title(theme, crate::i18n::tr!(self.cx.i18n, "Themes")),
             form::note(
                 theme,
-                "Themes restyle Yapfast: its colours, fonts, shapes, art and sounds. A theme is data, never code, and you see what one changes before it's installed.",
+                crate::i18n::tr!(
+                    self.cx.i18n,
+                    "Themes restyle Yapfast: its colours, fonts, shapes, art and sounds. A theme is data, never code, and you see what one changes before it's installed."
+                ),
             ),
             self.theme_tabs(),
         ];
@@ -110,8 +113,11 @@ impl<'a> Page<'a> {
         let tabs = [
             ("Installed", Tab::Installed),
             ("Marketplace", Tab::Marketplace),
-            ("Add from URL", Tab::AddFromUrl),
-            ("Create", Tab::Create),
+            (
+                crate::i18n::tr!(self.cx.i18n, "Add from URL"),
+                Tab::AddFromUrl,
+            ),
+            (crate::i18n::tr!(self.cx.i18n, "Create"), Tab::Create),
         ];
         let focused = tabs
             .iter()
@@ -174,21 +180,21 @@ impl<'a> Page<'a> {
                 vec![
                     action(
                         theme,
-                        "Browse the Marketplace",
+                        crate::i18n::tr!(self.cx.i18n, "Browse the Marketplace"),
                         Kind::Primary,
                         Some(theme_message(Event::Tab(Tab::Marketplace))),
                     )
                     .into(),
                     action(
                         theme,
-                        "Add from URL",
+                        crate::i18n::tr!(self.cx.i18n, "Add from URL"),
                         Kind::Plain,
                         Some(theme_message(Event::Tab(Tab::AddFromUrl))),
                     )
                     .into(),
                     action(
                         theme,
-                        "Create",
+                        crate::i18n::tr!(self.cx.i18n, "Create"),
                         Kind::Plain,
                         Some(theme_message(Event::Tab(Tab::Create))),
                     )
@@ -517,7 +523,7 @@ impl<'a> Page<'a> {
         if self.on_trial(installed) {
             return action(
                 theme,
-                "Keep",
+                crate::i18n::tr!(self.cx.i18n, "Keep"),
                 Kind::Primary,
                 Some(Message::ThemeTrial(true)),
             )
@@ -527,7 +533,7 @@ impl<'a> Page<'a> {
         if self.applied(installed) {
             action(
                 theme,
-                "Turn off theme",
+                crate::i18n::tr!(self.cx.i18n, "Turn off theme"),
                 Kind::Plain,
                 Some(theme_message(Event::TurnOff)),
             )
@@ -536,7 +542,7 @@ impl<'a> Page<'a> {
         } else {
             action(
                 theme,
-                "Apply",
+                crate::i18n::tr!(self.cx.i18n, "Apply"),
                 Kind::Primary,
                 Some(theme_message(Event::Choose(installed.id.clone()))),
             )
@@ -665,7 +671,10 @@ impl<'a> Page<'a> {
             ),
             form::note(
                 theme,
-                "They stay installed, but Yapfast won't use files it can't check.",
+                crate::i18n::tr!(
+                    self.cx.i18n,
+                    "They stay installed, but Yapfast won't use files it can't check."
+                ),
             ),
             rows.into(),
         ])
@@ -695,7 +704,7 @@ impl<'a> Page<'a> {
             header = header.push(
                 action(
                     theme,
-                    "Turn off theme",
+                    crate::i18n::tr!(self.cx.i18n, "Turn off theme"),
                     Kind::Plain,
                     Some(theme_message(Event::TurnOff)),
                 )
@@ -705,7 +714,7 @@ impl<'a> Page<'a> {
         header = header.push(
             action(
                 theme,
-                "New theme",
+                crate::i18n::tr!(self.cx.i18n, "New theme"),
                 Kind::Ghost,
                 Some(theme_message(Event::Creator(theme_creator::Event::Open))),
             )
@@ -733,7 +742,7 @@ impl<'a> Page<'a> {
                 Spot::NewTheme,
                 action(
                     theme,
-                    "New theme",
+                    crate::i18n::tr!(self.cx.i18n, "New theme"),
                     Kind::Primary,
                     Some(theme_message(Event::Creator(theme_creator::Event::Open))),
                 )
@@ -868,7 +877,7 @@ impl<'a> Page<'a> {
                     .wrapping(text::Wrapping::None),
                 form::note(
                     theme,
-                    "Settings of the theme that's applied. They're kept if you switch away and come back.",
+                    crate::i18n::tr!(self.cx.i18n, "Settings of the theme that's applied. They're kept if you switch away and come back."),
                 ),
             ]
             .spacing(2)
@@ -1020,14 +1029,14 @@ pub fn trial_banner(cx: crate::ctx::Ctx<'_>) -> Option<Element<'_, Message>> {
             .wrapping(text::Wrapping::None),
             action(
                 theme,
-                "Revert",
+                crate::i18n::tr!(cx.i18n, "Revert"),
                 Kind::Plain,
                 Some(Message::ThemeTrial(false))
             )
             .small(),
             action(
                 theme,
-                "Keep",
+                crate::i18n::tr!(cx.i18n, "Keep"),
                 Kind::Primary,
                 Some(Message::ThemeTrial(true))
             )

@@ -370,7 +370,7 @@ fn view<'a>(shown: &'a Shown, cx: Ctx<'a>) -> Element<'a, Message> {
         body = body.push(
             controls::action(
                 theme,
-                "Go to Server",
+                crate::i18n::tr!(cx.i18n, "Go to Server"),
                 Kind::Primary,
                 Some(Message::TagCard(Event::Go)),
             )

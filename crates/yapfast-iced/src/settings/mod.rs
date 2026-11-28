@@ -1024,7 +1024,7 @@ impl<'a> Page<'a> {
         .style(|_, _| button::Style::default());
         let face = iced::widget::tooltip(
             face,
-            controls::tip(theme, "Click to copy"),
+            controls::tip(theme, crate::i18n::tr!(self.cx.i18n, "Click to copy")),
             iced::widget::tooltip::Position::Top,
         );
         column![bar(theme.line, Length::Fill, 1), face]

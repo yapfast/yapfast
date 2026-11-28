@@ -3111,3 +3111,921 @@ msgstr "{online} online, {members} Mitglieder"
 
 msgid "This invite is invalid or has expired."
 msgstr "Diese Einladung ist ungültig oder abgelaufen."
+
+msgid "Undeafen"
+msgstr "Ton einschalten"
+
+msgid "Join calls muted"
+msgstr "Anrufen mit stummem Mikrofon beitreten"
+
+msgid "Join calls deafened"
+msgstr "Anrufen ohne Ton beitreten"
+
+msgid "Import"
+msgstr "Importieren"
+
+msgid "Paste"
+msgstr "Einfügen"
+
+msgid "New theme"
+msgstr "Neues Design"
+
+msgid "Remove"
+msgstr "Entfernen"
+
+msgid "Reset to default"
+msgstr "Auf Standard zurücksetzen"
+
+msgid "Careful — you have unsaved changes!"
+msgstr "Du hast ungespeicherte Änderungen."
+
+msgid "Reset"
+msgstr "Zurücksetzen"
+
+msgid "Saving..."
+msgstr "Wird gespeichert …"
+
+msgid "Save Changes"
+msgstr "Änderungen speichern"
+
+msgid "Add a Keybind"
+msgstr "Tastenkürzel hinzufügen"
+
+msgid "Create Invite Link"
+msgstr "Einladungslink erstellen"
+
+msgid "Pause Invites"
+msgstr "Einladungen pausieren"
+
+msgid "Pause DMs"
+msgstr "Direktnachrichten pausieren"
+
+msgid "Use the application icon in the tray"
+msgstr "App-Symbol im Infobereich verwenden"
+
+msgid "Replace"
+msgstr "Ersetzen"
+
+msgid "Muted until {time}"
+msgstr "Stumm bis {time}"
+
+msgid "Muted"
+msgstr "Stummgeschaltet"
+
+msgid "Just now"
+msgstr "Gerade eben"
+
+msgid "{count}m ago"
+msgstr "vor {count} Min."
+
+msgid "{count}h ago"
+msgstr "vor {count} Std."
+
+msgid "{count}d ago"
+msgstr "vor {count} T."
+
+msgid "Export"
+msgstr "Exportieren"
+
+msgid "Undo"
+msgstr "Rückgängig"
+
+msgid "Start over"
+msgstr "Neu beginnen"
+
+msgid "Frosted glass panes"
+msgstr "Milchglasflächen"
+
+msgid "Import a font"
+msgstr "Schrift importieren"
+
+msgid "Dark"
+msgstr "Dunkel"
+
+msgid "View Full Profile"
+msgstr "Vollständiges Profil anzeigen"
+
+msgid "Refresh devices"
+msgstr "Geräte aktualisieren"
+
+msgid "Choose"
+msgstr "Auswählen"
+
+msgid "Create Role"
+msgstr "Rolle erstellen"
+
+msgid "Add Members"
+msgstr "Mitglieder hinzufügen"
+
+msgid "Add"
+msgstr "Hinzufügen"
+
+msgid "Display role members separately from online members"
+msgstr "Mitglieder dieser Rolle separat anzeigen"
+
+msgid "Allow anyone to @mention this role"
+msgstr "Allen erlauben, diese Rolle zu erwähnen"
+
+msgid "Choose Image"
+msgstr "Bild auswählen"
+
+msgid "Use Emoji"
+msgstr "Emoji verwenden"
+
+msgid "Create a Poll"
+msgstr "Umfrage erstellen"
+
+msgid "Add another answer"
+msgstr "Weitere Antwort hinzufügen"
+
+msgid "Browse the Marketplace"
+msgstr "Marktplatz durchsuchen"
+
+msgid "Keep"
+msgstr "Behalten"
+
+msgid "Turn off theme"
+msgstr "Design deaktivieren"
+
+msgid "Revert"
+msgstr "Design zurücksetzen"
+
+msgid "Reconnect"
+msgstr "Erneut verbinden"
+
+msgid "Edit profile"
+msgstr "Profil bearbeiten"
+
+msgid "Back to sign in"
+msgstr "Zurück zur Anmeldung"
+
+msgid "Sign out"
+msgstr "Abmelden"
+
+msgid "Unlink Discord"
+msgstr "Discord trennen"
+
+msgid "Choose from detected games"
+msgstr "Aus erkannten Spielen wählen"
+
+msgid "Never show"
+msgstr "Nie anzeigen"
+
+msgid "Private Thread"
+msgstr "Privater Thread"
+
+msgid "Exit"
+msgstr "Verlassen"
+
+msgid "Got It"
+msgstr "Verstanden"
+
+msgid "Custom sound set"
+msgstr "Eigenes Tonpaket"
+
+msgid "Jump"
+msgstr "Springen"
+
+msgid "Go to Server"
+msgstr "Zum Server wechseln"
+
+msgid "Require 2FA for moderator actions"
+msgstr "Zwei-Faktor-Authentifizierung für Moderation verlangen"
+
+msgid "Browse"
+msgstr "Durchsuchen"
+
+msgid "Clear status"
+msgstr "Status löschen"
+
+msgid "Edit"
+msgstr "Bearbeiten"
+
+msgid "Previous"
+msgstr "Zurück"
+
+msgid "Next"
+msgstr "Weiter"
+
+msgid "Uploading..."
+msgstr "Wird hochgeladen …"
+
+msgid "Upload"
+msgstr "Hochladen"
+
+msgid "Update"
+msgstr "Aktualisieren"
+
+msgid "{page} of {pages}"
+msgstr "{page} von {pages}"
+
+msgid "Page {page} of {pages}"
+msgstr "Seite {page} von {pages}"
+
+msgid "Your profile in {server}"
+msgstr "Dein Profil auf {server}"
+
+msgid "Don't show again"
+msgstr "Nicht erneut anzeigen"
+
+msgid "SCREEN"
+msgstr "BILDSCHIRM"
+
+msgid "CAMERAS"
+msgstr "KAMERAS"
+
+msgid "NOISE SUPPRESSION"
+msgstr "GERÄUSCHUNTERDRÜCKUNG"
+
+msgid "POST TITLE"
+msgstr "BEITRAGSTITEL"
+
+msgid "Pinned Messages"
+msgstr "Angeheftete Nachrichten"
+
+msgid "Select Friends"
+msgstr "Freunde auswählen"
+
+msgid "Friends Since"
+msgstr "Befreundet seit"
+
+msgid "Connections"
+msgstr "Verknüpfungen"
+
+msgid "Note (only visible to you)"
+msgstr "Notiz (nur für dich sichtbar)"
+
+msgid "Current activity"
+msgstr "Aktuelle Aktivität"
+
+msgid "Your Widgets"
+msgstr "Deine Widgets"
+
+msgid "Remove Reaction"
+msgstr "Reaktion entfernen"
+
+msgid "RELATED EMOJI"
+msgstr "ZUGEHÖRIGES EMOJI"
+
+msgid "STICKER NAME"
+msgstr "STICKERNAME"
+
+msgid "You haven't added any custom keybinds yet."
+msgstr "Du hast noch keine eigenen Tastenkürzel hinzugefügt."
+
+msgid "No audio devices found. Connect one, then refresh."
+msgstr "Keine Audiogeräte gefunden. Schließe ein Gerät an und aktualisiere die Liste."
+
+msgid "No camera found. Connect one, then refresh."
+msgstr "Keine Kamera gefunden. Schließe eine Kamera an und aktualisiere die Liste."
+
+msgid "You'll be muted and deafened in your call while you test."
+msgstr "Während des Tests sind dein Mikrofon und der Ton im Anruf ausgeschaltet."
+
+msgid "Link your Discord account to see its servers and DMs in Yapfast, and join its calls. The login stays on this computer, in the system's credential store."
+msgstr "Verknüpfe dein Discord-Konto, um Server und Direktnachrichten zu sehen und an Anrufen teilzunehmen. Die Anmeldedaten bleiben im Anmeldedatenspeicher dieses Computers."
+
+msgid "Unlinking signs Yapfast out of Discord on this computer."
+msgstr "Beim Trennen meldet sich Yapfast auf diesem Computer bei Discord ab."
+
+msgid "Call tones and sounds for messages, voice and streams play on the speakers chosen for calls."
+msgstr "Anruftöne sowie Töne für Nachrichten, Sprachkanäle und Streams werden über das für Anrufe gewählte Ausgabegerät abgespielt."
+
+msgid "WAV, Ogg, Opus and MP3 files can be up to 1 MiB, with a 4-second limit for events and a 6-second limit for call tones."
+msgstr "WAV-, Ogg-, Opus- und MP3-Dateien dürfen bis zu 1 MiB groß sein. Ereignistöne dürfen bis zu 4 Sekunden und Anruftöne bis zu 6 Sekunden lang sein."
+
+msgid "Themes restyle Yapfast: its colours, fonts, shapes, art and sounds. A theme is data, never code, and you see what one changes before it's installed."
+msgstr "Designs ändern Farben, Schriften, Formen, Gestaltung und Töne von Yapfast. Vor der Installation siehst du die Änderungen. Designs enthalten nur Daten."
+
+msgid "They stay installed, but Yapfast won't use files it can't check."
+msgstr "Die Designs bleiben installiert. Yapfast verwendet nur überprüfte Dateien."
+
+msgid "Settings of the theme that's applied. They're kept if you switch away and come back."
+msgstr "Die Einstellungen des aktiven Designs bleiben beim Wechsel erhalten."
+
+msgid "DeepFilterNet also takes out typing and other sudden noise. RNNoise uses less processing. Off sends your microphone as it is, for a quiet room. A call going on switches straight away."
+msgstr "DeepFilterNet unterdrückt auch Tastaturgeräusche und andere plötzliche Geräusche. RNNoise benötigt weniger Rechenleistung. In einem ruhigen Raum kannst du das Mikrofonsignal unverarbeitet senden. Änderungen gelten sofort, auch im laufenden Anruf."
+
+msgid "How loud soundboard sounds play in Discord calls, yours and everyone else's. Discord keeps it for all your devices."
+msgstr "Lautstärke der Soundboard-Töne in Discord-Anrufen, sowohl deiner eigenen als auch der Töne anderer. Discord speichert sie für alle deine Geräte."
+
+msgid "How long your microphone keeps sending after you let go of the key, so the end of a word isn't cut off."
+msgstr "Wie lange dein Mikrofon nach dem Loslassen der Taste weiter überträgt, damit das Wortende hörbar bleibt."
+
+msgid "Use roles to group your server members and assign permissions."
+msgstr "Verwende Rollen, um Mitglieder zu gruppieren und Berechtigungen zu vergeben."
+
+msgid "Members use the color of the highest role they have on this list. Drag roles to reorder them."
+msgstr "Die Farbe eines Mitglieds entspricht seiner höchsten Rolle in dieser Liste. Ziehe Rollen, um die Reihenfolge zu ändern."
+
+msgid "Not all members are shown, use Search to find specific members"
+msgstr "Es werden nicht alle Mitglieder angezeigt. Verwende die Suche, um bestimmte Mitglieder zu finden."
+
+msgid "Before searching, we need to index this server. Give us a bit."
+msgstr "Der Server muss vor der Suche indiziert werden. Das kann einen Moment dauern."
+
+msgid "Create an invite link anyone can use to join, or invite friends directly."
+msgstr "Erstelle einen Einladungslink für alle oder lade Freunde direkt ein."
+
+msgid "Mutual Friends"
+msgstr "Gemeinsame Freunde"
+
+msgid "No Mutual Friends"
+msgstr "Keine gemeinsamen Freunde"
+
+msgid "1 Mutual Friend"
+msgstr "1 gemeinsamer Freund"
+
+msgid "{count} Mutual Friends"
+msgstr "{count} gemeinsame Freunde"
+
+msgid "Mutual Servers"
+msgstr "Gemeinsame Server"
+
+msgid "No Mutual Servers"
+msgstr "Keine gemeinsamen Server"
+
+msgid "1 Mutual Server"
+msgstr "1 gemeinsamer Server"
+
+msgid "{count} Mutual Servers"
+msgstr "{count} gemeinsame Server"
+
+msgid "Board"
+msgstr "Pinnwand"
+
+msgid "Activity"
+msgstr "Aktivität"
+
+msgid "Wishlist"
+msgstr "Wunschliste"
+
+msgid "This group has no room for more."
+msgstr "In dieser Gruppe ist kein Platz mehr."
+
+msgid "You can add 1 more friend."
+msgstr "Du kannst noch einen Freund hinzufügen."
+
+msgid "You can add {count} more friends."
+msgstr "Du kannst noch {count} Freunde hinzufügen."
+
+msgid "Type the name of a friend"
+msgstr "Gib den Namen eines Freundes ein"
+
+msgid "Exported to {name}."
+msgstr "Nach {name} exportiert."
+
+msgid "Couldn't save the theme file: {error}"
+msgstr "Designdatei konnte nicht gespeichert werden: {error}"
+
+msgid "Couldn't read the file: {error}"
+msgstr "Datei konnte nicht gelesen werden: {error}"
+
+msgid "Copied the theme to the clipboard."
+msgstr "Das Design wurde in die Zwischenablage kopiert."
+
+msgid "The clipboard holds no text."
+msgstr "Die Zwischenablage enthält keinen Text."
+
+msgid "Note on {name}"
+msgstr "Notiz zu {name}"
+
+msgid "Only you see your note, in Discord too."
+msgstr "Nur du siehst deine Notiz, auch in Discord."
+
+msgid "Note"
+msgstr "Notiz"
+
+msgid "Save"
+msgstr "Speichern"
+
+msgid "Ready to start a call?"
+msgstr "Anruf starten?"
+
+msgid "Enjoy this moment. Then jump in when you're ready."
+msgstr "Tritt bei, wenn du bereit bist."
+
+msgid "Start Call"
+msgstr "Anruf starten"
+
+msgid "Nickname for {name}"
+msgstr "Spitzname für {name}"
+
+msgid "Only you see the nickname you give a friend. Leave it empty to remove it."
+msgstr "Nur du siehst den Spitznamen. Lass das Feld leer, um ihn zu entfernen."
+
+msgid "Nickname"
+msgstr "Spitzname"
+
+msgid "Remove {name} as a friend?"
+msgstr "{name} als Freund entfernen?"
+
+msgid "You'll need to send {name} a friend request to be friends again."
+msgstr "Um wieder befreundet zu sein, musst du {name} erneut eine Freundschaftsanfrage senden."
+
+msgid "Block {name}?"
+msgstr "{name} blockieren?"
+
+msgid "Blocking {name} also removes them as a friend. Their messages show collapsed, and they can't message you."
+msgstr "Die Blockierung entfernt {name} aus deiner Freundesliste. Nachrichten werden eingeklappt, und die Person kann dir nicht schreiben."
+
+msgid "Change your nickname"
+msgstr "Eigenen Spitznamen ändern"
+
+msgid "Everyone in this server sees it. Leave it empty to go by your name."
+msgstr "Alle auf dem Server sehen ihn. Lass das Feld leer, um deinen Profilnamen zu verwenden."
+
+msgid "Change {name}'s nickname"
+msgstr "Spitznamen von {name} ändern"
+
+msgid "Everyone in this server sees it. Leave it empty to reset it to their name."
+msgstr "Alle auf dem Server sehen ihn. Lass das Feld leer, um den Profilnamen wiederherzustellen."
+
+msgid "Time out {name}"
+msgstr "{name} eine Auszeit geben"
+
+msgid "Until it ends, {name} can read the server but can't send messages, react, or join voice. The reason goes in the server's audit log."
+msgstr "Bis zum Ende kann {name} mitlesen, aber weder schreiben noch reagieren oder Sprachkanälen beitreten. Der Grund erscheint im Audit-Log."
+
+msgid "Reason (optional)"
+msgstr "Grund (optional)"
+
+msgid "Kick {name}?"
+msgstr "{name} vom Server entfernen?"
+
+msgid "{name} can join again with a new invite. The reason goes in the server's audit log."
+msgstr "{name} kann mit einer neuen Einladung zurückkehren. Der Grund erscheint im Audit-Log."
+
+msgid "Ban {name}?"
+msgstr "{name} vom Server bannen?"
+
+msgid "{name} can't join again until unbanned. The reason goes in the server's audit log."
+msgstr "{name} kann erst nach Aufhebung der Sperre zurückkehren. Der Grund erscheint im Audit-Log."
+
+msgid "DURATION"
+msgstr "DAUER"
+
+msgid "DELETE THEIR MESSAGES FROM"
+msgstr "NACHRICHTEN LÖSCHEN AUS"
+
+msgid "Don't delete any"
+msgstr "Keine Nachrichten löschen"
+
+msgid "The last hour"
+msgstr "Letzte Stunde"
+
+msgid "The last {hours} hours"
+msgstr "Letzte {hours} Stunden"
+
+msgid "The last {count} days"
+msgstr "Letzte {count} Tage"
+
+msgid "60 seconds"
+msgstr "60 Sekunden"
+
+msgid "10 minutes"
+msgstr "10 Minuten"
+
+msgid "1 week"
+msgstr "1 Woche"
+
+msgid "No emoji match \"{query}\"."
+msgstr "Keine Emojis für „{query}“ gefunden."
+
+msgid "Couldn't save the sound. {error}"
+msgstr "Der Ton konnte nicht gespeichert werden. {error}"
+
+msgid "Couldn't remove the sound. {error}"
+msgstr "Der Ton konnte nicht entfernt werden. {error}"
+
+msgid "Couldn't play the sound. {error}"
+msgstr "Der Ton konnte nicht abgespielt werden. {error}"
+
+msgid "Couldn't read the selected file. {error}"
+msgstr "Die ausgewählte Datei konnte nicht gelesen werden. {error}"
+
+msgid "The selected file {error}."
+msgstr "Die ausgewählte Datei konnte nicht verarbeitet werden: {error}."
+
+msgid "Use a sound no longer than {seconds} seconds."
+msgstr "Verwende einen Ton von höchstens {seconds} Sekunden."
+
+msgid "Couldn't read the selected sound."
+msgstr "Der ausgewählte Ton konnte nicht gelesen werden."
+
+msgid "Stickers can be static (JPG, PNG) or animated (APNG, GIF). Stickers must be exactly 320 x 320 pixels and no larger than 512 KB. We will automatically resize static JPG, PNG and animated GIF stickers for you."
+msgstr "Sticker können statisch (JPG, PNG) oder animiert (APNG, GIF) sein. Sie müssen genau 320 × 320 Pixel groß und höchstens 512 KB schwer sein. JPG-, PNG- und GIF-Sticker werden automatisch skaliert."
+
+msgid "Having mic issues? Start a test and say something fun, and Yapfast plays your voice back to you, with your noise suppression and volumes. Wear headphones, or it echoes."
+msgstr "Probleme mit dem Mikrofon? Starte den Test und sag etwas. Yapfast spielt deine Stimme mit der aktuellen Lautstärke und Geräuschunterdrückung ab. Verwende Kopfhörer, um ein Echo zu vermeiden."
+
+msgid "Name a game by its executable, a file name or a full path, and what to show after Playing. These come before the games Yapfast knows, but a game's Rich Presence comes first."
+msgstr "Gib den Dateinamen oder vollständigen Pfad der ausführbaren Datei und den Spielnamen für den Status ein. Eigene Einträge haben Vorrang vor der eingebauten Spieleliste. Rich Presence des Spiels hat den höchsten Vorrang."
+
+msgid "Choose how to confirm it's you."
+msgstr "Wähle, wie du deine Identität bestätigen möchtest."
+
+msgid "Customize your profile for every server, from avatar decorations to bios. Only with Nitro."
+msgstr "Passe dein Profil für jeden Server an, von Avatar-Dekorationen bis zur Bio. Nur mit Nitro."
+
+msgid "Choose if server members can share image-based media detected by Discord's sensitive content filters. This setting will apply to channels that are not age-restricted."
+msgstr "Lege fest, ob Mitglieder Bilder teilen dürfen, die Discords Filter für sensible Inhalte erkennt. Dies gilt für Kanäle ohne Altersbeschränkung."
+
+msgid "Members use the color of the highest role they have on the roles list."
+msgstr "Die Farbe eines Mitglieds entspricht seiner höchsten Rolle in der Liste."
+
+msgid "Upload an image under 256 KB or use an emoji. We recommend at least 64x64 pixels. Members will see the icon for their highest role if they have multiple roles."
+msgstr "Lade ein Bild unter 256 KB hoch oder verwende ein Emoji. Empfohlen sind mindestens 64 × 64 Pixel. Bei mehreren Rollen wird das Symbol der höchsten Rolle angezeigt."
+
+msgid "Draw all of Yapfast in your own font. Choose its TTF, OTF, TTC or WOFF files, every weight and italic you have; WOFF2 isn't supported. Code and emoji keep their fonts."
+msgstr "Verwende deine eigene Schrift in Yapfast. Wähle TTF-, OTF-, TTC- oder WOFF-Dateien für alle verfügbaren Schriftschnitte. WOFF2 wird nicht unterstützt. Code und Emojis behalten ihre Schriften."
+
+msgid "Each as #rgb, #rrggbb or #rrggbbaa, or picked from its swatch. The window shows a change as you make it."
+msgstr "Gib Farben als #rgb, #rrggbb oder #rrggbbaa ein oder wähle sie in der Palette. Änderungen sind sofort im Fenster sichtbar."
+
+msgid "Yapfast itself wears the theme while you make it, behind these settings."
+msgstr "Beim Bearbeiten wird das Design im Yapfast-Fenster hinter den Einstellungen angezeigt."
+
+msgid "Each as #rgb, #rrggbb or #rrggbbaa. The window shows a change as you type it."
+msgstr "Gib Farben als #rgb, #rrggbb oder #rrggbbaa ein. Änderungen sind beim Eingeben sofort sichtbar."
+
+msgid "Enter an executable and a name of up to 128 characters, without line breaks."
+msgstr "Gib eine ausführbare Datei und einen Namen mit höchstens 128 Zeichen ohne Zeilenumbrüche ein."
+
+msgid "Enter an executable or a name, without line breaks."
+msgstr "Gib eine ausführbare Datei oder einen Namen ohne Zeilenumbrüche ein."
+
+msgid "Enter the 6-digit code from your authenticator app."
+msgstr "Gib den sechsstelligen Code aus deiner Authenticator-App ein."
+
+msgid "6-digit code"
+msgstr "Sechsstelliger Code"
+
+msgid "Discord is sending a code to your phone."
+msgstr "Discord sendet einen Code an dein Telefon."
+
+msgid "Enter your password."
+msgstr "Gib dein Passwort ein."
+
+msgid "Password"
+msgstr "Passwort"
+
+msgid "Enter one of your 8-digit backup codes. Each works only once."
+msgstr "Gib einen deiner achtstelligen Backup-Codes ein. Jeder Code funktioniert nur einmal."
+
+msgid "Backup code"
+msgstr "Backup-Code"
+
+msgid "Use your authenticator app"
+msgstr "Authenticator-App verwenden"
+
+msgid "Use a code sent to your phone"
+msgstr "Code vom Telefon verwenden"
+
+msgid "Use your password"
+msgstr "Passwort verwenden"
+
+msgid "Use a backup code"
+msgstr "Backup-Code verwenden"
+
+msgid "Use a passkey or security key"
+msgstr "Passkey oder Sicherheitsschlüssel verwenden"
+
+msgid "Confirming..."
+msgstr "Wird bestätigt …"
+
+msgid "Confirm"
+msgstr "Bestätigen"
+
+msgid "Enter the 6-digit code Discord sent to {phone}."
+msgstr "Gib den sechsstelligen Code ein, den Discord an {phone} gesendet hat."
+
+msgid "Linking {name}. Tap Log in on your phone to finish."
+msgstr "Konto {name} wird verknüpft. Tippe auf deinem Telefon auf „Anmelden“, um fortzufahren."
+
+msgid "Otherwise you join muted, and unmute when you're ready."
+msgstr "Andernfalls trittst du stumm bei und kannst das Mikrofon einschalten, wenn du bereit bist."
+
+msgid "Even out your voice"
+msgstr "Stimmlautstärke ausgleichen"
+
+msgid "Keeps your voice steady as you lean towards the microphone or away from it. Whispers and shouts still come through as they are."
+msgstr "Hält deine Stimme gleichmäßig laut, wenn du dich dem Mikrofon näherst oder dich davon entfernst. Flüstern und Rufen bleiben hörbar."
+
+msgid "Voice activity"
+msgstr "Sprachaktivierung"
+
+msgid "Push to talk"
+msgstr "Push-to-Talk"
+
+msgid "Yapfast sends your microphone only while you hold a key."
+msgstr "Yapfast überträgt dein Mikrofon nur, solange du eine Taste gedrückt hältst."
+
+msgid "Yapfast sends your voice when it hears you speak."
+msgstr "Yapfast überträgt deine Stimme, sobald du sprichst."
+
+msgid "Starting your camera..."
+msgstr "Kamera wird gestartet …"
+
+msgid "Your camera is off."
+msgstr "Deine Kamera ist ausgeschaltet."
+
+msgid "Full"
+msgstr "Stark"
+
+msgid "Medium"
+msgstr "Mittel"
+
+msgid "Light"
+msgstr "Leicht"
+
+msgid "Full takes out the most noise, but can cut off giggles and breathy laughs. Medium and Light leave a little of the room's sound in, which can sound more natural, and let a little more noise through."
+msgstr "Starke Unterdrückung entfernt die meisten Geräusche, kann aber leises Lachen abschneiden. Mittel und Leicht lassen mehr Umgebungsgeräusche durch und können dadurch natürlicher klingen."
+
+msgid "Soundboard volume"
+msgstr "Soundboard-Lautstärke"
+
+msgid "Take out your room's echo in Discord calls"
+msgstr "Raumecho in Discord-Anrufen unterdrücken"
+
+msgid "For a bare or echoey room that makes your voice sound far away. Uses a little more processing, and your voice goes out 10 ms later."
+msgstr "Für hallige Räume, in denen deine Stimme entfernt klingt. Benötigt etwas mehr Rechenleistung und verzögert die Übertragung um 10 ms."
+
+msgid "Let Windows process your microphone in Discord calls"
+msgstr "Windows-Mikrofonverarbeitung in Discord-Anrufen erlauben"
+
+msgid "Runs the effects Windows and your sound driver add to the microphone, such as their own noise suppression. Off, Yapfast skips them, as they can muffle your voice on top of Yapfast's. Turn it on if your microphone sounds worse without them, as some laptop microphones can."
+msgstr "Verwendet Effekte von Windows und dem Audiotreiber, etwa deren Geräuschunterdrückung. Ohne diese Einstellung überspringt Yapfast sie, da sie zusammen mit seiner Verarbeitung die Stimme dämpfen können. Aktiviere sie, wenn dein Mikrofon sonst schlechter klingt."
+
+msgid "All servers"
+msgstr "Alle Server"
+
+msgid "Choose an entrance sound"
+msgstr "Beitrittston auswählen"
+
+msgid "Plays to everyone in a voice channel or DM call as you join it, outside stage channels. A server's own comes before the one for all servers."
+msgstr "Alle hören den Ton beim Beitritt zu einem Sprachkanal oder Direktanruf. Bühnenkanäle sind ausgenommen. Ein serverspezifischer Ton hat Vorrang."
+
+msgid "Entrance sounds play to everyone as you join a voice channel. They need Nitro."
+msgstr "Alle im Sprachkanal hören deinen Beitrittston. Dafür ist Nitro erforderlich."
+
+msgid "Press the keys to hold while you talk, together. Escape stops without changing it."
+msgstr "Drücke die Tasten, die du beim Sprechen halten möchtest, gleichzeitig. Escape bricht die Aufnahme ab."
+
+msgid "Push to talk is on, but no keybind is set, so your microphone sends nothing."
+msgstr "Push-to-Talk ist aktiv. Lege ein Tastenkürzel fest, um dein Mikrofon zu übertragen."
+
+msgid "Push to talk release delay"
+msgstr "Verzögerung nach Loslassen der Push-to-Talk-Taste"
+
+msgid "Discord voice and its level aren't available on this system yet."
+msgstr "Discord-Sprachübertragung und Pegelmessung sind auf diesem System noch nicht verfügbar."
+
+msgid "Yapfast can't read this microphone. Check that it's connected, or choose another."
+msgstr "Yapfast empfängt kein Signal vom Mikrofon. Prüfe die Verbindung oder wähle ein anderes Gerät."
+
+msgid "Yapfast can't read this microphone."
+msgstr "Yapfast empfängt kein Signal vom Mikrofon."
+
+msgid "Check that it's connected, or choose another."
+msgstr "Prüfe die Verbindung oder wähle ein anderes Mikrofon."
+
+msgid "Yapfast can't play your voice back."
+msgstr "Yapfast kann deine Stimme nicht wiedergeben."
+
+msgid "Check your speakers, or choose others."
+msgstr "Prüfe deine Lautsprecher oder wähle ein anderes Gerät."
+
+msgid "Yapfast isn't detecting any input from your mic."
+msgstr "Yapfast erkennt kein Mikrofonsignal."
+
+msgid "Please check that you've selected the right input device."
+msgstr "Prüfe, ob das richtige Eingabegerät ausgewählt ist."
+
+msgid "Playing back your beautiful voice"
+msgstr "Deine Stimme wird wiedergegeben"
+
+msgid "Stop testing"
+msgstr "Test beenden"
+
+msgid "Let's check"
+msgstr "Test starten"
+
+msgid "Readable text"
+msgstr "Gut lesbarer Text"
+
+msgid "Messages, names, channels and what you type use Yapfast's own font in every theme. The theme's art, colours and layout stay."
+msgstr "Nachrichten, Namen, Kanäle und Eingaben verwenden in jedem Design die Yapfast-Schrift. Grafiken, Farben und Layout des Designs bleiben erhalten."
+
+msgid "Draw text glow"
+msgstr "Textleuchten anzeigen"
+
+msgid "The soft edge a theme puts round text. Off, text keeps its shadow and outline and takes less drawing."
+msgstr "Weiches Leuchten um Text. Ist es aus, bleiben Schatten und Kontur erhalten, und die Darstellung braucht weniger Leistung."
+
+msgid "Play profile effects"
+msgstr "Profileffekte abspielen"
+
+msgid "The animations some people put over their profile cards."
+msgstr "Animationen auf Profilkarten."
+
+msgid "Show avatar decorations"
+msgstr "Avatar-Dekorationen anzeigen"
+
+msgid "The pictures around people's avatars."
+msgstr "Bilder um Avatare."
+
+msgid "Show nameplates"
+msgstr "Namensschilder anzeigen"
+
+msgid "The pictures Discord members equip behind their rows in the member list and on your account card."
+msgstr "Hintergrundbilder in der Discord-Mitgliederliste und auf der Kontokarte."
+
+msgid "Animate decorations and nameplates"
+msgstr "Dekorationen und Namensschilder animieren"
+
+msgid "They play when pointed at, as in Discord. Off, they hold still."
+msgstr "Wie in Discord werden die Animationen beim Zeigen abgespielt. Ist dies aus, bleiben sie statisch."
+
+msgid "Show name styles"
+msgstr "Namensstile anzeigen"
+
+msgid "The fonts and colours people give their display names."
+msgstr "Schriften und Farben der Anzeigenamen."
+
+msgid "Draw role colour gradients"
+msgstr "Verläufe der Rollenfarben anzeigen"
+
+msgid "The colours that run across a name with a gradient or holographic role colour. Off, the name keeps the role's first colour."
+msgstr "Farbverläufe und holografische Rollenfarben in Namen. Ist dies aus, wird die erste Rollenfarbe verwendet."
+
+msgid "Show server tags"
+msgstr "Server-Tags anzeigen"
+
+msgid "The tag and its badge beside people's names."
+msgstr "Tags und Abzeichen neben Anzeigenamen."
+
+msgid "Show profile frames"
+msgstr "Profilrahmen anzeigen"
+
+msgid "The frames some people put around their profile cards."
+msgstr "Rahmen um Profilkarten."
+
+msgid "Show badges"
+msgstr "Abzeichen anzeigen"
+
+msgid "The badges Discord lists on a profile, and the levels its tooltips show. Off, neither their pictures nor their levels are asked for."
+msgstr "Discord-Abzeichen im Profil und ihre Stufen in Tooltips. Ist dies aus, werden Bilder und Stufen nicht geladen."
+
+msgid "Show profile backgrounds"
+msgstr "Profilhintergründe anzeigen"
+
+msgid "The banner picture at the top of a profile card, and its colour. Off, the top keeps the card's own colour and no banner is asked for."
+msgstr "Bannerbild und Farbe oben auf der Profilkarte. Ist dies aus, bleibt die Kartenfarbe erhalten und das Banner wird nicht geladen."
+
+msgid "Show connections on profile cards"
+msgstr "Verknüpfungen auf Profilkarten anzeigen"
+
+msgid "The accounts people link, such as Steam or GitHub, on the card as on the full profile."
+msgstr "Verknüpfte Konten wie Steam oder GitHub sind auf der Karte ebenso sichtbar wie im vollständigen Profil."
+
+msgid "Show activity cards"
+msgstr "Aktivitätskarten anzeigen"
+
+msgid "What people in the server are playing, above its member list. Off, only the Activity heading stays, and its eye shows them again."
+msgstr "Spiele von Servermitgliedern erscheinen über der Mitgliederliste. Ist dies aus, bleibt die Überschrift „Aktivität“ mit einem Augensymbol zum Einblenden."
+
+msgid "Discord asks for a passkey or security key, which Yapfast can't use. Confirm in Discord's app, then try again."
+msgstr "Discord verlangt einen Passkey oder Sicherheitsschlüssel. Bestätige die Aktion in der Discord-App und versuche es erneut."
+
+msgid "Backup codes can only be used one time each and are for emergency access to your account!"
+msgstr "Jeder Backup-Code funktioniert nur einmal und ist für den Notfallzugriff auf dein Konto gedacht."
+
+msgid "If you have access to any of your other methods, select ‘Verify with something else’ to go back."
+msgstr "Wenn du eine andere Methode nutzen kannst, wähle „Andere Bestätigungsmethode wählen“, um zurückzugehen."
+
+msgid "If you do not have access to any other methods, the button below will activate in {left} seconds."
+msgstr "Wenn keine andere Methode verfügbar ist, wird die Schaltfläche unten in {left} Sekunden aktiv."
+
+msgid "If you do not have access to any other methods, use the other button below to proceed."
+msgstr "Wenn keine andere Methode verfügbar ist, fahre mit der anderen Schaltfläche unten fort."
+
+msgid "On your phone, open Discord, go to Settings, tap Scan QR Code, and point the camera here. A new code replaces this one after a couple of minutes."
+msgstr "Öffne Discord auf deinem Telefon, gehe zu den Einstellungen und tippe auf „QR-Code scannen“. Richte die Kamera auf den Code. Nach einigen Minuten wird er ersetzt."
+
+msgid "Use your Matrix recovery key, or verify Yapfast in another client and check again."
+msgstr "Verwende deinen Matrix-Wiederherstellungsschlüssel oder bestätige Yapfast in einem anderen Client und prüfe erneut."
+
+msgid "Join calls unmuted"
+msgstr "Anrufen mit aktivem Mikrofon beitreten"
+
+msgid "Join calls undeafened"
+msgstr "Anrufen mit Ton beitreten"
+
+msgid "Input options"
+msgstr "Mikrofoneinstellungen"
+
+msgid "Output options"
+msgstr "Ausgabeeinstellungen"
+
+msgid "Settings"
+msgstr "Einstellungen"
+
+msgid "Change custom status"
+msgstr "Eigenen Status ändern"
+
+msgid "Copy User ID"
+msgstr "Benutzer-ID kopieren"
+
+msgid "User Settings"
+msgstr "Benutzereinstellungen"
+
+msgid "Switch Accounts"
+msgstr "Konto wechseln"
+
+msgid "What's happening?"
+msgstr "Was gibt’s Neues?"
+
+msgid "4 hours"
+msgstr "4 Stunden"
+
+msgid "Today"
+msgstr "Heute"
+
+msgid "You won't get message notifications."
+msgstr "Du erhältst keine Nachrichtenbenachrichtigungen."
+
+msgid "Invisible"
+msgstr "Unsichtbar"
+
+msgid "You'll appear offline."
+msgstr "Andere sehen dich als offline."
+
+msgid "Microphone volume"
+msgstr "Mikrofonlautstärke"
+
+msgid "Speaker volume"
+msgstr "Lautsprecherlautstärke"
+
+msgid "Stop video"
+msgstr "Video stoppen"
+
+msgid "Test video"
+msgstr "Video testen"
+
+msgid "Turn on your microphone when you join a call"
+msgstr "Mikrofon beim Beitritt zum Anruf einschalten"
+
+msgid "None"
+msgstr "Keiner"
+
+msgid "Yapfast sends your voice when it's louder than the handle, and other sounds when they're 18 dB louder still. The bar is your microphone after noise suppression and at its volume, as Yapfast hears it to decide."
+msgstr "Deine Stimme wird übertragen, wenn sie den Schwellenwert überschreitet. Für andere Geräusche liegt er um 18 dB höher. Der Balken zeigt das Mikrofonsignal nach Geräuschunterdrückung und Lautstärkeeinstellung."
+
+msgid "Click to copy"
+msgstr "Zum Kopieren klicken"
+
+msgid "Off"
+msgstr "Aus"
+
+msgid "{count}m"
+msgstr "{count} Min."
+
+msgid "{count}h"
+msgstr "{count} Std."
+
+msgid "{count}d"
+msgstr "{count} T."
+
+msgid "{time} elapsed"
+msgstr "{time} vergangen"
+
+msgid "{one} and {two}"
+msgstr "{one} und {two}"
+
+msgid "{one}, {two}, and 1 other"
+msgstr "{one}, {two} und eine weitere Person"
+
+msgid "{one}, {two}, and {count} others"
+msgstr "{one}, {two} und {count} weitere Personen"
+
+msgid "In a Voice Channel"
+msgstr "In einem Sprachkanal"
+
+msgid "{count} People"
+msgstr "{count} Personen"
+
+msgid "Streaming {name}"
+msgstr "Streamt {name}"
+
+msgid "Listening to {name}"
+msgstr "Hört {name}"
+
+msgid "Watching {name}"
+msgstr "Schaut {name}"
+
+msgid "Competing in {name}"
+msgstr "Tritt in {name} an"
+
+msgid "with {name}"
+msgstr "Mit {name}"

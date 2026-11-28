@@ -698,7 +698,7 @@ pub fn profile_panel_view<'a>(ctx: crate::ctx::Ctx<'a>) -> Option<Element<'a, Me
     let foot = container(
         action(
             theme,
-            "View Full Profile",
+            crate::i18n::tr!(ctx.i18n, "View Full Profile"),
             Kind::Plain,
             Some(Message::Profile(Event::Enlarge(None, true))),
         )

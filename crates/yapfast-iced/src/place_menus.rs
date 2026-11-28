@@ -47,6 +47,7 @@ fn place_menu(
     mut choices: Vec<MenuChoice>,
 ) -> Task<Message> {
     let core = &app.client.app;
+    let i18n = &app.i18n;
     let state = &core.state;
     let server = state.servers.iter().any(|server| server.id == id);
     let folder = !server && state.is_folder(id);
@@ -132,7 +133,7 @@ fn place_menu(
                     row.act = MenuAct::Notify(NotificationChange::Mute(Muting::Off));
                     row.subtitle = server_notifications
                         .and_then(|known| known.own.muted_until)
-                        .map(|until| muted_until(until / 1000, twelve).into());
+                        .map(|until| muted_until(until / 1000, twelve, i18n).into());
                 }
                 MenuChoice::ServerNotifications => {
                     if let Some(known) = server_notifications {
@@ -156,7 +157,7 @@ fn place_menu(
                     if let Some(notify) = &notify {
                         row = MenuRow {
                             separated,
-                            ..notify.mute_row(twelve)
+                            ..notify.mute_row(twelve, &app.i18n)
                         };
                     }
                 }
@@ -182,7 +183,7 @@ fn place_menu(
                 MenuChoice::UnmuteFolder => {
                     row.act = MenuAct::Notify(NotificationChange::Mute(Muting::Off));
                     row.subtitle = folder_muted_until(&folder_known)
-                        .map(|until| muted_until(until / 1000, twelve).into());
+                        .map(|until| muted_until(until / 1000, twelve, i18n).into());
                 }
                 MenuChoice::FolderNotifications => {
                     row.submenu = folder_levels(&folder_known);
@@ -221,7 +222,7 @@ pub fn open_bell(app: &mut App, at: Point) -> Task<Message> {
         in_category: core.category_of(&room).is_some(),
         settings,
     };
-    let mut rows = vec![notify.mute_row(app.layout.prefs.twelve_hour_clock())];
+    let mut rows = vec![notify.mute_row(app.layout.prefs.twelve_hour_clock(), &app.i18n)];
     let mut levels = notify.levels();
     if let Some(first) = levels.first_mut() {
         first.separated = true;
@@ -486,7 +487,7 @@ impl Notify {
     /// Mute for a time, in a submenu (a click on the row itself mutes
     /// until it's turned back on), or while muted, unmute, saying till
     /// when.
-    fn mute_row(&self, twelve: bool) -> MenuRow {
+    fn mute_row(&self, twelve: bool, i18n: &crate::i18n::I18n) -> MenuRow {
         let muted = self.settings.muted;
         let label = match (muted, self.category) {
             (true, true) => crate::i18n::tr_mark!("Unmute category"),
@@ -499,7 +500,7 @@ impl Notify {
             subtitle: self
                 .settings
                 .muted_until
-                .map(|until| muted_until(until / 1000, twelve).into()),
+                .map(|until| muted_until(until / 1000, twelve, i18n).into()),
             ..MenuRow::plain(
                 MenuAct::Notify(NotificationChange::Mute(Muting::Off)),
                 label,
@@ -659,6 +660,7 @@ fn folder_rows(
     known: &[(String, Option<yapfast_core::chat::ServerNotifications>)],
     twelve: bool,
 ) -> Vec<MenuRow> {
+    let i18n = &app.i18n;
     let state = app.client.state();
     let servers: Vec<MenuRow> = state
         .folder_servers(folder)
@@ -671,11 +673,12 @@ fn folder_rows(
                     let own = known.own;
                     if own.muted {
                         own.muted_until.map_or_else(
-                            || "Muted".to_owned(),
-                            |until| muted_until(until / 1000, twelve),
+                            || crate::i18n::tr!(i18n, "Muted").to_owned(),
+                            |until| muted_until(until / 1000, twelve, i18n),
                         )
                     } else {
-                        level_name(own.level.unwrap_or(own.inherited)).to_owned()
+                        i18n.text(level_name(own.level.unwrap_or(own.inherited)))
+                            .to_owned()
                     }
                 });
             let own = known
@@ -685,7 +688,7 @@ fn folder_rows(
             MenuRow {
                 subtitle: notifies.map(Into::into),
                 side: own
-                    .map(|own| server_choices(&server.id, &own, twelve))
+                    .map(|own| server_choices(&server.id, &own, twelve, i18n))
                     .unwrap_or_default(),
                 ..MenuRow::plain(MenuAct::GoServer, server.name.clone()).key(server.id.clone())
             }
@@ -731,6 +734,7 @@ fn server_choices(
     server: &str,
     known: &yapfast_core::chat::ServerNotifications,
     twelve: bool,
+    i18n: &crate::i18n::I18n,
 ) -> Vec<MenuRow> {
     let own = known.own;
     let mut rows: Vec<MenuRow> = if own.muted {
@@ -738,7 +742,7 @@ fn server_choices(
             icon: Some(Icon::Bell),
             subtitle: own
                 .muted_until
-                .map(|until| muted_until(until / 1000, twelve).into()),
+                .map(|until| muted_until(until / 1000, twelve, i18n).into()),
             ..MenuRow::plain(
                 MenuAct::NotifyServer(NotificationChange::Mute(Muting::Off)),
                 crate::i18n::tr_mark!("Unmute server"),
@@ -826,8 +830,8 @@ pub fn mute_times(act: fn(Muting) -> MenuAct) -> Vec<MenuRow> {
 }
 
 /// When a mute ends, as its Unmute row says it.
-fn muted_until(seconds: u64, twelve_hour: bool) -> String {
-    format!("Muted until {}", until(seconds, twelve_hour))
+fn muted_until(seconds: u64, twelve_hour: bool, i18n: &crate::i18n::I18n) -> String {
+    crate::i18n::tr!(i18n, "Muted until {time}").replace("{time}", &until(seconds, twelve_hour))
 }
 
 /// When something ends, a Unix time: the time today, or the day too.

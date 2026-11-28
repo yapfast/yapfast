@@ -511,7 +511,7 @@ fn hint_close(app: &App) -> Element<'_, Message> {
         });
     iced::widget::tooltip(
         close,
-        controls::tip(theme, "Don't show again"),
+        controls::tip(theme, crate::i18n::tr!(app.i18n, "Don't show again")),
         iced::widget::tooltip::Position::Top,
     )
     .gap(6)
@@ -1021,7 +1021,7 @@ pub fn stream_viewers<'a>(
 
 /// The call's controls under the stage: mute, deafen, the soundboard, the
 /// camera, share the screen, and leave.
-fn call_controls(app: &App) -> Element<'_, Message> {
+fn call_controls<'a>(app: &'a App) -> Element<'a, Message> {
     let theme = &app.theme;
     let voice = &app.client.state().voice;
     let ready = voice_ready(voice);
@@ -1030,9 +1030,9 @@ fn call_controls(app: &App) -> Element<'_, Message> {
     let mic_label = if speaking_blocked {
         "Speaking is restricted in this channel"
     } else if voice.muted {
-        "Unmute"
+        crate::i18n::tr!(app.i18n, "Unmute")
     } else {
-        "Mute"
+        crate::i18n::tr!(app.i18n, "Mute")
     };
     let mic_action = (ready && !speaking_blocked).then_some(Message::Call(Event::Mute));
     let when = |message: Message| ready.then_some(message);
@@ -1042,7 +1042,7 @@ fn call_controls(app: &App) -> Element<'_, Message> {
         use crate::theme_art::{GelTone, gel_call_button};
         let ctx = app.ctx();
         let round = (ROUND, ROUND);
-        let gel = |icon, label: &'static str, tone, message| {
+        let gel = |icon, label: &'a str, tone, message| {
             gel_call_button(ctx, icon, ROUND_GLYPH, label, tone, round, message)
         };
         let mut row_of = row![].spacing(12).align_y(Alignment::Center);
@@ -1062,7 +1062,11 @@ fn call_controls(app: &App) -> Element<'_, Message> {
             } else {
                 Icon::Headphones
             },
-            if voice.deafened { "Undeafen" } else { "Deafen" },
+            if voice.deafened {
+                crate::i18n::tr!(app.i18n, "Undeafen")
+            } else {
+                crate::i18n::tr!(app.i18n, "Deafen")
+            },
             if voice.deafened {
                 GelTone::Danger
             } else {
@@ -1088,9 +1092,9 @@ fn call_controls(app: &App) -> Element<'_, Message> {
                 if starting {
                     "Starting camera..."
                 } else if on {
-                    "Turn off camera"
+                    crate::i18n::tr!(app.i18n, "Turn off camera")
                 } else {
-                    "Turn on camera"
+                    crate::i18n::tr!(app.i18n, "Turn on camera")
                 },
                 if on { GelTone::Lit } else { GelTone::Plain },
                 when(Message::Call(Event::Camera)),
@@ -1105,9 +1109,9 @@ fn call_controls(app: &App) -> Element<'_, Message> {
                     Icon::ScreenShare
                 },
                 if sharing {
-                    "Stop sharing"
+                    crate::i18n::tr!(app.i18n, "Stop sharing")
                 } else {
-                    "Share your screen"
+                    crate::i18n::tr!(app.i18n, "Share your screen")
                 },
                 if sharing {
                     GelTone::Lit
@@ -1128,7 +1132,7 @@ fn call_controls(app: &App) -> Element<'_, Message> {
             ctx,
             Icon::PhoneOff,
             ROUND_GLYPH,
-            "Leave voice",
+            crate::i18n::tr!(app.i18n, "Leave voice"),
             GelTone::Danger,
             (76.0, ROUND),
             (!leaving).then_some(Message::Call(Event::Leave)),
@@ -1160,7 +1164,11 @@ fn call_controls(app: &App) -> Element<'_, Message> {
             } else {
                 Icon::Headphones
             }),
-            if voice.deafened { "Undeafen" } else { "Deafen" },
+            if voice.deafened {
+                crate::i18n::tr!(app.i18n, "Undeafen")
+            } else {
+                crate::i18n::tr!(app.i18n, "Deafen")
+            },
             if voice.deafened { alert } else { theme.raised },
             theme,
             when(Message::Call(Event::Deafen)),
@@ -1185,9 +1193,9 @@ fn call_controls(app: &App) -> Element<'_, Message> {
             if starting {
                 "Starting camera..."
             } else if on {
-                "Turn off camera"
+                crate::i18n::tr!(app.i18n, "Turn off camera")
             } else {
-                "Turn on camera"
+                crate::i18n::tr!(app.i18n, "Turn on camera")
             },
             if on {
                 faded(theme.live, 0.22)
@@ -1207,9 +1215,9 @@ fn call_controls(app: &App) -> Element<'_, Message> {
                 Icon::ScreenShare
             }),
             if sharing {
-                "Stop sharing"
+                crate::i18n::tr!(app.i18n, "Stop sharing")
             } else {
-                "Share your screen"
+                crate::i18n::tr!(app.i18n, "Share your screen")
             },
             if sharing {
                 faded(theme.live, 0.22)
@@ -1246,7 +1254,7 @@ fn call_controls(app: &App) -> Element<'_, Message> {
     ));
     let leave = iced::widget::tooltip(
         leave,
-        controls::tip(theme, "Leave voice"),
+        controls::tip(theme, crate::i18n::tr!(app.i18n, "Leave voice")),
         iced::widget::tooltip::Position::Top,
     )
     .gap(6);

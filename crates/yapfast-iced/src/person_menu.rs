@@ -289,7 +289,10 @@ impl Dialog {
         self.filled = dialog.text.is_some();
         self.text = dialog.text.clone().unwrap_or_default();
         self.ticked = false;
-        if prompt(state, dialog).field.is_empty() {
+        if matches!(
+            dialog.ask,
+            PersonAsk::Call | PersonAsk::Unfriend | PersonAsk::Block
+        ) {
             operation::focus(NOBODY)
         } else {
             operation::focus(PERSON_FIELD)
@@ -375,7 +378,7 @@ impl<'a> View<'a> {
     /// again, why it failed, Cancel and its button.
     fn view(self) -> Option<Element<'a, Message>> {
         let dialog = self.cx.state.person_dialog.as_ref()?;
-        let prompt = prompt(self.cx.state, dialog);
+        let prompt = prompt(self.cx.state, dialog, self.cx.i18n);
         let theme = self.cx.look.theme;
         let close = Message::Person(Event::Close);
         let mut body = column![self.cx.look.dialog_head(prompt.title, close.clone())]
@@ -444,7 +447,12 @@ impl<'a> View<'a> {
         body = body.push(
             row![
                 Space::new().width(Length::Fill),
-                action(theme, "Cancel", Kind::Ghost, Some(close.clone())),
+                action(
+                    theme,
+                    crate::i18n::tr!(self.cx.i18n, "Cancel"),
+                    Kind::Ghost,
+                    Some(close.clone())
+                ),
                 action(theme, prompt.confirm, kind, answer),
             ]
             .spacing(8),
@@ -479,110 +487,124 @@ fn dialog_frame<'a>(
 }
 
 /// What the person dialog says.
-struct Prompt {
+struct Prompt<'a> {
     title: String,
     text: String,
-    heading: &'static str,
+    heading: &'a str,
     options: Vec<String>,
-    field: &'static str,
-    confirm: &'static str,
+    field: &'a str,
+    confirm: &'a str,
     danger: bool,
 }
 
-fn prompt(state: &AppState, dialog: &yapfast_core::application::PersonDialog) -> Prompt {
+fn prompt<'a>(
+    state: &AppState,
+    dialog: &yapfast_core::application::PersonDialog,
+    i18n: &'a crate::i18n::I18n,
+) -> Prompt<'a> {
     let name = &dialog.name;
     let me = state.relation(&dialog.user) == yapfast_core::application::Relation::Me;
     let (title, text, field, confirm, danger) = match dialog.ask {
         PersonAsk::Note => (
-            format!("Note on {name}"),
-            "Only you see your note, in Discord too.".to_owned(),
-            "Note",
-            "Save",
+            crate::i18n::tr!(i18n, "Note on {name}").replace("{name}", name),
+            crate::i18n::tr!(i18n, "Only you see your note, in Discord too.").to_owned(),
+            crate::i18n::tr!(i18n, "Note"),
+            crate::i18n::tr!(i18n, "Save"),
             false,
         ),
         PersonAsk::Call => (
-            "Ready to start a call?".to_owned(),
-            "Enjoy this moment. Then jump in when you're ready.".to_owned(),
+            crate::i18n::tr!(i18n, "Ready to start a call?").to_owned(),
+            crate::i18n::tr!(i18n, "Enjoy this moment. Then jump in when you're ready.").to_owned(),
             "",
-            "Start Call",
+            crate::i18n::tr!(i18n, "Start Call"),
             false,
         ),
         PersonAsk::Nickname => (
-            format!("Nickname for {name}"),
-            "Only you see the nickname you give a friend. Leave it empty to remove it.".to_owned(),
-            "Nickname",
-            "Save",
+            crate::i18n::tr!(i18n, "Nickname for {name}").replace("{name}", name),
+            crate::i18n::tr!(i18n, "Only you see the nickname you give a friend. Leave it empty to remove it.").to_owned(),
+            crate::i18n::tr!(i18n, "Nickname"),
+            crate::i18n::tr!(i18n, "Save"),
             false,
         ),
         PersonAsk::Unfriend => (
-            format!("Remove {name} as a friend?"),
-            format!("You'll need to send {name} a friend request to be friends again."),
+            crate::i18n::tr!(i18n, "Remove {name} as a friend?").replace("{name}", name),
+            crate::i18n::tr!(i18n, "You'll need to send {name} a friend request to be friends again.").replace("{name}", name),
             "",
-            "Remove friend",
+            crate::i18n::tr!(i18n, "Remove friend"),
             true,
         ),
         PersonAsk::Block => (
-            format!("Block {name}?"),
-            format!(
-                "Blocking {name} also removes them as a friend. Their messages show collapsed, and they can't message you."
-            ),
+            crate::i18n::tr!(i18n, "Block {name}?").replace("{name}", name),
+            crate::i18n::tr!(i18n, "Blocking {name} also removes them as a friend. Their messages show collapsed, and they can't message you.").replace("{name}", name),
             "",
-            "Block",
+            crate::i18n::tr!(i18n, "Block"),
             true,
         ),
         PersonAsk::ServerNickname if me => (
-            "Change your nickname".to_owned(),
-            "Everyone in this server sees it. Leave it empty to go by your name.".to_owned(),
-            "Nickname",
-            "Save",
+            crate::i18n::tr!(i18n, "Change your nickname").to_owned(),
+            crate::i18n::tr!(i18n, "Everyone in this server sees it. Leave it empty to go by your name.").to_owned(),
+            crate::i18n::tr!(i18n, "Nickname"),
+            crate::i18n::tr!(i18n, "Save"),
             false,
         ),
         PersonAsk::ServerNickname => (
-            format!("Change {name}'s nickname"),
-            "Everyone in this server sees it. Leave it empty to reset it to their name.".to_owned(),
-            "Nickname",
-            "Save",
+            crate::i18n::tr!(i18n, "Change {name}'s nickname").replace("{name}", name),
+            crate::i18n::tr!(i18n, "Everyone in this server sees it. Leave it empty to reset it to their name.").to_owned(),
+            crate::i18n::tr!(i18n, "Nickname"),
+            crate::i18n::tr!(i18n, "Save"),
             false,
         ),
         PersonAsk::Timeout => (
-            format!("Time out {name}"),
-            format!(
-                "Until it ends, {name} can read the server but can't send messages, react, or join voice. The reason goes in the server's audit log."
-            ),
-            "Reason (optional)",
-            "Time out",
+            crate::i18n::tr!(i18n, "Time out {name}").replace("{name}", name),
+            crate::i18n::tr!(i18n, "Until it ends, {name} can read the server but can't send messages, react, or join voice. The reason goes in the server's audit log.").replace("{name}", name),
+            crate::i18n::tr!(i18n, "Reason (optional)"),
+            crate::i18n::tr!(i18n, "Time out"),
             true,
         ),
         PersonAsk::Kick => (
-            format!("Kick {name}?"),
-            format!(
-                "{name} can join again with a new invite. The reason goes in the server's audit log."
-            ),
-            "Reason (optional)",
-            "Kick",
+            crate::i18n::tr!(i18n, "Kick {name}?").replace("{name}", name),
+            crate::i18n::tr!(i18n, "{name} can join again with a new invite. The reason goes in the server's audit log.").replace("{name}", name),
+            crate::i18n::tr!(i18n, "Reason (optional)"),
+            crate::i18n::tr!(i18n, "Kick"),
             true,
         ),
         PersonAsk::Ban => (
-            format!("Ban {name}?"),
-            format!(
-                "{name} can't join again until unbanned. The reason goes in the server's audit log."
-            ),
-            "Reason (optional)",
-            "Ban",
+            crate::i18n::tr!(i18n, "Ban {name}?").replace("{name}", name),
+            crate::i18n::tr!(i18n, "{name} can't join again until unbanned. The reason goes in the server's audit log.").replace("{name}", name),
+            crate::i18n::tr!(i18n, "Reason (optional)"),
+            crate::i18n::tr!(i18n, "Ban"),
             true,
         ),
     };
     let (heading, options) = match dialog.ask {
-        PersonAsk::Timeout => ("DURATION", TIMEOUT_TIMES.map(span).to_vec()),
+        PersonAsk::Timeout => (
+            crate::i18n::tr!(i18n, "DURATION"),
+            TIMEOUT_TIMES
+                .map(|seconds| {
+                    match seconds {
+                        60 => crate::i18n::tr!(i18n, "60 seconds"),
+                        300 => crate::i18n::tr!(i18n, "5 minutes"),
+                        600 => crate::i18n::tr!(i18n, "10 minutes"),
+                        3600 => crate::i18n::tr!(i18n, "1 hour"),
+                        86400 => crate::i18n::tr!(i18n, "1 day"),
+                        604800 => crate::i18n::tr!(i18n, "1 week"),
+                        _ => unreachable!("unsupported timeout"),
+                    }
+                    .to_owned()
+                })
+                .to_vec(),
+        ),
         PersonAsk::Ban => (
-            "DELETE THEIR MESSAGES FROM",
+            crate::i18n::tr!(i18n, "DELETE THEIR MESSAGES FROM"),
             // As Discord's: hours up to a day, then days.
             BAN_HISTORY
                 .map(|seconds| match seconds / 3600 {
-                    0 => "Don't delete any".to_owned(),
-                    1 => "The last hour".to_owned(),
-                    hours if hours <= 24 => format!("The last {hours} hours"),
-                    hours => format!("The last {} days", hours / 24),
+                    0 => crate::i18n::tr!(i18n, "Don't delete any").to_owned(),
+                    1 => crate::i18n::tr!(i18n, "The last hour").to_owned(),
+                    hours if hours <= 24 => crate::i18n::tr!(i18n, "The last {hours} hours")
+                        .replace("{hours}", &hours.to_string()),
+                    hours => crate::i18n::tr!(i18n, "The last {count} days")
+                        .replace("{count}", &(hours / 24).to_string()),
                 })
                 .to_vec(),
         ),
@@ -597,19 +619,6 @@ fn prompt(state: &AppState, dialog: &yapfast_core::application::PersonDialog) ->
         confirm,
         danger,
     }
-}
-
-/// A timeout's length in words: "60 seconds", "1 hour", "1 week".
-fn span(seconds: u32) -> String {
-    let (count, unit) = match seconds {
-        seconds if seconds % (7 * 86400) == 0 => (seconds / (7 * 86400), "week"),
-        seconds if seconds % 86400 == 0 => (seconds / 86400, "day"),
-        seconds if seconds % 3600 == 0 => (seconds / 3600, "hour"),
-        seconds if seconds % 60 == 0 && seconds > 60 => (seconds / 60, "minute"),
-        seconds => (seconds, "second"),
-    };
-    let plural = if count == 1 { "" } else { "s" };
-    format!("{count} {unit}{plural}")
 }
 
 /// A row a voice channel's call offers for someone in it.

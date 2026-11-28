@@ -182,7 +182,7 @@ impl<'a> Page<'a> {
                 form::title(theme, crate::i18n::tr!(self.cx.i18n, "Custom Keybinds")),
                 action(
                     theme,
-                    "Add a Keybind",
+                    crate::i18n::tr!(self.cx.i18n, "Add a Keybind"),
                     Kind::Plain,
                     Some(keybind_message(Event::Add)),
                 ),
@@ -193,7 +193,7 @@ impl<'a> Page<'a> {
         if self.cx.layout.keybinds.is_empty() {
             custom = custom.push(form::note(
                 theme,
-                "You haven't added any custom keybinds yet.",
+                crate::i18n::tr!(self.cx.i18n, "You haven't added any custom keybinds yet."),
             ));
         }
         for (row, binding) in self.cx.layout.keybinds.iter().enumerate() {

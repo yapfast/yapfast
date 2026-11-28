@@ -131,7 +131,7 @@ pub(super) fn editor_middle<'a>(
                 undo: message(Event::Undo),
                 save: message(Event::Save),
             }
-            .view(theme),
+            .view(theme, |source| ctx.i18n.text(source)),
         );
     }
     middle.into()
@@ -271,7 +271,8 @@ pub(super) fn editor_top<'a>(
             banner_height - AVATAR / 2.0 - 6.0,
         ));
     } else {
-        let detail = format!("Your profile in {}", core.server_name);
+        let detail = crate::i18n::tr!(ctx.i18n, "Your profile in {server}")
+            .replace("{server}", &core.server_name);
         top = top.push(placed(
             container(text(detail).size(13).font(SEMIBOLD).color(Color::WHITE))
                 .padding([0, 10])
@@ -619,7 +620,7 @@ pub(super) fn nitro_offer<'a>(
                     .color(theme.text),
                 form::note(
                     theme,
-                    "Customize your profile for every server, from avatar decorations to bios. Only with Nitro."
+                    crate::i18n::tr!(ctx.i18n, "Customize your profile for every server, from avatar decorations to bios. Only with Nitro.")
                 ),
             ]
             .spacing(2)

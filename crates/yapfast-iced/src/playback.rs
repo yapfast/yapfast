@@ -555,8 +555,8 @@ pub fn voice_card<'a>(
             },
             match (volume_open, tuning.muted) {
                 (true, _) => "",
-                (false, true) => "Unmute",
-                (false, false) => "Mute",
+                (false, true) => crate::i18n::tr!(ctx.i18n, "Unmute"),
+                (false, false) => crate::i18n::tr!(ctx.i18n, "Mute"),
             },
             Message::Voice(Event::Mute(!tuning.muted)),
         );
@@ -919,13 +919,21 @@ fn media_bar<'a>(
         let mute = if video.muted {
             button(
                 Icon::VolumeOff,
-                if open { "" } else { "Unmute" },
+                if open {
+                    ""
+                } else {
+                    crate::i18n::tr!(ctx.i18n, "Unmute")
+                },
                 Message::Clip(Clip::Mute(false)),
             )
         } else {
             button(
                 Icon::Volume,
-                if open { "" } else { "Mute" },
+                if open {
+                    ""
+                } else {
+                    crate::i18n::tr!(ctx.i18n, "Mute")
+                },
                 Message::Clip(Clip::Mute(true)),
             )
         };

@@ -44,17 +44,27 @@ const FLYOUT: f32 = 220.0;
 const FLYOUT_GAP: f32 = 4.0;
 pub const FIELD: &str = "status-text";
 /// What Clear After offers, as minutes where it's a time.
-const CLEAR: [&str; 5] = ["Never", "30 min", "1 hour", "4 hours", "Today"];
+const CLEAR: [&str; 5] = [
+    crate::i18n::tr_mark!("Never"),
+    crate::i18n::tr_mark!("30 min"),
+    crate::i18n::tr_mark!("1 hour"),
+    crate::i18n::tr_mark!("4 hours"),
+    crate::i18n::tr_mark!("Today"),
+];
 /// Discord's statuses: its key, name and what it means.
 const STATUSES: [(&str, &str, &str); 4] = [
-    ("online", "Online", ""),
-    ("idle", "Idle", ""),
+    ("online", crate::i18n::tr_mark!("Online"), ""),
+    ("idle", crate::i18n::tr_mark!("Idle"), ""),
     (
         "dnd",
-        "Do Not Disturb",
-        "You won't get message notifications.",
+        crate::i18n::tr_mark!("Do Not Disturb"),
+        crate::i18n::tr_mark!("You won't get message notifications."),
     ),
-    ("invisible", "Invisible", "You'll appear offline."),
+    (
+        "invisible",
+        crate::i18n::tr_mark!("Invisible"),
+        crate::i18n::tr_mark!("You'll appear offline."),
+    ),
 ];
 
 #[derive(Clone, Debug)]
@@ -357,15 +367,20 @@ impl<'a> View<'a> {
         if popover.expanded {
             let mut options = column![].spacing(2);
             for (key, name, note) in STATUSES {
-                options = options.push(self.status_option(key, name, note, key == status));
+                options = options.push(self.status_option(
+                    key,
+                    self.cx.i18n.text(name),
+                    self.cx.i18n.text(note),
+                    key == status,
+                ));
             }
             first = first.push(options);
         }
         first = first.push(self.popover_row(
             if custom {
-                "Change custom status"
+                crate::i18n::tr!(self.cx.i18n, "Change custom status")
             } else {
-                "Set a custom status"
+                crate::i18n::tr!(self.cx.i18n, "Set a custom status")
             },
             Icon::SmilePlus,
             message(Event::CustomStatus),
@@ -381,11 +396,14 @@ impl<'a> View<'a> {
             );
         }
         if state.discord_user.is_some() {
-            second =
-                second.push(self.popover_row("Copy User ID", Icon::Copy, message(Event::CopyId)));
+            second = second.push(self.popover_row(
+                crate::i18n::tr!(self.cx.i18n, "Copy User ID"),
+                Icon::Copy,
+                message(Event::CopyId),
+            ));
         }
         second = second.push(self.popover_row(
-            "User Settings",
+            crate::i18n::tr!(self.cx.i18n, "User Settings"),
             Icon::Settings,
             message(Event::Settings),
         ));
@@ -429,7 +447,7 @@ impl<'a> View<'a> {
     fn switch_row(self, open: bool) -> Element<'a, Message> {
         mouse_area(self.cx.look.menu_item_sized(
             Item {
-                label: "Switch Accounts".into(),
+                label: crate::i18n::tr!(self.cx.i18n, "Switch Accounts").into(),
                 icon: Some(Icon::UserCircle),
                 danger: false,
                 slot: false,
@@ -685,14 +703,14 @@ impl<'a> View<'a> {
         let name = STATUSES
             .iter()
             .find(|(key, ..)| *key == status)
-            .map_or("Online", |(_, name, _)| name);
+            .map_or(crate::i18n::tr_mark!("Online"), |(_, name, _)| name);
         let mut line = row![].spacing(8).align_y(Alignment::Center);
         if let Some(dot) = self.cx.mark(Mark::Dot(presence(status), rgb(theme.raised))) {
             line = line.push(Pic::square(dot, 16.0));
         }
         line = line
             .push(
-                text(name)
+                text(self.cx.i18n.text(name))
                     .size(15)
                     .color(theme.secondary)
                     .width(Length::Fill),
@@ -791,20 +809,25 @@ impl<'a> View<'a> {
         let editor = self.cx.state.status_editor.as_ref()?;
         let draft = self.s.draft.as_ref()?;
         let theme = self.cx.look.theme;
-        let head = self
-            .cx
-            .look
-            .dialog_head("Set a custom status", message(Event::Cancel));
+        let head = self.cx.look.dialog_head(
+            crate::i18n::tr!(self.cx.i18n, "Set a custom status"),
+            message(Event::Cancel),
+        );
         let emoji = crate::dialogs::emoji_slot(
             self.cx,
             draft.emoji.as_deref(),
             message(Event::Emoji),
             message(Event::RemoveEmoji),
         );
-        let field = form::field(theme, FIELD, "What's happening?", &draft.text)
-            .padding(10)
-            .on_input(|text| message(Event::Text(text)))
-            .on_submit(message(Event::Save));
+        let field = form::field(
+            theme,
+            FIELD,
+            crate::i18n::tr!(self.cx.i18n, "What's happening?"),
+            &draft.text,
+        )
+        .padding(10)
+        .on_input(|text| message(Event::Text(text)))
+        .on_submit(message(Event::Save));
         let mut body = column![
             head,
             row![emoji, field].spacing(8).align_y(Alignment::Center),
@@ -812,9 +835,12 @@ impl<'a> View<'a> {
                 .size(12)
                 .font(BOLD)
                 .color(theme.muted),
-            controls::choices(theme, &CLEAR, draft.clear, |index| message(
-                Event::ClearAfter(index)
-            )),
+            controls::choices(
+                theme,
+                &CLEAR.map(|label| self.cx.i18n.text(label)),
+                draft.clear,
+                |index| message(Event::ClearAfter(index))
+            ),
         ]
         .spacing(12)
         .padding(20);
@@ -825,7 +851,7 @@ impl<'a> View<'a> {
         if self.cx.state.custom_status.is_some() {
             foot = foot.push(action(
                 theme,
-                "Clear status",
+                crate::i18n::tr!(self.cx.i18n, "Clear status"),
                 Kind::Ghost,
                 (!editor.saving).then(|| message(Event::Clear)),
             ));
@@ -834,13 +860,17 @@ impl<'a> View<'a> {
             .push(Space::new().width(Length::Fill))
             .push(action(
                 theme,
-                "Cancel",
+                crate::i18n::tr!(self.cx.i18n, "Cancel"),
                 Kind::Ghost,
                 Some(message(Event::Cancel)),
             ))
             .push(action(
                 theme,
-                if editor.saving { "Saving..." } else { "Save" },
+                if editor.saving {
+                    crate::i18n::tr!(self.cx.i18n, "Saving...")
+                } else {
+                    crate::i18n::tr!(self.cx.i18n, "Save")
+                },
                 Kind::Primary,
                 (!editor.saving).then(|| message(Event::Save)),
             ));

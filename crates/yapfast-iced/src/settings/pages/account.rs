@@ -97,7 +97,7 @@ impl<'a> Page<'a> {
             buttons.push(
                 action(
                     theme,
-                    "Reconnect",
+                    crate::i18n::tr!(self.cx.i18n, "Reconnect"),
                     Kind::Plain,
                     (!state.busy).then_some(account_message(AccountEvent::Reconnect)),
                 )
@@ -109,7 +109,7 @@ impl<'a> Page<'a> {
             buttons.push(
                 action(
                     theme,
-                    "Edit profile",
+                    crate::i18n::tr!(self.cx.i18n, "Edit profile"),
                     Kind::Plain,
                     Some(crate::app::settings(Event::EditProfile)),
                 )
@@ -134,7 +134,7 @@ impl<'a> Page<'a> {
         let sign_out = if state.preview {
             action(
                 theme,
-                "Back to sign in",
+                crate::i18n::tr!(self.cx.i18n, "Back to sign in"),
                 Kind::Plain,
                 Some(account_message(AccountEvent::SignOut)),
             )
@@ -142,7 +142,7 @@ impl<'a> Page<'a> {
         } else {
             action(
                 theme,
-                "Sign out",
+                crate::i18n::tr!(self.cx.i18n, "Sign out"),
                 Kind::Danger,
                 (!state.busy && state.sending.is_none())
                     .then_some(account_message(AccountEvent::SignOut)),

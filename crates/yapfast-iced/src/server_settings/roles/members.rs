@@ -56,7 +56,7 @@ impl<'a> View<'a> {
                 ),
                 action(
                     theme,
-                    "Add Members",
+                    crate::i18n::tr!(self.cx.i18n, "Add Members"),
                     Kind::Primary,
                     (ready && may_add).then(|| input(RoleInput::AddMembers)),
                 )
@@ -70,7 +70,10 @@ impl<'a> View<'a> {
         if not_all {
             parts = parts.push(form::note(
                 theme,
-                "Not all members are shown, use Search to find specific members",
+                crate::i18n::tr!(
+                    self.cx.i18n,
+                    "Not all members are shown, use Search to find specific members"
+                ),
             ));
         }
         let shown = page.shown_members();
@@ -206,13 +209,13 @@ impl<'a> View<'a> {
                 Space::new().width(Length::Fill),
                 action(
                     theme,
-                    "Cancel",
+                    crate::i18n::tr!(self.cx.i18n, "Cancel"),
                     Kind::Ghost,
                     Some(input(RoleInput::CloseAdding))
                 ),
                 action(
                     theme,
-                    "Add",
+                    crate::i18n::tr!(self.cx.i18n, "Add"),
                     Kind::Primary,
                     (picked > 0 && picked <= ADD_MEMBERS_LIMIT)
                         .then(|| input(RoleInput::AddPicked)),

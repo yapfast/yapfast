@@ -715,7 +715,7 @@ impl<'a> View<'a> {
         self.frame(
             false,
             Icon::Pin,
-            self.heading("Pinned Messages"),
+            self.heading(crate::i18n::tr!(self.cx.i18n, "Pinned Messages")),
             None,
             None,
             body,
@@ -1021,14 +1021,15 @@ impl<'a> View<'a> {
         let chosen = picker.chosen.len();
         let left = room.saturating_sub(chosen);
         let detail = match left {
-            0 => "This group has no room for more.".to_owned(),
-            1 => "You can add 1 more friend.".to_owned(),
-            left => format!("You can add {left} more friends."),
+            0 => crate::i18n::tr!(self.cx.i18n, "This group has no room for more.").to_owned(),
+            1 => crate::i18n::tr!(self.cx.i18n, "You can add 1 more friend.").to_owned(),
+            left => crate::i18n::tr!(self.cx.i18n, "You can add {count} more friends.")
+                .replace("{count}", &left.to_string()),
         };
         let field = controls::field(
             theme,
             PEOPLE_FIELD,
-            "Type the name of a friend",
+            crate::i18n::tr!(self.cx.i18n, "Type the name of a friend"),
             &self.s.people_query,
             false,
             true,
@@ -1084,7 +1085,7 @@ impl<'a> View<'a> {
         self.frame(
             true,
             Icon::UserPlus,
-            self.heading("Select Friends"),
+            self.heading(crate::i18n::tr!(self.cx.i18n, "Select Friends")),
             Some(detail),
             None,
             body.height(Length::Fill).into(),

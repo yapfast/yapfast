@@ -138,7 +138,10 @@ impl<'a> Page<'a> {
             form::heading(theme, crate::i18n::tr!(self.cx.i18n, "FONT")),
             form::note(
                 theme,
-                "Draw all of Yapfast in your own font. Choose its TTF, OTF, TTC or WOFF files, every weight and italic you have; WOFF2 isn't supported. Code and emoji keep their fonts.",
+                crate::i18n::tr!(
+                    self.cx.i18n,
+                    "Draw all of Yapfast in your own font. Choose its TTF, OTF, TTC or WOFF files, every weight and italic you have; WOFF2 isn't supported. Code and emoji keep their fonts."
+                ),
             ),
         ];
         let any = !entries.is_empty();
@@ -154,7 +157,7 @@ impl<'a> Page<'a> {
                             .wrapping(text::Wrapping::None),
                         action(
                             theme,
-                            "Remove",
+                            crate::i18n::tr!(self.cx.i18n, "Remove"),
                             Kind::Plain,
                             Some(font_message(FontEvent::Remove(index)))
                         )
@@ -178,7 +181,7 @@ impl<'a> Page<'a> {
         let mut buttons = vec![
             action(
                 theme,
-                "Choose font files",
+                crate::i18n::tr!(self.cx.i18n, "Choose font files"),
                 Kind::Plain,
                 Some(font_message(FontEvent::Choose)),
             )
@@ -193,7 +196,7 @@ impl<'a> Page<'a> {
             buttons.push(
                 action(
                     theme,
-                    "Reset to default",
+                    crate::i18n::tr!(self.cx.i18n, "Reset to default"),
                     Kind::Plain,
                     Some(font_message(FontEvent::Reset)),
                 )

@@ -24,7 +24,10 @@ impl<'a> Page<'a> {
                 form::title(theme, "Discord"),
                 form::note(
                     theme,
-                    "Link your Discord account to see its servers and DMs in Yapfast, and join its calls. The login stays on this computer, in the system's credential store.",
+                    crate::i18n::tr!(
+                        self.cx.i18n,
+                        "Link your Discord account to see its servers and DMs in Yapfast, and join its calls. The login stays on this computer, in the system's credential store."
+                    ),
                 ),
                 crate::signin::link_panel(self.cx),
             ]);
@@ -36,11 +39,14 @@ impl<'a> Page<'a> {
             parts.push(form::beside(
                 form::note(
                     theme,
-                    "Unlinking signs Yapfast out of Discord on this computer.",
+                    crate::i18n::tr!(
+                        self.cx.i18n,
+                        "Unlinking signs Yapfast out of Discord on this computer."
+                    ),
                 ),
                 action(
                     theme,
-                    "Unlink Discord",
+                    crate::i18n::tr!(self.cx.i18n, "Unlink Discord"),
                     Kind::Danger,
                     Some(account_message(AccountEvent::Unlink)),
                 )
@@ -133,7 +139,7 @@ impl<'a> Page<'a> {
                         container(names).width(Length::Fill).clip(true),
                         action(
                             theme,
-                            "Unblock",
+                            crate::i18n::tr!(self.cx.i18n, "Unblock"),
                             Kind::Plain,
                             Some(account_message(AccountEvent::Unblock(person.id.clone()))),
                         )

@@ -79,11 +79,6 @@ pub struct Look {
     pub accent: Option<u32>,
     /// "Message @name", the card's box; empty when there's none.
     pub message_hint: String,
-    pub mutual_friends: String,
-    pub mutual_servers: String,
-    /// The full profile's tab names.
-    pub friends_label: String,
-    pub servers_label: String,
     pub mutuals_known: bool,
     pub tabs: Vec<Tab>,
     pub recent_known: bool,
@@ -229,10 +224,6 @@ impl Look {
             } else {
                 String::new()
             },
-            mutual_friends: mutual_count(profile.friends.len(), "Friend"),
-            mutual_servers: mutual_count(profile.servers.len(), "Server"),
-            friends_label: mutual_label(mutuals_known, profile.friends.len(), "Friend"),
-            servers_label: mutual_label(mutuals_known, profile.servers.len(), "Server"),
             mutuals_known,
             tabs,
             recent_known: !discord || state.preview || profile.recent_came,
@@ -488,19 +479,26 @@ pub fn timer(seconds: u64) -> String {
 }
 
 /// "1 Mutual Friend" or "5 Mutual Servers", as the card's line says it.
-fn mutual_count(count: usize, what: &str) -> String {
-    let plural = if count == 1 { "" } else { "s" };
-    format!("{count} Mutual {what}{plural}")
-}
-
 /// A mutual tab's name, as the client's: none till Discord has said, then
 /// how many.
-fn mutual_label(known: bool, count: usize, what: &str) -> String {
-    match (known, count) {
-        (false, _) => format!("Mutual {what}s"),
-        (true, 0) => format!("No Mutual {what}s"),
-        (true, 1) => format!("1 Mutual {what}"),
-        (true, count) => format!("{count} Mutual {what}s"),
+pub(crate) fn mutual_label(
+    i18n: &crate::i18n::I18n,
+    servers: bool,
+    count: Option<usize>,
+) -> std::borrow::Cow<'_, str> {
+    match (servers, count) {
+        (false, None) => crate::i18n::tr!(i18n, "Mutual Friends").into(),
+        (false, Some(0)) => crate::i18n::tr!(i18n, "No Mutual Friends").into(),
+        (false, Some(1)) => crate::i18n::tr!(i18n, "1 Mutual Friend").into(),
+        (false, Some(count)) => crate::i18n::tr!(i18n, "{count} Mutual Friends")
+            .replace("{count}", &count.to_string())
+            .into(),
+        (true, None) => crate::i18n::tr!(i18n, "Mutual Servers").into(),
+        (true, Some(0)) => crate::i18n::tr!(i18n, "No Mutual Servers").into(),
+        (true, Some(1)) => crate::i18n::tr!(i18n, "1 Mutual Server").into(),
+        (true, Some(count)) => crate::i18n::tr!(i18n, "{count} Mutual Servers")
+            .replace("{count}", &count.to_string())
+            .into(),
     }
 }
 
@@ -522,13 +520,17 @@ fn wishlist_note(profile: &Profile) -> &'static str {
 }
 
 /// How long ago a time in Unix milliseconds was, as the Activity tab says it.
-pub fn time_ago(at: u64) -> String {
+pub fn time_ago(i18n: &crate::i18n::I18n, at: u64) -> String {
     let minutes = yapfast_core::clock::now_ms().saturating_sub(at) / 60_000;
     match minutes {
-        0 => "Just now".to_owned(),
-        1..60 => format!("{minutes}m ago"),
-        60..1440 => format!("{}h ago", minutes / 60),
-        _ => format!("{}d ago", minutes / 1440),
+        0 => crate::i18n::tr!(i18n, "Just now").to_owned(),
+        1..60 => crate::i18n::tr!(i18n, "{count}m ago").replace("{count}", &minutes.to_string()),
+        60..1440 => {
+            crate::i18n::tr!(i18n, "{count}h ago").replace("{count}", &(minutes / 60).to_string())
+        }
+        _ => {
+            crate::i18n::tr!(i18n, "{count}d ago").replace("{count}", &(minutes / 1440).to_string())
+        }
     }
 }
 

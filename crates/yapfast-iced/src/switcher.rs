@@ -465,10 +465,10 @@ impl<'a> View<'a> {
         let state = self.cx.state;
         let new_dm = state.new_dm.as_ref()?;
         let theme = self.cx.look.theme;
-        let head = self
-            .cx
-            .look
-            .dialog_head("New message", message(Event::CloseNewDm));
+        let head = self.cx.look.dialog_head(
+            crate::i18n::tr!(self.cx.i18n, "New message"),
+            message(Event::CloseNewDm),
+        );
         let placeholder = if cfg!(feature = "matrix") {
             "Find a friend, or type a Matrix id"
         } else {
@@ -564,7 +564,13 @@ impl<'a> View<'a> {
             ]
             .width(Length::Fill)
             .clip(true),
-            action(theme, "Message", Kind::Plain, start.clone()).small(),
+            action(
+                theme,
+                crate::i18n::tr!(self.cx.i18n, "Message"),
+                Kind::Plain,
+                start.clone()
+            )
+            .small(),
         ]
         .spacing(12)
         .align_y(Alignment::Center);
@@ -586,10 +592,10 @@ impl<'a> View<'a> {
         let theme = self.cx.look.theme;
         let edit = |edit: PollEdit| message(Event::Poll(edit));
         let caps = |words: &'static str| text(words).size(12).font(BOLD).color(theme.muted);
-        let head = self
-            .cx
-            .look
-            .dialog_head("Create a Poll", message(Event::ClosePoll));
+        let head = self.cx.look.dialog_head(
+            crate::i18n::tr!(self.cx.i18n, "Create a Poll"),
+            message(Event::ClosePoll),
+        );
         let mut form = column![
             row![
                 caps("QUESTION").width(Length::Fill),
@@ -619,7 +625,7 @@ impl<'a> View<'a> {
             form = form.push(
                 action(
                     theme,
-                    "Add another answer",
+                    crate::i18n::tr!(self.cx.i18n, "Add another answer"),
                     Kind::Ghost,
                     Some(edit(PollEdit::AddAnswer)),
                 )
@@ -685,7 +691,7 @@ impl<'a> View<'a> {
                 Space::new().width(Length::Fill),
                 action(
                     theme,
-                    "Cancel",
+                    crate::i18n::tr!(self.cx.i18n, "Cancel"),
                     Kind::Ghost,
                     Some(message(Event::ClosePoll))
                 ),

@@ -154,6 +154,7 @@ impl<'a> View<'a> {
         }
         body.push(answers(
             theme,
+            self.cx.i18n,
             (!ask.sending).then(|| answer(OwnershipInput::Cancel)),
             if ask.sending {
                 crate::i18n::tr!(self.cx.i18n, "Deleting...")
@@ -303,6 +304,7 @@ impl<'a> View<'a> {
         }
         body.push(answers(
             theme,
+            self.cx.i18n,
             (!ask.sending).then(|| answer(OwnershipInput::Cancel)),
             if ask.sending {
                 crate::i18n::tr!(self.cx.i18n, "Transferring...")

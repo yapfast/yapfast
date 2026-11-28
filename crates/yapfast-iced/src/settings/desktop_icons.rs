@@ -216,7 +216,7 @@ impl<'a> Page<'a> {
                 icons,
             ),
             form::switch(
-                "Use the application icon in the tray",
+                crate::i18n::tr!(self.cx.i18n, "Use the application icon in the tray"),
                 follows,
                 enabled.then(|| message(Event::FollowApplication(!follows))),
             )
@@ -317,7 +317,7 @@ impl<'a> Page<'a> {
         }
         let replace = action(
             theme,
-            "Replace",
+            crate::i18n::tr!(self.cx.i18n, "Replace"),
             Kind::Plain,
             Some(message(Event::Pick(target))),
         )

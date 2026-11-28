@@ -400,7 +400,7 @@ impl<'a> View<'a> {
                 undo: message(Event::Undo),
                 save: message(Event::Save),
             }
-            .view(theme)
+            .view(theme, |source| self.cx.i18n.text(source))
         });
         let frame = sheet(
             self.server_nav(core),

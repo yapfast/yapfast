@@ -469,7 +469,7 @@ impl Settings {
             Event::Import => return import_dialog(cx.i18n),
             Event::Imported(path) => self.import_theme(&path, cx),
             Event::Export => return self.export_dialog(cx.i18n),
-            Event::Exported(name, result) => self.exported(&name, result),
+            Event::Exported(name, result) => self.exported(&name, result, cx.i18n),
             Event::Copy => return self.copy_theme(),
             Event::Paste => {
                 return iced::clipboard::read().map(|text| theme_message(Event::Pasted(text)));
@@ -609,12 +609,19 @@ impl Settings {
     }
 
     /// Says how writing the theme file went.
-    fn exported(&mut self, name: &str, result: Result<(), String>) {
+    fn exported(&mut self, name: &str, result: Result<(), String>, i18n: &crate::i18n::I18n) {
         self.theme_note = Some(match result {
-            Ok(()) => (format!("Exported to {name}."), false),
+            Ok(()) => (
+                crate::i18n::tr!(i18n, "Exported to {name}.").replace("{name}", name),
+                false,
+            ),
             Err(error) => {
                 tracing::warn!(%error, "could not write a theme file");
-                (format!("Couldn't save the theme file: {error}"), true)
+                (
+                    crate::i18n::tr!(i18n, "Couldn't save the theme file: {error}")
+                        .replace("{error}", &error),
+                    true,
+                )
             }
         });
     }
@@ -667,7 +674,11 @@ impl Settings {
             .and_then(|file| file.take(palette::FILE_LIMIT + 1).read_to_end(&mut bytes));
         if let Err(error) = read {
             tracing::warn!(%error, "could not read a theme file");
-            self.theme_note = Some((format!("Couldn't read the file: {error}"), true));
+            self.theme_note = Some((
+                crate::i18n::tr!(cx.i18n, "Couldn't read the file: {error}")
+                    .replace("{error}", &error.to_string()),
+                true,
+            ));
             return;
         }
         self.keep_theme_file(&bytes, cx);
@@ -874,7 +885,7 @@ impl<'a> Page<'a> {
             ),
             action(
                 theme,
-                "Import",
+                crate::i18n::tr!(self.cx.i18n, "Import"),
                 Kind::Plain,
                 Some(theme_message(Event::Import))
             )
@@ -886,7 +897,7 @@ impl<'a> Page<'a> {
             ),
             action(
                 theme,
-                "Paste",
+                crate::i18n::tr!(self.cx.i18n, "Paste"),
                 Kind::Plain,
                 Some(theme_message(Event::Paste))
             )
@@ -898,7 +909,7 @@ impl<'a> Page<'a> {
             ),
             action(
                 theme,
-                "New theme",
+                crate::i18n::tr!(self.cx.i18n, "New theme"),
                 Kind::Plain,
                 Some(theme_message(Event::New))
             )
@@ -935,25 +946,25 @@ impl<'a> Page<'a> {
             installed_note,
             theme_options,
             switch(
-                "Readable text",
+                crate::i18n::tr!(self.cx.i18n, "Readable text"),
                 self.cx.layout.readable_text,
                 Some(theme_message(Event::ReadableText(
                     !self.cx.layout.readable_text,
                 ))),
             )
             .description(
-                "Messages, names, channels and what you type use Yapfast's own font in every theme. The theme's art, colours and layout stay.",
+                crate::i18n::tr!(self.cx.i18n, "Messages, names, channels and what you type use Yapfast's own font in every theme. The theme's art, colours and layout stay."),
             )
             .view(self.cx.look),
             switch(
-                "Draw text glow",
+                crate::i18n::tr!(self.cx.i18n, "Draw text glow"),
                 self.cx.layout.prefs.text_glow.unwrap_or(true),
                 Some(theme_message(Event::TextGlow(
                     !self.cx.layout.prefs.text_glow.unwrap_or(true),
                 ))),
             )
             .description(
-                "The soft edge a theme puts round text. Off, text keeps its shadow and outline and takes less drawing.",
+                crate::i18n::tr!(self.cx.i18n, "The soft edge a theme puts round text. Off, text keeps its shadow and outline and takes less drawing."),
             )
             .view(self.cx.look),
             self.desktop_icons(),
@@ -961,80 +972,80 @@ impl<'a> Page<'a> {
             column![
                 form::heading(theme, crate::i18n::tr!(self.cx.i18n, "PROFILES")),
                 profile(
-                    "Play profile effects",
-                    "The animations some people put over their profile cards.",
+                    crate::i18n::tr!(self.cx.i18n, "Play profile effects"),
+                    crate::i18n::tr!(self.cx.i18n, "The animations some people put over their profile cards."),
                     cosmetics.effects,
                     Cosmetic::Effects,
                 ),
                 profile(
-                    "Show avatar decorations",
-                    "The pictures around people's avatars.",
+                    crate::i18n::tr!(self.cx.i18n, "Show avatar decorations"),
+                    crate::i18n::tr!(self.cx.i18n, "The pictures around people's avatars."),
                     cosmetics.decorations,
                     Cosmetic::Decorations,
                 ),
                 profile(
-                    "Show nameplates",
-                    "The pictures Discord members equip behind their rows in the member list and on your account card.",
+                    crate::i18n::tr!(self.cx.i18n, "Show nameplates"),
+                    crate::i18n::tr!(self.cx.i18n, "The pictures Discord members equip behind their rows in the member list and on your account card."),
                     prefs.nameplates.unwrap_or(true),
                     Cosmetic::Nameplates,
                 ),
                 profile(
-                    "Animate decorations and nameplates",
-                    "They play when pointed at, as in Discord. Off, they hold still.",
+                    crate::i18n::tr!(self.cx.i18n, "Animate decorations and nameplates"),
+                    crate::i18n::tr!(self.cx.i18n, "They play when pointed at, as in Discord. Off, they hold still."),
                     cosmetics.moving,
                     Cosmetic::Moving,
                 ),
                 profile(
-                    "Show name styles",
-                    "The fonts and colours people give their display names.",
+                    crate::i18n::tr!(self.cx.i18n, "Show name styles"),
+                    crate::i18n::tr!(self.cx.i18n, "The fonts and colours people give their display names."),
                     cosmetics.name_styles,
                     Cosmetic::NameStyles,
                 ),
                 profile(
-                    "Draw role colour gradients",
-                    "The colours that run across a name with a gradient or holographic role colour. Off, the name keeps the role's first colour.",
+                    crate::i18n::tr!(self.cx.i18n, "Draw role colour gradients"),
+                    crate::i18n::tr!(self.cx.i18n, "The colours that run across a name with a gradient or holographic role colour. Off, the name keeps the role's first colour."),
                     cosmetics.name_colours,
                     Cosmetic::NameColours,
                 ),
                 profile(
-                    "Show server tags",
-                    "The tag and its badge beside people's names.",
+                    crate::i18n::tr!(self.cx.i18n, "Show server tags"),
+                    crate::i18n::tr!(self.cx.i18n, "The tag and its badge beside people's names."),
                     cosmetics.server_tags,
                     Cosmetic::ServerTags,
                 ),
                 profile(
-                    "Show profile frames",
-                    "The frames some people put around their profile cards.",
+                    crate::i18n::tr!(self.cx.i18n, "Show profile frames"),
+                    crate::i18n::tr!(self.cx.i18n, "The frames some people put around their profile cards."),
                     cosmetics.frames,
                     Cosmetic::Frames,
                 ),
                 profile(
-                    "Show badges",
-                    "The badges Discord lists on a profile, and the levels its tooltips show. Off, neither their pictures nor their levels are asked for.",
+                    crate::i18n::tr!(self.cx.i18n, "Show badges"),
+                    crate::i18n::tr!(self.cx.i18n, "The badges Discord lists on a profile, and the levels its tooltips show. Off, neither their pictures nor their levels are asked for."),
                     cosmetics.badges,
                     Cosmetic::Badges,
                 ),
                 profile(
-                    "Show profile backgrounds",
-                    "The banner picture at the top of a profile card, and its colour. Off, the top keeps the card's own colour and no banner is asked for.",
+                    crate::i18n::tr!(self.cx.i18n, "Show profile backgrounds"),
+                    crate::i18n::tr!(self.cx.i18n, "The banner picture at the top of a profile card, and its colour. Off, the top keeps the card's own colour and no banner is asked for."),
                     cosmetics.background,
                     Cosmetic::Background,
                 ),
                 switch(
-                    "Show connections on profile cards",
+                    crate::i18n::tr!(self.cx.i18n, "Show connections on profile cards"),
                     prefs.card_connections,
                     Some(theme_message(Event::CardConnections(
                         !prefs.card_connections,
                     ))),
                 )
                 .description(
-                    "The accounts people link, such as Steam or GitHub, on the card as on the full profile.",
+                    crate::i18n::tr!(self.cx.i18n, "The accounts people link, such as Steam or GitHub, on the card as on the full profile."),
                 )
                 .view(self.cx.look),
                 form::heading(theme, crate::i18n::tr!(self.cx.i18n, "MEMBER LIST")),
                 profile(
-                    "Show activity cards",
-                    "What people in the server are playing, above its member list. Off, only the Activity heading stays, and its eye shows them again.",
+                    crate::i18n::tr!(self.cx.i18n, "Show activity cards"),
+                    crate::i18n::tr!(self.cx.i18n, "What people in the server are playing, above its member list. Off, only the Activity heading stays, and its eye shows them again."),
                     !self.cx.state.activity_cards_hidden,
                     Cosmetic::MemberActivity,
                 ),
@@ -1051,7 +1062,7 @@ impl<'a> Page<'a> {
         let (note, wrong) = self.s.theme_note.as_ref()?;
         let theme = self.cx.look.theme;
         Some(form::note_in(
-            note.as_str(),
+            self.cx.i18n.text(note),
             if *wrong {
                 theme.danger_text
             } else {
@@ -1219,7 +1230,7 @@ impl<'a> Page<'a> {
                 form::heading(theme, crate::i18n::tr!(self.cx.i18n, "EVERY COLOUR")),
                 form::note(
                     theme,
-                    "Each as #rgb, #rrggbb or #rrggbbaa, or picked from its swatch. The window shows a change as you make it.",
+                    crate::i18n::tr!(self.cx.i18n, "Each as #rgb, #rrggbb or #rrggbbaa, or picked from its swatch. The window shows a change as you make it."),
                 ),
                 picker_colour_rows(theme, editor),
             ]));

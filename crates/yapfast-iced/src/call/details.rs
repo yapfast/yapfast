@@ -294,10 +294,10 @@ pub(super) fn link_card<'a>(ctx: crate::ctx::Ctx<'a>) -> Element<'a, Message> {
     };
     let mut card = column![].spacing(10).padding(16);
     if code.is_some() || streaming {
-        let tab = |label, tab| {
+        let tab = |label: &'static str, tab| {
             controls::tab(
                 controls::Tab {
-                    label,
+                    label: label.into(),
                     chosen: shown == tab,
                     ink: theme.text,
                     rest: theme.muted,

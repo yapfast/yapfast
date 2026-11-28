@@ -69,7 +69,7 @@ pub struct Voice {
     pub tries: u32,
     /// The soundboard's volume while its slider is dragged.
     pub soundboard: Option<u32>,
-    /// Entrance sounds: the server chosen ("All servers" first), and the
+    /// Entrance sounds: the server chosen (crate::i18n::tr!(self.cx.i18n, "All servers") first), and the
     /// sounds to choose from while that list is open.
     pub entrance_server: usize,
 }
@@ -390,7 +390,7 @@ impl<'a> Page<'a> {
                     form::heading(theme, crate::i18n::tr!(self.cx.i18n, "MICROPHONE")),
                     device(Drop::Microphone, microphones, microphone),
                     slider(
-                        "Microphone volume",
+                        crate::i18n::tr!(self.cx.i18n, "Microphone volume"),
                         mic_volume,
                         u32::from(MAX_PERCENT),
                         |value| voice_message(Event::Volume(true, value, false)),
@@ -402,7 +402,7 @@ impl<'a> Page<'a> {
                     form::heading(theme, crate::i18n::tr!(self.cx.i18n, "SPEAKERS")),
                     device(Drop::Speaker, speakers, speaker),
                     slider(
-                        "Speaker volume",
+                        crate::i18n::tr!(self.cx.i18n, "Speaker volume"),
                         speaker_volume,
                         u32::from(MAX_PERCENT),
                         |value| voice_message(Event::Volume(false, value, false)),
@@ -415,7 +415,10 @@ impl<'a> Page<'a> {
         if state.microphones.is_empty() && state.speakers.is_empty() {
             parts.push(form::note(
                 theme,
-                "No audio devices found. Connect one, then refresh.",
+                crate::i18n::tr!(
+                    self.cx.i18n,
+                    "No audio devices found. Connect one, then refresh."
+                ),
             ));
         }
         if yapfast_core::discord_audio::AVAILABLE {
@@ -428,7 +431,7 @@ impl<'a> Page<'a> {
         if state.cameras.is_empty() {
             camera_group.push(form::note(
                 theme,
-                "No camera found. Connect one, then refresh.",
+                crate::i18n::tr!(self.cx.i18n, "No camera found. Connect one, then refresh."),
             ));
         }
         parts.push(form::halves(
@@ -439,9 +442,9 @@ impl<'a> Page<'a> {
                 form::buttons([action(
                     theme,
                     if settings.voice.camera.is_some() {
-                        "Stop video"
+                        crate::i18n::tr!(self.cx.i18n, "Stop video")
                     } else {
-                        "Test video"
+                        crate::i18n::tr!(self.cx.i18n, "Test video")
                     },
                     Kind::Plain,
                     (!state.cameras.is_empty()).then(|| voice_message(Event::TestCamera)),
@@ -452,7 +455,7 @@ impl<'a> Page<'a> {
         ));
         parts.push(form::buttons([action(
             theme,
-            "Refresh devices",
+            crate::i18n::tr!(self.cx.i18n, "Refresh devices"),
             Kind::Ghost,
             Some(voice_message(Event::Refresh)),
         )
@@ -467,21 +470,24 @@ impl<'a> Page<'a> {
         let unmute = self.cx.layout.unmute_on_join.unwrap_or(true);
         parts.push(
             switch(
-                "Turn on your microphone when you join a call",
+                crate::i18n::tr!(self.cx.i18n, "Turn on your microphone when you join a call"),
                 unmute,
                 Some(voice_message(Event::UnmuteOnJoin(!unmute))),
             )
-            .description("Otherwise you join muted, and unmute when you're ready.")
+            .description(crate::i18n::tr!(
+                self.cx.i18n,
+                "Otherwise you join muted, and unmute when you're ready."
+            ))
             .view(self.cx.look),
         );
         let level = voice.level_voice.unwrap_or(true);
         parts.push(
             switch(
-                "Even out your voice",
+                crate::i18n::tr!(self.cx.i18n, "Even out your voice"),
                 level,
                 Some(voice_message(Event::LevelVoice(!level))),
             )
-            .description("Keeps your voice steady as you lean towards the microphone or away from it. Whispers and shouts still come through as they are.")
+            .description(crate::i18n::tr!(self.cx.i18n, "Keeps your voice steady as you lean towards the microphone or away from it. Whispers and shouts still come through as they are."))
             .view(self.cx.look),
         );
         if linked {
@@ -492,16 +498,25 @@ impl<'a> Page<'a> {
             form::heading(theme, crate::i18n::tr!(self.cx.i18n, "INPUT MODE")),
             choices(
                 theme,
-                &["Voice activity", "Push to talk"],
+                &[
+                    crate::i18n::tr!(self.cx.i18n, "Voice activity"),
+                    crate::i18n::tr!(self.cx.i18n, "Push to talk"),
+                ],
                 usize::from(push),
                 |index| voice_message(Event::InputMode(index)),
             ),
             form::note(
                 theme,
                 if push {
-                    "Yapfast sends your microphone only while you hold a key."
+                    crate::i18n::tr!(
+                        self.cx.i18n,
+                        "Yapfast sends your microphone only while you hold a key."
+                    )
                 } else {
-                    "Yapfast sends your voice when it hears you speak."
+                    crate::i18n::tr!(
+                        self.cx.i18n,
+                        "Yapfast sends your voice when it hears you speak."
+                    )
                 },
             ),
         ]));
@@ -529,9 +544,9 @@ impl<'a> Page<'a> {
                 let note = if !settings.voice.camera_note.is_empty() {
                     settings.voice.camera_note.as_str()
                 } else if testing {
-                    "Starting your camera..."
+                    crate::i18n::tr!(self.cx.i18n, "Starting your camera...")
                 } else {
-                    "Your camera is off."
+                    crate::i18n::tr!(self.cx.i18n, "Your camera is off.")
                 };
                 column![
                     self.cx.look.glyph(Icon::Video, 30, grey),
@@ -572,13 +587,20 @@ impl<'a> Page<'a> {
             ),
             choices(
                 theme,
-                &["DeepFilterNet", "RNNoise", "Off"],
+                &[
+                    "DeepFilterNet",
+                    "RNNoise",
+                    crate::i18n::tr!(self.cx.i18n, "Off"),
+                ],
                 noise,
                 |index| voice_message(Event::Noise(index)),
             ),
             form::note(
                 theme,
-                "DeepFilterNet also takes out typing and other sudden noise. RNNoise uses less processing. Off sends your microphone as it is, for a quiet room. A call going on switches straight away.",
+                crate::i18n::tr!(
+                    self.cx.i18n,
+                    "DeepFilterNet also takes out typing and other sudden noise. RNNoise uses less processing. Off sends your microphone as it is, for a quiet room. A call going on switches straight away."
+                ),
             ),
         ])];
         if voice.noise_suppression != Suppressor::Off {
@@ -588,12 +610,12 @@ impl<'a> Page<'a> {
                 .unwrap_or(1);
             parts.push(form::group([
                 form::heading(theme, crate::i18n::tr!(self.cx.i18n, "NOISE SUPPRESSION STRENGTH")),
-                choices(theme, &["Full", "Medium", "Light"], strength, |index| {
+                choices(theme, &[crate::i18n::tr!(self.cx.i18n, "Full"), crate::i18n::tr!(self.cx.i18n, "Medium"), crate::i18n::tr!(self.cx.i18n, "Light")], strength, |index| {
                     voice_message(Event::Strength(index))
                 }),
                 form::note(
                     theme,
-                    "Full takes out the most noise, but can cut off giggles and breathy laughs. Medium and Light leave a little of the room's sound in, which can sound more natural, and let a little more noise through.",
+                    crate::i18n::tr!(self.cx.i18n, "Full takes out the most noise, but can cut off giggles and breathy laughs. Medium and Light leave a little of the room's sound in, which can sound more natural, and let a little more noise through."),
                 ),
             ]));
         }
@@ -605,7 +627,7 @@ impl<'a> Page<'a> {
         });
         parts.push(form::group([
             form::heading(theme, crate::i18n::tr!(self.cx.i18n, "SOUNDBOARD VOLUME")),
-            slider("Soundboard volume", board, 100, |value| {
+            slider(crate::i18n::tr!(self.cx.i18n, "Soundboard volume"), board, 100, |value| {
                 voice_message(Event::SoundboardVolume(value, false))
             })
             .mark(false)
@@ -613,29 +635,29 @@ impl<'a> Page<'a> {
             .view(theme),
             form::note(
                 theme,
-                "How loud soundboard sounds play in Discord calls, yours and everyone else's. Discord keeps it for all your devices.",
+                crate::i18n::tr!(self.cx.i18n, "How loud soundboard sounds play in Discord calls, yours and everyone else's. Discord keeps it for all your devices."),
             ),
         ]));
         parts.push(self.entrance_sounds());
         let dereverb = voice.reduce_room_echo;
         parts.push(
             switch(
-                "Take out your room's echo in Discord calls",
+                crate::i18n::tr!(self.cx.i18n, "Take out your room's echo in Discord calls"),
                 dereverb,
                 Some(voice_message(Event::Dereverb(!dereverb))),
             )
-            .description("For a bare or echoey room that makes your voice sound far away. Uses a little more processing, and your voice goes out 10 ms later.")
+            .description(crate::i18n::tr!(self.cx.i18n, "For a bare or echoey room that makes your voice sound far away. Uses a little more processing, and your voice goes out 10 ms later."))
             .view(self.cx.look),
         );
         if cfg!(windows) {
             let effects = voice.windows_microphone_effects;
             parts.push(
                 switch(
-                    "Let Windows process your microphone in Discord calls",
+                    crate::i18n::tr!(self.cx.i18n, "Let Windows process your microphone in Discord calls"),
                     effects,
                     Some(voice_message(Event::WindowsEffects(!effects))),
                 )
-                .description("Runs the effects Windows and your sound driver add to the microphone, such as their own noise suppression. Off, Yapfast skips them, as they can muffle your voice on top of Yapfast's. Turn it on if your microphone sounds worse without them, as some laptop microphones can.")
+                .description(crate::i18n::tr!(self.cx.i18n, "Runs the effects Windows and your sound driver add to the microphone, such as their own noise suppression. Off, Yapfast skips them, as they can muffle your voice on top of Yapfast's. Turn it on if your microphone sounds worse without them, as some laptop microphones can."))
                 .view(self.cx.look),
             );
         }
@@ -651,11 +673,12 @@ impl<'a> Page<'a> {
         let servers = entrance_servers(self.cx.state);
         let chosen = settings.voice.entrance_server.min(servers.len() - 1);
         let server = servers[chosen].clone();
-        let names: Vec<String> = std::iter::once("All servers".to_owned())
-            .chain(state.servers.iter().filter_map(|server| {
-                yapfast_core::discord::parse_server(&server.id).map(|_| server.name.clone())
-            }))
-            .collect();
+        let names: Vec<String> =
+            std::iter::once(crate::i18n::tr!(self.cx.i18n, "All servers").to_owned())
+                .chain(state.servers.iter().filter_map(|server| {
+                    yapfast_core::discord::parse_server(&server.id).map(|_| server.name.clone())
+                }))
+                .collect();
         let catalog = state.sound_catalog.as_ref();
         let sound = state
             .join_sounds
@@ -669,7 +692,7 @@ impl<'a> Page<'a> {
                     .find(|sound| sound.id == join.sound && sound.guild == join.guild);
                 match (named, catalog) {
                     (Some(sound), _) => sound.name.clone(),
-                    (None, None) => "Loading...".to_owned(),
+                    (None, None) => crate::i18n::tr!(self.cx.i18n, "Loading...").to_owned(),
                     (None, Some(_)) => "A sound that's gone".to_owned(),
                 }
             });
@@ -688,9 +711,14 @@ impl<'a> Page<'a> {
             )
             .width(200)
             .into(),
-            form::readout(theme, sound.clone().unwrap_or_default(), "None", false)
-                .width(Length::Fill)
-                .into(),
+            form::readout(
+                theme,
+                sound.clone().unwrap_or_default(),
+                crate::i18n::tr!(self.cx.i18n, "None"),
+                false,
+            )
+            .width(Length::Fill)
+            .into(),
         ];
         // Choose opens the soundboard under it, a click on a sound
         // choosing it.
@@ -698,7 +726,7 @@ impl<'a> Page<'a> {
             let groups = catalog.map_or(&[][..], |groups| &groups[..]);
             let board = crate::call::popups::soundboard::sound_board(
                 self.cx,
-                "Choose an entrance sound",
+                crate::i18n::tr!(self.cx.i18n, "Choose an entrance sound"),
                 groups,
                 None,
                 false,
@@ -710,7 +738,7 @@ impl<'a> Page<'a> {
         let choose: Element<'a, Message> = crate::popover::Popover::new(
             action(
                 theme,
-                "Choose",
+                crate::i18n::tr!(self.cx.i18n, "Choose"),
                 Kind::Plain,
                 nitro.then(|| crate::app::settings(SettingsEvent::Drop(Drop::Start))),
             ),
@@ -729,7 +757,7 @@ impl<'a> Page<'a> {
             line.push(
                 action(
                     theme,
-                    "Remove",
+                    crate::i18n::tr!(self.cx.i18n, "Remove"),
                     Kind::Ghost,
                     Some(voice_message(Event::Entrance(None))),
                 )
@@ -742,9 +770,15 @@ impl<'a> Page<'a> {
             form::note(
                 theme,
                 if nitro {
-                    "Plays to everyone in a voice channel or DM call as you join it, outside stage channels. A server's own comes before the one for all servers."
+                    crate::i18n::tr!(
+                        self.cx.i18n,
+                        "Plays to everyone in a voice channel or DM call as you join it, outside stage channels. A server's own comes before the one for all servers."
+                    )
                 } else {
-                    "Entrance sounds play to everyone as you join a voice channel. They need Nitro."
+                    crate::i18n::tr!(
+                        self.cx.i18n,
+                        "Entrance sounds play to everyone as you join a voice channel. They need Nitro."
+                    )
                 },
             ),
         ])
@@ -763,11 +797,17 @@ impl<'a> Page<'a> {
             .map(Shortcut::name)
             .unwrap_or_default();
         let note = if recording {
-            "Press the keys to hold while you talk, together. Escape stops without changing it."
-                .to_owned()
+            crate::i18n::tr!(
+                self.cx.i18n,
+                "Press the keys to hold while you talk, together. Escape stops without changing it."
+            )
+            .to_owned()
         } else if key.is_empty() {
-            "Push to talk is on, but no keybind is set, so your microphone sends nothing."
-                .to_owned()
+            crate::i18n::tr!(
+                self.cx.i18n,
+                "Push to talk is on, but no keybind is set, so your microphone sends nothing."
+            )
+            .to_owned()
         } else {
             self.cx.keybinds.talk_note()
         };
@@ -798,7 +838,7 @@ impl<'a> Page<'a> {
                     crate::i18n::tr!(self.cx.i18n, "PUSH TO TALK RELEASE DELAY"),
                 ),
                 slider(
-                    "Push to talk release delay",
+                    crate::i18n::tr!(self.cx.i18n, "Push to talk release delay"),
                     delay,
                     yapfast_core::push_to_talk::MOST_RELEASE_DELAY,
                     |value| voice_message(Event::TalkDelay(value, false)),
@@ -810,7 +850,10 @@ impl<'a> Page<'a> {
                 .view(theme),
                 form::note(
                     theme,
-                    "How long your microphone keeps sending after you let go of the key, so the end of a word isn't cut off.",
+                    crate::i18n::tr!(
+                        self.cx.i18n,
+                        "How long your microphone keeps sending after you let go of the key, so the end of a word isn't cut off."
+                    ),
                 ),
             ]),
         ]
@@ -871,16 +914,25 @@ impl<'a> Page<'a> {
             },
         });
         let note = if !yapfast_core::discord_audio::AVAILABLE {
-            "Discord voice and its level aren't available on this system yet."
+            crate::i18n::tr!(
+                self.cx.i18n,
+                "Discord voice and its level aren't available on this system yet."
+            )
         } else if settings
             .voice
             .gate
             .as_ref()
             .is_some_and(|gate| gate.failed())
         {
-            "Yapfast can't read this microphone. Check that it's connected, or choose another."
+            crate::i18n::tr!(
+                self.cx.i18n,
+                "Yapfast can't read this microphone. Check that it's connected, or choose another."
+            )
         } else {
-            "Yapfast sends your voice when it's louder than the handle, and other sounds when they're 18 dB louder still. The bar is your microphone after noise suppression and at its volume, as Yapfast hears it to decide."
+            crate::i18n::tr!(
+                self.cx.i18n,
+                "Yapfast sends your voice when it's louder than the handle, and other sounds when they're 18 dB louder still. The bar is your microphone after noise suppression and at its volume, as Yapfast hears it to decide."
+            )
         };
         form::group([
             form::heading(
@@ -926,22 +978,34 @@ impl<'a> Page<'a> {
         })
         .height(24);
         // Discord's captions, the failures first.
-        let said = move || -> (&'static str, &'static str) {
+        let said = move || -> (&'a str, &'a str) {
             match gate {
                 None => ("", ""),
                 Some(gate) if gate.failed() => (
-                    "Yapfast can't read this microphone.",
-                    "Check that it's connected, or choose another.",
+                    crate::i18n::tr!(self.cx.i18n, "Yapfast can't read this microphone."),
+                    crate::i18n::tr!(
+                        self.cx.i18n,
+                        "Check that it's connected, or choose another."
+                    ),
                 ),
                 Some(gate) if gate.playback_failed() => (
-                    "Yapfast can't play your voice back.",
-                    "Check your speakers, or choose others.",
+                    crate::i18n::tr!(self.cx.i18n, "Yapfast can't play your voice back."),
+                    crate::i18n::tr!(self.cx.i18n, "Check your speakers, or choose others."),
                 ),
                 Some(gate) if gate.no_input() => (
-                    "Yapfast isn't detecting any input from your mic.",
-                    "Please check that you've selected the right input device.",
+                    crate::i18n::tr!(
+                        self.cx.i18n,
+                        "Yapfast isn't detecting any input from your mic."
+                    ),
+                    crate::i18n::tr!(
+                        self.cx.i18n,
+                        "Please check that you've selected the right input device."
+                    ),
                 ),
-                Some(_) => ("Playing back your beautiful voice", ""),
+                Some(_) => (
+                    crate::i18n::tr!(self.cx.i18n, "Playing back your beautiful voice"),
+                    "",
+                ),
             }
         };
         // Trouble reads in the text's colour, the playing back quieter.
@@ -957,9 +1021,9 @@ impl<'a> Page<'a> {
         let button = action(
             theme,
             if testing {
-                "Stop testing"
+                crate::i18n::tr!(self.cx.i18n, "Stop testing")
             } else {
-                "Let's check"
+                crate::i18n::tr!(self.cx.i18n, "Let's check")
             },
             Kind::Primary,
             Some(voice_message(Event::MicTest)),
@@ -969,7 +1033,10 @@ impl<'a> Page<'a> {
             form::heading(theme, crate::i18n::tr!(self.cx.i18n, "MIC TEST")),
             form::note(
                 theme,
-                "Having mic issues? Start a test and say something fun, and Yapfast plays your voice back to you, with your noise suppression and volumes. Wear headphones, or it echoes.",
+                crate::i18n::tr!(
+                    self.cx.i18n,
+                    "Having mic issues? Start a test and say something fun, and Yapfast plays your voice back to you, with your noise suppression and volumes. Wear headphones, or it echoes."
+                ),
             ),
             row![
                 button,
@@ -985,7 +1052,10 @@ impl<'a> Page<'a> {
         if !testing && self.cx.state.voice.active() {
             group.push(form::note(
                 theme,
-                "You'll be muted and deafened in your call while you test.",
+                crate::i18n::tr!(
+                    self.cx.i18n,
+                    "You'll be muted and deafened in your call while you test."
+                ),
             ));
         }
         form::group(group)

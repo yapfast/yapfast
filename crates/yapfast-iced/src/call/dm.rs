@@ -301,7 +301,7 @@ pub fn switch_view(app: &App) -> Option<Element<'_, Message>> {
             Space::new().width(Length::Fill),
             Element::from(controls::action(
                 theme,
-                "Cancel",
+                crate::i18n::tr!(app.i18n, "Cancel"),
                 Kind::Ghost,
                 Some(Message::Call(Event::Switch(false))),
             )),

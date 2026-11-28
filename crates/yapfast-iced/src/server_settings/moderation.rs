@@ -217,7 +217,7 @@ impl<'a> View<'a> {
         let lock = page.mfa_lock(rule);
         let on = page.requires_mfa();
         let mut switch = form::switch(
-            "Require 2FA for moderator actions",
+            crate::i18n::tr!(self.cx.i18n, "Require 2FA for moderator actions"),
             on,
             (ready && lock.is_none()).then(|| safety(SafetyChoice::RequireMfa(!on))),
         )
@@ -258,7 +258,10 @@ impl<'a> View<'a> {
                 ),
                 form::note(
                     theme,
-                    "Choose if server members can share image-based media detected by Discord's sensitive content filters. This setting will apply to channels that are not age-restricted.",
+                    crate::i18n::tr!(
+                        self.cx.i18n,
+                        "Choose if server members can share image-based media detected by Discord's sensitive content filters. This setting will apply to channels that are not age-restricted."
+                    ),
                 ),
                 filters,
             ]),
@@ -289,7 +292,7 @@ impl<'a> View<'a> {
             field,
             action(
                 theme,
-                "Search",
+                crate::i18n::tr!(self.cx.i18n, "Search"),
                 Kind::Primary,
                 (!page.fetching).then(|| ban(BanInput::Search)),
             )
@@ -334,9 +337,15 @@ impl<'a> View<'a> {
         let pages = page.pages();
         if pages > 1 {
             parts = parts.push(
-                container(pager(theme, page.page, pages, false, true, |to| {
-                    ban(BanInput::Page(to))
-                }))
+                container(pager(
+                    theme,
+                    self.cx.i18n,
+                    page.page,
+                    pages,
+                    false,
+                    true,
+                    |to| ban(BanInput::Page(to)),
+                ))
                 .center_x(Length::Fill),
             );
         }
@@ -431,7 +440,12 @@ impl<'a> View<'a> {
                         Kind::Danger,
                         (!page.unbanning).then(|| ban(BanInput::Unban)),
                     ),
-                    action(theme, "Done", Kind::Primary, Some(ban(BanInput::Close))),
+                    action(
+                        theme,
+                        crate::i18n::tr!(self.cx.i18n, "Done"),
+                        Kind::Primary,
+                        Some(ban(BanInput::Close))
+                    ),
                 ]
                 .spacing(form::TIGHT),
             );
@@ -746,28 +760,36 @@ fn empty<'a>(theme: &Theme, heading: &'a str, words: &'a str) -> Element<'a, Mes
 /// false.
 pub(super) fn pager<'a>(
     theme: &Theme,
+    i18n: &'a crate::i18n::I18n,
     page: usize,
     pages: usize,
     bare: bool,
     more: bool,
     go: impl Fn(usize) -> Message,
 ) -> Element<'a, Message> {
-    let at = if bare {
-        format!("{} of {pages}", page + 1)
+    let source = if bare {
+        crate::i18n::tr!(i18n, "{page} of {pages}")
     } else {
-        format!("Page {} of {pages}", page + 1)
+        crate::i18n::tr!(i18n, "Page {page} of {pages}")
     };
+    let at = yapfast_core::themes::chrome::fill(
+        source,
+        &[
+            ("page", &(page + 1).to_string()),
+            ("pages", &pages.to_string()),
+        ],
+    );
     row![
         action(
             theme,
-            "Previous",
+            crate::i18n::tr!(i18n, "Previous"),
             Kind::Ghost,
             (page > 0).then(|| go(page - 1)),
         ),
         text(at).size(14).color(theme.secondary),
         action(
             theme,
-            "Next",
+            crate::i18n::tr!(i18n, "Next"),
             Kind::Ghost,
             (more && page + 1 < pages).then(|| go(page + 1)),
         ),

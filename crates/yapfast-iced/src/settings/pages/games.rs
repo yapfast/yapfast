@@ -234,7 +234,7 @@ impl<'a> Page<'a> {
             form::heading(theme, crate::i18n::tr!(self.cx.i18n, "CUSTOM GAMES")),
             form::note(
                 theme,
-                "Name a game by its executable, a file name or a full path, and what to show after Playing. These come before the games Yapfast knows, but a game's Rich Presence comes first.",
+                crate::i18n::tr!(self.cx.i18n, "Name a game by its executable, a file name or a full path, and what to show after Playing. These come before the games Yapfast knows, but a game's Rich Presence comes first."),
             ),
         ];
         for (index, (executable, name)) in self.cx.layout.prefs.game_executables.iter().enumerate()
@@ -249,14 +249,14 @@ impl<'a> Page<'a> {
                             .wrapping(text::Wrapping::None),
                         action(
                             theme,
-                            "Edit",
+                            crate::i18n::tr!(self.cx.i18n, "Edit"),
                             Kind::Plain,
                             Some(game_message(GameEvent::Edit(index)))
                         )
                         .small(),
                         action(
                             theme,
-                            "Remove",
+                            crate::i18n::tr!(self.cx.i18n, "Remove"),
                             Kind::Plain,
                             Some(game_message(GameEvent::Remove(index)))
                         )
@@ -293,7 +293,10 @@ impl<'a> Page<'a> {
         if draft.invalid {
             parts.push(form::note(
                 theme,
-                "Enter an executable and a name of up to 128 characters, without line breaks.",
+                crate::i18n::tr!(
+                    self.cx.i18n,
+                    "Enter an executable and a name of up to 128 characters, without line breaks."
+                ),
             ));
         }
         let ready = !draft.executable.is_empty() && !draft.name.is_empty();
@@ -314,7 +317,7 @@ impl<'a> Page<'a> {
             buttons.push(
                 action(
                     theme,
-                    "Cancel",
+                    crate::i18n::tr!(self.cx.i18n, "Cancel"),
                     Kind::Plain,
                     Some(game_message(GameEvent::Cancel)),
                 )
@@ -357,7 +360,7 @@ impl<'a> Page<'a> {
                     ),
                     action(
                         theme,
-                        "Remove",
+                        crate::i18n::tr!(self.cx.i18n, "Remove"),
                         Kind::Plain,
                         Some(game_message(GameEvent::Unblock(index)))
                     )
@@ -381,7 +384,10 @@ impl<'a> Page<'a> {
         if draft.blocked_invalid {
             parts.push(form::note(
                 theme,
-                "Enter an executable or a name, without line breaks.",
+                crate::i18n::tr!(
+                    self.cx.i18n,
+                    "Enter an executable or a name, without line breaks."
+                ),
             ));
         }
         // The games found among the running programs are only found while the
@@ -390,14 +396,14 @@ impl<'a> Page<'a> {
         parts.push(form::buttons(vec![
             action(
                 theme,
-                "Choose from detected games",
+                crate::i18n::tr!(self.cx.i18n, "Choose from detected games"),
                 Kind::Plain,
                 scanning.then(|| game_message(GameEvent::Detected)),
             )
             .into(),
             action(
                 theme,
-                "Never show",
+                crate::i18n::tr!(self.cx.i18n, "Never show"),
                 Kind::Plain,
                 (!draft.blocked.trim().is_empty()).then(|| game_message(GameEvent::Block)),
             )

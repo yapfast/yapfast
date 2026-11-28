@@ -661,7 +661,8 @@ impl<'a> View<'a> {
             });
         let grid: Element<'a, Message> = if tab.grid.tiles.is_empty() {
             kit::note(
-                format!("No emoji match \"{}\".", picker.field.text().trim()),
+                crate::i18n::tr!(self.cx.i18n, "No emoji match \"{query}\".")
+                    .replace("{query}", picker.field.text().trim()),
                 theme,
             )
         } else {

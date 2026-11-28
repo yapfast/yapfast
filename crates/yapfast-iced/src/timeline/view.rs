@@ -773,9 +773,13 @@ fn direct_welcome<'a>(ctx: crate::ctx::Ctx<'a>) -> Element<'a, Message> {
             .push(
                 row![
                     ctx.avatar(server.icon.as_deref(), &server.name, 24.0, 6.0, 1.0),
-                    text(look.mutual_servers.as_str())
-                        .size(14)
-                        .color(theme.secondary),
+                    text(crate::profile::look::mutual_label(
+                        ctx.i18n,
+                        true,
+                        Some(look.profile().servers.len()),
+                    ))
+                    .size(14)
+                    .color(theme.secondary),
                 ]
                 .spacing(8)
                 .align_y(Alignment::Center),

@@ -394,10 +394,22 @@ fn the_full_profiles_tabs_and_dates_are_discords() {
     // Anyone else's card and full profile name what the account shares with
     // them, as the client words it, and when they became friends.
     let other = look(&view("7"));
-    assert_eq!(other.mutual_friends, "1 Mutual Friend");
-    assert_eq!(other.mutual_servers, "1 Mutual Server");
-    assert_eq!(other.friends_label, "1 Mutual Friend");
-    assert_eq!(other.servers_label, "1 Mutual Server");
+    assert_eq!(
+        crate::profile::look::mutual_label(
+            &crate::i18n::I18n::new(Some("en")),
+            false,
+            other.mutuals_known.then_some(other.profile().friends.len())
+        ),
+        "1 Mutual Friend"
+    );
+    assert_eq!(
+        crate::profile::look::mutual_label(
+            &crate::i18n::I18n::new(Some("en")),
+            true,
+            other.mutuals_known.then_some(other.profile().servers.len())
+        ),
+        "1 Mutual Server"
+    );
     assert!(other.mutuals_known);
     assert_eq!(other.tabs, [Tab::Activity, Tab::Friends, Tab::Servers]);
     assert_eq!(other.friends_since, "Mar 3, 2025");
@@ -409,19 +421,51 @@ fn the_full_profiles_tabs_and_dates_are_discords() {
     loading.loading = true;
     let loading = look(&loading);
     assert!(!loading.mutuals_known);
-    assert_eq!(loading.friends_label, "Mutual Friends");
+    assert_eq!(
+        crate::profile::look::mutual_label(
+            &crate::i18n::I18n::new(Some("en")),
+            false,
+            loading
+                .mutuals_known
+                .then_some(loading.profile().friends.len())
+        ),
+        "Mutual Friends"
+    );
     let mut none = view("7");
     none.profile.friends.clear();
     none.profile.servers.clear();
     let none = look(&none);
-    assert_eq!(none.friends_label, "No Mutual Friends");
-    assert_eq!(none.servers_label, "No Mutual Servers");
+    assert_eq!(
+        crate::profile::look::mutual_label(
+            &crate::i18n::I18n::new(Some("en")),
+            false,
+            none.mutuals_known.then_some(none.profile().friends.len())
+        ),
+        "No Mutual Friends"
+    );
+    assert_eq!(
+        crate::profile::look::mutual_label(
+            &crate::i18n::I18n::new(Some("en")),
+            true,
+            none.mutuals_known.then_some(none.profile().servers.len())
+        ),
+        "No Mutual Servers"
+    );
     // A profile Discord didn't give says nothing of who's shared.
     let mut failed = view("7");
     failed.note = Some("Discord didn't share the rest of this profile.".into());
     let failed = look(&failed);
     assert!(!failed.mutuals_known);
-    assert_eq!(failed.friends_label, "Mutual Friends");
+    assert_eq!(
+        crate::profile::look::mutual_label(
+            &crate::i18n::I18n::new(Some("en")),
+            false,
+            failed
+                .mutuals_known
+                .then_some(failed.profile().friends.len())
+        ),
+        "Mutual Friends"
+    );
 
     // A bot's full profile has Mutual Servers alone, as the client's bot
     // profile does.

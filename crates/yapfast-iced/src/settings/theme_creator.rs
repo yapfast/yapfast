@@ -1474,7 +1474,10 @@ impl<'a> Page<'a> {
                 self.creator_preview(creator, width),
                 form::note(
                     theme,
-                    "Yapfast itself wears the theme while you make it, behind these settings.",
+                    crate::i18n::tr!(
+                        self.cx.i18n,
+                        "Yapfast itself wears the theme while you make it, behind these settings."
+                    ),
                 ),
             ];
             if let Some((note, moved)) = creator.readable() {
@@ -1484,13 +1487,18 @@ impl<'a> Page<'a> {
                 parts.push(form::note_in(note.clone(), theme.danger_text));
             }
             let mut buttons = row![
-                action(theme, "Export", Kind::Plain, Some(message(Event::Export)))
-                    .small()
-                    .icon(
-                        self.cx
-                            .look
-                            .icon(Icon::Download, 16, crate::theme::rgb(theme.text))
-                    )
+                action(
+                    theme,
+                    crate::i18n::tr!(self.cx.i18n, "Export"),
+                    Kind::Plain,
+                    Some(message(Event::Export))
+                )
+                .small()
+                .icon(self.cx.look.icon(
+                    Icon::Download,
+                    16,
+                    crate::theme::rgb(theme.text)
+                ))
             ]
             .spacing(8);
             if creator.editing.is_some() {
@@ -1551,7 +1559,7 @@ impl<'a> Page<'a> {
                 .push(
                     action(
                         theme,
-                        "Undo",
+                        crate::i18n::tr!(self.cx.i18n, "Undo"),
                         Kind::Ghost,
                         can_undo.then(|| message(Event::Undo)),
                     )
@@ -1560,21 +1568,26 @@ impl<'a> Page<'a> {
                 .push(
                     action(
                         theme,
-                        "Start over",
+                        crate::i18n::tr!(self.cx.i18n, "Start over"),
                         Kind::Ghost,
                         can_undo.then(|| message(Event::StartOver)),
                     )
                     .icon(look.icon(Icon::Refresh, 18, ink)),
                 );
         }
-        bar.push(action(theme, "Cancel", Kind::Plain, Some(cancel)))
-            .push(action(
-                theme,
-                if saved { "Save" } else { "Save theme" },
-                Kind::Primary,
-                save,
-            ))
-            .into()
+        bar.push(action(
+            theme,
+            crate::i18n::tr!(self.cx.i18n, "Cancel"),
+            Kind::Plain,
+            Some(cancel),
+        ))
+        .push(action(
+            theme,
+            if saved { "Save" } else { "Save theme" },
+            Kind::Primary,
+            save,
+        ))
+        .into()
     }
 
     /// What every editor is laid out in: the page's tabs, its bar, the
@@ -2265,7 +2278,7 @@ impl<'a> Page<'a> {
         let backgrounds = row![
             kit::tile(
                 look,
-                "Dark",
+                crate::i18n::tr!(self.cx.i18n, "Dark"),
                 spec.background == Background::Dark,
                 ground_art(
                     Color::from_rgb8(0x1e, 0x1f, 0x24),
@@ -2644,7 +2657,7 @@ impl<'a> Page<'a> {
                 "GLASS",
                 vec![
                     crate::form::switch(
-                        "Frosted glass panes",
+                        crate::i18n::tr!(self.cx.i18n, "Frosted glass panes"),
                         spec.glass,
                         Some(message(Event::Glass(!spec.glass))),
                     )
@@ -2748,7 +2761,7 @@ impl<'a> Page<'a> {
             Space::new().width(Length::Fill),
             action(
                 theme,
-                "Import a font",
+                crate::i18n::tr!(self.cx.i18n, "Import a font"),
                 Kind::Ghost,
                 Some(message(Event::PickFont(headings))),
             )
@@ -2794,7 +2807,7 @@ impl<'a> Page<'a> {
         }
         parts.push(
             crate::form::switch(
-                "Dark",
+                crate::i18n::tr!(self.cx.i18n, "Dark"),
                 creator.theme.dark,
                 Some(message(Event::Dark(!creator.theme.dark))),
             )
@@ -2807,7 +2820,7 @@ impl<'a> Page<'a> {
             vec![
                 form::note(
                     theme,
-                    "Each as #rgb, #rrggbb or #rrggbbaa. The window shows a change as you type it.",
+                    crate::i18n::tr!(self.cx.i18n, "Each as #rgb, #rrggbb or #rrggbbaa. The window shows a change as you type it."),
                 ),
                 colour_rows(theme, &creator.fields, &creator.theme, |index, text| {
                     message(Event::AdvancedColour(index, text))

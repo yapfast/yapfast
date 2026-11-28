@@ -718,7 +718,7 @@ pub fn drop_view<'a>(ctx: crate::ctx::Ctx<'a>) -> Option<Element<'a, Message>> {
             .push(
                 container(controls::action(
                     theme,
-                    "Got It",
+                    crate::i18n::tr!(ctx.i18n, "Got It"),
                     controls::Kind::Plain,
                     Some(Message::Write(Write::Uploads(Event::Understood))),
                 ))

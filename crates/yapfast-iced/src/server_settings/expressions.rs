@@ -206,6 +206,7 @@ fn error_text<'a>(theme: &crate::theme::Theme, error: &'a str) -> Element<'a, Me
 /// A dialog's foot: Cancel, then what it does in `kind`.
 pub(super) fn answers<'a>(
     theme: &crate::theme::Theme,
+    i18n: &'a crate::i18n::I18n,
     cancel: Option<Message>,
     label: &'a str,
     kind: Kind,
@@ -213,8 +214,8 @@ pub(super) fn answers<'a>(
 ) -> Element<'a, Message> {
     row![
         Space::new().width(Length::Fill),
-        action(theme, "Cancel", Kind::Ghost, cancel),
-        action(theme, label, kind, confirm),
+        action(theme, crate::i18n::tr!(i18n, "Cancel"), Kind::Ghost, cancel),
+        action(theme, i18n.text(label), kind, confirm),
     ]
     .spacing(form::TIGHT)
     .into()
@@ -551,6 +552,7 @@ impl<'a> View<'a> {
         }
         body = body.push(answers(
             theme,
+            self.cx.i18n,
             (!saving).then(|| emoji(EmojiInput::Cancel)),
             if saving { "Uploading..." } else { "Upload" },
             Kind::Primary,
@@ -583,7 +585,10 @@ impl<'a> View<'a> {
             form::title(theme, crate::i18n::tr!(self.cx.i18n, "Stickers")),
             form::note(
                 theme,
-                "Stickers can be static (JPG, PNG) or animated (APNG, GIF). Stickers must be exactly 320 x 320 pixels and no larger than 512 KB. We will automatically resize static JPG, PNG and animated GIF stickers for you.",
+                crate::i18n::tr!(
+                    self.cx.i18n,
+                    "Stickers can be static (JPG, PNG) or animated (APNG, GIF). Stickers must be exactly 320 x 320 pixels and no larger than 512 KB. We will automatically resize static JPG, PNG and animated GIF stickers for you."
+                ),
             ),
         ];
         for card in page.cards() {
@@ -855,7 +860,7 @@ impl<'a> View<'a> {
                         .clip(true),
                         action(
                             theme,
-                            "Browse",
+                            crate::i18n::tr!(self.cx.i18n, "Browse"),
                             Kind::Plain,
                             (!saving && core.reading.is_none())
                                 .then(|| message(Settings::Pick(ServerPicture::Sticker))),
@@ -882,14 +887,14 @@ impl<'a> View<'a> {
         };
         body = body
             .push(field(
-                "RELATED EMOJI",
+                crate::i18n::tr!(self.cx.i18n, "RELATED EMOJI"),
                 "sticker-tags",
                 "Type or paste an emoji",
                 &draft.form.tags,
                 StickerInput::Tags,
             ))
             .push(field(
-                "STICKER NAME",
+                crate::i18n::tr!(self.cx.i18n, "STICKER NAME"),
                 "sticker-name",
                 "e.g.: cat hug",
                 &draft.form.name,
@@ -917,6 +922,7 @@ impl<'a> View<'a> {
         }
         body = body.push(answers(
             theme,
+            self.cx.i18n,
             (!saving).then(|| sticker(StickerInput::Cancel)),
             if saving {
                 "Saving..."

@@ -1973,7 +1973,7 @@ pub fn choice_lines(options: &[&str], widest: f32) -> Vec<Vec<usize>> {
 /// or under the pointer, `rest` otherwise, bold while chosen and in
 /// `rest_font` otherwise.
 pub struct Tab<'a> {
-    pub label: &'a str,
+    pub label: std::borrow::Cow<'a, str>,
     pub chosen: bool,
     pub ink: Color,
     pub rest: Color,

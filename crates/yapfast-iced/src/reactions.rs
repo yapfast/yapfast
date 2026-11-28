@@ -199,7 +199,7 @@ impl<'a> View<'a> {
                 line = line.push(
                     iced::widget::tooltip(
                         remove,
-                        controls::tip(theme, "Remove Reaction"),
+                        controls::tip(theme, crate::i18n::tr!(self.cx.i18n, "Remove Reaction")),
                         iced::widget::tooltip::Position::Top,
                     )
                     .gap(6),

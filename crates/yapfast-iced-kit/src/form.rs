@@ -940,7 +940,11 @@ pub struct Unsaved<M> {
 }
 
 impl<M: Clone> Unsaved<M> {
-    pub fn view<'a>(self, theme: &Theme) -> Element<'a, M>
+    pub fn view<'a>(
+        self,
+        theme: &Theme,
+        translate: impl Fn(&'static str) -> &'a str,
+    ) -> Element<'a, M>
     where
         M: 'a,
     {
@@ -958,20 +962,20 @@ impl<M: Clone> Unsaved<M> {
         let (raised, edge, danger) = (theme.raised, theme.edge, theme.danger);
         let offset = shake.offset();
         let bar = row![
-            text("Careful — you have unsaved changes!")
+            text(translate("Careful — you have unsaved changes!"))
                 .size(14)
                 .font(SEMIBOLD)
                 .color(if red { theme.on_danger } else { theme.text })
                 .width(Length::Fill),
             controls::action(
                 theme,
-                "Reset",
+                translate("Reset"),
                 controls::Kind::Ghost,
                 (may_reset && !saving).then_some(undo),
             ),
             controls::action(
                 theme,
-                if saving { "Saving..." } else { "Save Changes" },
+                translate(if saving { "Saving..." } else { "Save Changes" }),
                 controls::Kind::Primary,
                 (may_save && !saving).then_some(save),
             ),

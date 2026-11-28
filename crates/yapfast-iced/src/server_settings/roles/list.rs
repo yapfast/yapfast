@@ -95,7 +95,10 @@ impl<'a> View<'a> {
             form::title(theme, crate::i18n::tr!(self.cx.i18n, "Roles")),
             form::note(
                 theme,
-                "Use roles to group your server members and assign permissions.",
+                crate::i18n::tr!(
+                    self.cx.i18n,
+                    "Use roles to group your server members and assign permissions."
+                ),
             ),
             self.everyone_card(page.everyone()),
             row![
@@ -108,7 +111,7 @@ impl<'a> View<'a> {
                 ),
                 action(
                     theme,
-                    "Create Role",
+                    crate::i18n::tr!(self.cx.i18n, "Create Role"),
                     Kind::Primary,
                     ready.then(|| input(RoleInput::Create)),
                 )
@@ -118,7 +121,10 @@ impl<'a> View<'a> {
             .into(),
             form::note(
                 theme,
-                "Members use the color of the highest role they have on this list. Drag roles to reorder them.",
+                crate::i18n::tr!(
+                    self.cx.i18n,
+                    "Members use the color of the highest role they have on this list. Drag roles to reorder them."
+                ),
             ),
             list.into(),
         ])

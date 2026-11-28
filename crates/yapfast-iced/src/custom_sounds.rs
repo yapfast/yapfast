@@ -41,14 +41,38 @@ fn path(root: &Path, slot: SoundSlot) -> PathBuf {
         .join(format!("{}.pcm", slot.name()))
 }
 
-pub(crate) fn decode(slot: SoundSlot, file: &Path) -> Result<Arc<[i16]>, String> {
-    let bytes = read(file, media::MAX_SOUND_BYTES)
-        .map_err(|error| format!("Couldn't read the selected file. {error}"))?;
-    let samples =
-        media::decode_sound(file, &bytes).map_err(|error| format!("The selected file {error}."))?;
+#[derive(Clone, Debug)]
+pub enum DecodeError {
+    Read(String),
+    Invalid(String),
+    TooLong(f32),
+    Worker,
+}
+
+impl DecodeError {
+    pub(crate) fn text(self, i18n: &crate::i18n::I18n) -> String {
+        match self {
+            Self::Read(error) => crate::i18n::tr!(i18n, "Couldn't read the selected file. {error}")
+                .replace("{error}", &error),
+            Self::Invalid(error) => {
+                crate::i18n::tr!(i18n, "The selected file {error}.").replace("{error}", &error)
+            }
+            Self::TooLong(seconds) => {
+                crate::i18n::tr!(i18n, "Use a sound no longer than {seconds} seconds.")
+                    .replace("{seconds}", &seconds.to_string())
+            }
+            Self::Worker => crate::i18n::tr!(i18n, "Couldn't read the selected sound.").to_owned(),
+        }
+    }
+}
+
+pub(crate) fn decode(slot: SoundSlot, file: &Path) -> Result<Arc<[i16]>, DecodeError> {
+    let bytes =
+        read(file, media::MAX_SOUND_BYTES).map_err(|error| DecodeError::Read(error.to_string()))?;
+    let samples = media::decode_sound(file, &bytes).map_err(DecodeError::Invalid)?;
     let longest = slot.longest();
     if media::seconds(&samples) > longest {
-        return Err(format!("Use a sound no longer than {longest} seconds."));
+        return Err(DecodeError::TooLong(longest));
     }
     Ok(samples.into())
 }

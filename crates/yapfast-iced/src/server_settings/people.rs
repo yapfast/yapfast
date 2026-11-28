@@ -415,7 +415,10 @@ impl<'a> View<'a> {
         if page.indexing {
             parts = parts.push(form::note(
                 theme,
-                "Before searching, we need to index this server. Give us a bit.",
+                crate::i18n::tr!(
+                    self.cx.i18n,
+                    "Before searching, we need to index this server. Give us a bit."
+                ),
             ));
         }
         let shown = page.on_page();
@@ -639,6 +642,7 @@ impl<'a> View<'a> {
         if total > page.page_size as u64 || page.fetching() {
             footer = footer.push(moderation::pager(
                 theme,
+                self.cx.i18n,
                 page.page,
                 page.pages(),
                 true,
@@ -677,7 +681,7 @@ impl<'a> View<'a> {
                 if paused {
                     "Enable Invites"
                 } else {
-                    "Pause Invites"
+                    crate::i18n::tr!(self.cx.i18n, "Pause Invites")
                 },
                 if paused { Kind::Primary } else { Kind::Danger },
                 Some(invite(InviteInput::Security)),
@@ -688,7 +692,7 @@ impl<'a> View<'a> {
         if app.may(&core.server, Permission::CreateInvite) {
             buttons = buttons.push(action(
                 theme,
-                "Create Invite Link",
+                crate::i18n::tr!(self.cx.i18n, "Create Invite Link"),
                 Kind::Primary,
                 Some(invite(InviteInput::Create)),
             ));
@@ -697,7 +701,10 @@ impl<'a> View<'a> {
             form::title(theme, crate::i18n::tr!(self.cx.i18n, "Invites")),
             form::note(
                 theme,
-                "Create an invite link anyone can use to join, or invite friends directly.",
+                crate::i18n::tr!(
+                    self.cx.i18n,
+                    "Create an invite link anyone can use to join, or invite friends directly."
+                ),
             ),
             buttons,
         ]
@@ -855,7 +862,7 @@ impl<'a> View<'a> {
                 .color(theme.text),
             hours,
             form::switch(
-                "Pause Invites",
+                crate::i18n::tr!(self.cx.i18n, "Pause Invites"),
                 draft.invites,
                 ready.then(|| invite(InviteInput::PauseInvites)),
             )
@@ -864,7 +871,7 @@ impl<'a> View<'a> {
             )
             .view(self.cx.look),
             form::switch(
-                "Pause DMs",
+                crate::i18n::tr!(self.cx.i18n, "Pause DMs"),
                 draft.dms,
                 ready.then(|| invite(InviteInput::PauseDms)),
             )
@@ -883,7 +890,7 @@ impl<'a> View<'a> {
                 Space::new().width(Length::Fill),
                 action(
                     theme,
-                    "Cancel",
+                    crate::i18n::tr!(self.cx.i18n, "Cancel"),
                     Kind::Ghost,
                     ready.then(|| invite(InviteInput::CloseSecurity)),
                 ),

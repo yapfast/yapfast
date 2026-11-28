@@ -3111,3 +3111,921 @@ msgstr "В сети: {online} · Участников: {members}"
 
 msgid "This invite is invalid or has expired."
 msgstr "Приглашение недействительно или срок его действия истёк."
+
+msgid "Undeafen"
+msgstr "Включить звук"
+
+msgid "Join calls muted"
+msgstr "Подключаться с выключенным микрофоном"
+
+msgid "Join calls deafened"
+msgstr "Подключаться с выключенным звуком"
+
+msgid "Import"
+msgstr "Импортировать"
+
+msgid "Paste"
+msgstr "Вставить"
+
+msgid "New theme"
+msgstr "Новая тема"
+
+msgid "Remove"
+msgstr "Удалить"
+
+msgid "Reset to default"
+msgstr "Сбросить настройки"
+
+msgid "Careful — you have unsaved changes!"
+msgstr "Есть несохранённые изменения."
+
+msgid "Reset"
+msgstr "Сбросить"
+
+msgid "Saving..."
+msgstr "Сохранение…"
+
+msgid "Save Changes"
+msgstr "Сохранить изменения"
+
+msgid "Add a Keybind"
+msgstr "Добавить сочетание клавиш"
+
+msgid "Create Invite Link"
+msgstr "Создать ссылку-приглашение"
+
+msgid "Pause Invites"
+msgstr "Приостановить приглашения"
+
+msgid "Pause DMs"
+msgstr "Приостановить личные сообщения"
+
+msgid "Use the application icon in the tray"
+msgstr "Использовать значок приложения в трее"
+
+msgid "Replace"
+msgstr "Заменить"
+
+msgid "Muted until {time}"
+msgstr "Уведомления выключены до {time}"
+
+msgid "Muted"
+msgstr "Уведомления выключены"
+
+msgid "Just now"
+msgstr "Только что"
+
+msgid "{count}m ago"
+msgstr "{count} мин назад"
+
+msgid "{count}h ago"
+msgstr "{count} ч назад"
+
+msgid "{count}d ago"
+msgstr "{count} дн. назад"
+
+msgid "Export"
+msgstr "Экспортировать"
+
+msgid "Undo"
+msgstr "Отменить действие"
+
+msgid "Start over"
+msgstr "Начать заново"
+
+msgid "Frosted glass panes"
+msgstr "Панели с эффектом матового стекла"
+
+msgid "Import a font"
+msgstr "Импортировать шрифт"
+
+msgid "Dark"
+msgstr "Тёмная"
+
+msgid "View Full Profile"
+msgstr "Открыть полный профиль"
+
+msgid "Refresh devices"
+msgstr "Обновить список устройств"
+
+msgid "Choose"
+msgstr "Выбрать"
+
+msgid "Create Role"
+msgstr "Создать роль"
+
+msgid "Add Members"
+msgstr "Добавить участников"
+
+msgid "Add"
+msgstr "Добавить"
+
+msgid "Display role members separately from online members"
+msgstr "Показывать участников с этой ролью отдельно"
+
+msgid "Allow anyone to @mention this role"
+msgstr "Разрешить всем упоминать эту роль"
+
+msgid "Choose Image"
+msgstr "Выбрать изображение"
+
+msgid "Use Emoji"
+msgstr "Использовать эмодзи"
+
+msgid "Create a Poll"
+msgstr "Создать опрос"
+
+msgid "Add another answer"
+msgstr "Добавить вариант ответа"
+
+msgid "Browse the Marketplace"
+msgstr "Открыть каталог тем"
+
+msgid "Keep"
+msgstr "Оставить"
+
+msgid "Turn off theme"
+msgstr "Отключить тему"
+
+msgid "Revert"
+msgstr "Вернуть прежнюю тему"
+
+msgid "Reconnect"
+msgstr "Подключиться снова"
+
+msgid "Edit profile"
+msgstr "Редактировать профиль"
+
+msgid "Back to sign in"
+msgstr "Вернуться ко входу"
+
+msgid "Sign out"
+msgstr "Выйти из аккаунта"
+
+msgid "Unlink Discord"
+msgstr "Отвязать Discord"
+
+msgid "Choose from detected games"
+msgstr "Выбрать из обнаруженных игр"
+
+msgid "Never show"
+msgstr "Никогда не показывать"
+
+msgid "Private Thread"
+msgstr "Закрытая ветка"
+
+msgid "Exit"
+msgstr "Выйти"
+
+msgid "Got It"
+msgstr "Понятно"
+
+msgid "Custom sound set"
+msgstr "Пользовательский набор звуков"
+
+msgid "Jump"
+msgstr "Перейти"
+
+msgid "Go to Server"
+msgstr "Перейти на сервер"
+
+msgid "Require 2FA for moderator actions"
+msgstr "Требовать двухфакторную аутентификацию для модерации"
+
+msgid "Browse"
+msgstr "Выбрать файл"
+
+msgid "Clear status"
+msgstr "Очистить статус"
+
+msgid "Edit"
+msgstr "Изменить"
+
+msgid "Previous"
+msgstr "Назад"
+
+msgid "Next"
+msgstr "Далее"
+
+msgid "Uploading..."
+msgstr "Загрузка…"
+
+msgid "Upload"
+msgstr "Загрузить"
+
+msgid "Update"
+msgstr "Обновить"
+
+msgid "{page} of {pages}"
+msgstr "{page} из {pages}"
+
+msgid "Page {page} of {pages}"
+msgstr "Страница {page} из {pages}"
+
+msgid "Your profile in {server}"
+msgstr "Ваш профиль на сервере {server}"
+
+msgid "Don't show again"
+msgstr "Больше не показывать"
+
+msgid "SCREEN"
+msgstr "ЭКРАН"
+
+msgid "CAMERAS"
+msgstr "КАМЕРЫ"
+
+msgid "NOISE SUPPRESSION"
+msgstr "ШУМОПОДАВЛЕНИЕ"
+
+msgid "POST TITLE"
+msgstr "ЗАГОЛОВОК ПУБЛИКАЦИИ"
+
+msgid "Pinned Messages"
+msgstr "Закреплённые сообщения"
+
+msgid "Select Friends"
+msgstr "Выбрать друзей"
+
+msgid "Friends Since"
+msgstr "В друзьях с"
+
+msgid "Connections"
+msgstr "Связанные аккаунты"
+
+msgid "Note (only visible to you)"
+msgstr "Заметка (видна только вам)"
+
+msgid "Current activity"
+msgstr "Текущая активность"
+
+msgid "Your Widgets"
+msgstr "Ваши виджеты"
+
+msgid "Remove Reaction"
+msgstr "Убрать реакцию"
+
+msgid "RELATED EMOJI"
+msgstr "СВЯЗАННЫЙ ЭМОДЗИ"
+
+msgid "STICKER NAME"
+msgstr "НАЗВАНИЕ СТИКЕРА"
+
+msgid "You haven't added any custom keybinds yet."
+msgstr "Вы пока не добавили свои сочетания клавиш."
+
+msgid "No audio devices found. Connect one, then refresh."
+msgstr "Аудиоустройства не найдены. Подключите устройство и обновите список."
+
+msgid "No camera found. Connect one, then refresh."
+msgstr "Камера не найдена. Подключите её и обновите список."
+
+msgid "You'll be muted and deafened in your call while you test."
+msgstr "Во время проверки в звонке будут отключены микрофон и звук."
+
+msgid "Link your Discord account to see its servers and DMs in Yapfast, and join its calls. The login stays on this computer, in the system's credential store."
+msgstr "Подключите аккаунт Discord, чтобы видеть серверы и личные сообщения и участвовать в звонках. Данные для входа хранятся на этом компьютере в системном хранилище."
+
+msgid "Unlinking signs Yapfast out of Discord on this computer."
+msgstr "При отвязке Yapfast выйдет из аккаунта Discord на этом компьютере."
+
+msgid "Call tones and sounds for messages, voice and streams play on the speakers chosen for calls."
+msgstr "Сигналы вызовов и звуки сообщений, голосовых каналов и трансляций воспроизводятся через устройство вывода, выбранное для звонков."
+
+msgid "WAV, Ogg, Opus and MP3 files can be up to 1 MiB, with a 4-second limit for events and a 6-second limit for call tones."
+msgstr "Поддерживаются WAV, Ogg, Opus и MP3 до 1 МиБ. Максимальная длительность — 4 секунды для событий и 6 секунд для сигналов вызова."
+
+msgid "Themes restyle Yapfast: its colours, fonts, shapes, art and sounds. A theme is data, never code, and you see what one changes before it's installed."
+msgstr "Темы меняют цвета, шрифты, формы, оформление и звуки Yapfast. Перед установкой можно посмотреть, что изменится. Темы содержат только данные."
+
+msgid "They stay installed, but Yapfast won't use files it can't check."
+msgstr "Темы остаются установленными. Yapfast использует только проверенные файлы."
+
+msgid "Settings of the theme that's applied. They're kept if you switch away and come back."
+msgstr "Настройки активной темы сохраняются при переключении на другую тему."
+
+msgid "DeepFilterNet also takes out typing and other sudden noise. RNNoise uses less processing. Off sends your microphone as it is, for a quiet room. A call going on switches straight away."
+msgstr "DeepFilterNet подавляет стук клавиш и другие резкие звуки. RNNoise меньше нагружает устройство. В тихой комнате можно передавать сигнал без обработки. Изменения действуют и в текущем звонке."
+
+msgid "How loud soundboard sounds play in Discord calls, yours and everyone else's. Discord keeps it for all your devices."
+msgstr "Громкость звуков звуковой панели в звонках Discord. Настройка действует для ваших звуков и звуков других участников и применяется на всех ваших устройствах."
+
+msgid "How long your microphone keeps sending after you let go of the key, so the end of a word isn't cut off."
+msgstr "Сколько времени микрофон продолжает передавать звук после отпускания клавиши, чтобы не обрезать конец слова."
+
+msgid "Use roles to group your server members and assign permissions."
+msgstr "Используйте роли, чтобы объединять участников в группы и назначать права доступа."
+
+msgid "Members use the color of the highest role they have on this list. Drag roles to reorder them."
+msgstr "Цвет участника определяется его высшей ролью в списке. Перетащите роли, чтобы изменить порядок."
+
+msgid "Not all members are shown, use Search to find specific members"
+msgstr "Показаны не все участники. Чтобы найти нужного, воспользуйтесь поиском."
+
+msgid "Before searching, we need to index this server. Give us a bit."
+msgstr "Для поиска нужно проиндексировать сервер. Это займёт немного времени."
+
+msgid "Create an invite link anyone can use to join, or invite friends directly."
+msgstr "Создайте ссылку для вступления или пригласите друзей напрямую."
+
+msgid "Mutual Friends"
+msgstr "Общие друзья"
+
+msgid "No Mutual Friends"
+msgstr "Нет общих друзей"
+
+msgid "1 Mutual Friend"
+msgstr "1 общий друг"
+
+msgid "{count} Mutual Friends"
+msgstr "Общих друзей: {count}"
+
+msgid "Mutual Servers"
+msgstr "Общие серверы"
+
+msgid "No Mutual Servers"
+msgstr "Нет общих серверов"
+
+msgid "1 Mutual Server"
+msgstr "1 общий сервер"
+
+msgid "{count} Mutual Servers"
+msgstr "Общих серверов: {count}"
+
+msgid "Board"
+msgstr "Доска"
+
+msgid "Activity"
+msgstr "Активность"
+
+msgid "Wishlist"
+msgstr "Список желаний"
+
+msgid "This group has no room for more."
+msgstr "В группе больше нет мест."
+
+msgid "You can add 1 more friend."
+msgstr "Можно добавить ещё одного друга."
+
+msgid "You can add {count} more friends."
+msgstr "Можно добавить друзей: ещё {count}."
+
+msgid "Type the name of a friend"
+msgstr "Введите имя друга"
+
+msgid "Exported to {name}."
+msgstr "Экспортировано в {name}."
+
+msgid "Couldn't save the theme file: {error}"
+msgstr "Не удалось сохранить файл темы: {error}"
+
+msgid "Couldn't read the file: {error}"
+msgstr "Не удалось прочитать файл: {error}"
+
+msgid "Copied the theme to the clipboard."
+msgstr "Тема скопирована в буфер обмена."
+
+msgid "The clipboard holds no text."
+msgstr "В буфере обмена нет текста."
+
+msgid "Note on {name}"
+msgstr "Заметка о {name}"
+
+msgid "Only you see your note, in Discord too."
+msgstr "Заметку видите только вы, в том числе в Discord."
+
+msgid "Note"
+msgstr "Заметка"
+
+msgid "Save"
+msgstr "Сохранить"
+
+msgid "Ready to start a call?"
+msgstr "Начать звонок?"
+
+msgid "Enjoy this moment. Then jump in when you're ready."
+msgstr "Присоединяйтесь, когда будете готовы."
+
+msgid "Start Call"
+msgstr "Начать звонок"
+
+msgid "Nickname for {name}"
+msgstr "Прозвище для {name}"
+
+msgid "Only you see the nickname you give a friend. Leave it empty to remove it."
+msgstr "Прозвище друга видите только вы. Оставьте поле пустым, чтобы удалить его."
+
+msgid "Nickname"
+msgstr "Никнейм"
+
+msgid "Remove {name} as a friend?"
+msgstr "Удалить {name} из друзей?"
+
+msgid "You'll need to send {name} a friend request to be friends again."
+msgstr "Чтобы снова стать друзьями, отправьте {name} новый запрос."
+
+msgid "Block {name}?"
+msgstr "Заблокировать {name}?"
+
+msgid "Blocking {name} also removes them as a friend. Their messages show collapsed, and they can't message you."
+msgstr "Блокировка удалит {name} из друзей. Сообщения пользователя будут свёрнуты, и он не сможет вам писать."
+
+msgid "Change your nickname"
+msgstr "Изменить свой никнейм"
+
+msgid "Everyone in this server sees it. Leave it empty to go by your name."
+msgstr "Его видят все на сервере. Оставьте поле пустым, чтобы использовать имя профиля."
+
+msgid "Change {name}'s nickname"
+msgstr "Изменить никнейм {name}"
+
+msgid "Everyone in this server sees it. Leave it empty to reset it to their name."
+msgstr "Его видят все на сервере. Оставьте поле пустым, чтобы вернуть имя профиля."
+
+msgid "Time out {name}"
+msgstr "Ограничить общение для {name}"
+
+msgid "Until it ends, {name} can read the server but can't send messages, react, or join voice. The reason goes in the server's audit log."
+msgstr "До конца ограничения {name} сможет читать сообщения, но не сможет писать, ставить реакции или подключаться к голосовым каналам. Причина попадёт в журнал аудита."
+
+msgid "Reason (optional)"
+msgstr "Причина (необязательно)"
+
+msgid "Kick {name}?"
+msgstr "Исключить {name} с сервера?"
+
+msgid "{name} can join again with a new invite. The reason goes in the server's audit log."
+msgstr "{name} сможет вернуться по новому приглашению. Причина попадёт в журнал аудита."
+
+msgid "Ban {name}?"
+msgstr "Заблокировать {name} на сервере?"
+
+msgid "{name} can't join again until unbanned. The reason goes in the server's audit log."
+msgstr "{name} сможет вернуться после снятия блокировки. Причина попадёт в журнал аудита."
+
+msgid "DURATION"
+msgstr "ДЛИТЕЛЬНОСТЬ"
+
+msgid "DELETE THEIR MESSAGES FROM"
+msgstr "УДАЛИТЬ СООБЩЕНИЯ ЗА"
+
+msgid "Don't delete any"
+msgstr "Не удалять сообщения"
+
+msgid "The last hour"
+msgstr "Последний час"
+
+msgid "The last {hours} hours"
+msgstr "Последние {hours} ч"
+
+msgid "The last {count} days"
+msgstr "Последние {count} дн."
+
+msgid "60 seconds"
+msgstr "60 секунд"
+
+msgid "10 minutes"
+msgstr "10 минут"
+
+msgid "1 week"
+msgstr "1 неделя"
+
+msgid "No emoji match \"{query}\"."
+msgstr "Эмодзи по запросу «{query}» не найдены."
+
+msgid "Couldn't save the sound. {error}"
+msgstr "Не удалось сохранить звук. {error}"
+
+msgid "Couldn't remove the sound. {error}"
+msgstr "Не удалось удалить звук. {error}"
+
+msgid "Couldn't play the sound. {error}"
+msgstr "Не удалось воспроизвести звук. {error}"
+
+msgid "Couldn't read the selected file. {error}"
+msgstr "Не удалось прочитать выбранный файл. {error}"
+
+msgid "The selected file {error}."
+msgstr "Не удалось обработать выбранный файл: {error}."
+
+msgid "Use a sound no longer than {seconds} seconds."
+msgstr "Максимальная длительность звука: {seconds} с."
+
+msgid "Couldn't read the selected sound."
+msgstr "Не удалось прочитать выбранный звук."
+
+msgid "Stickers can be static (JPG, PNG) or animated (APNG, GIF). Stickers must be exactly 320 x 320 pixels and no larger than 512 KB. We will automatically resize static JPG, PNG and animated GIF stickers for you."
+msgstr "Стикеры могут быть статичными (JPG, PNG) или анимированными (APNG, GIF). Размер должен быть ровно 320 × 320 пикселей, объём — до 512 КБ. JPG, PNG и GIF автоматически подгоняются по размеру."
+
+msgid "Having mic issues? Start a test and say something fun, and Yapfast plays your voice back to you, with your noise suppression and volumes. Wear headphones, or it echoes."
+msgstr "Проблемы с микрофоном? Запустите проверку и скажите что-нибудь. Yapfast воспроизведёт ваш голос с текущими настройками громкости и шумоподавления. Используйте наушники, чтобы избежать эха."
+
+msgid "Name a game by its executable, a file name or a full path, and what to show after Playing. These come before the games Yapfast knows, but a game's Rich Presence comes first."
+msgstr "Укажите имя или полный путь к исполняемому файлу и название игры для статуса. Пользовательские записи имеют приоритет над встроенным списком игр. Если игра передаёт собственный статус Rich Presence, он имеет высший приоритет."
+
+msgid "Choose how to confirm it's you."
+msgstr "Выберите способ подтверждения личности."
+
+msgid "Customize your profile for every server, from avatar decorations to bios. Only with Nitro."
+msgstr "Настройте профиль для каждого сервера: от украшений аватара до описания. Доступно с Nitro."
+
+msgid "Choose if server members can share image-based media detected by Discord's sensitive content filters. This setting will apply to channels that are not age-restricted."
+msgstr "Укажите, могут ли участники делиться изображениями, которые выявляет фильтр деликатного контента Discord. Настройка применяется к каналам без возрастных ограничений."
+
+msgid "Members use the color of the highest role they have on the roles list."
+msgstr "Цвет участника определяется его высшей ролью в списке."
+
+msgid "Upload an image under 256 KB or use an emoji. We recommend at least 64x64 pixels. Members will see the icon for their highest role if they have multiple roles."
+msgstr "Загрузите изображение меньше 256 КБ или выберите эмодзи. Рекомендуемый размер — от 64 × 64 пикселей. Если у участника несколько ролей, будет виден значок высшей роли."
+
+msgid "Draw all of Yapfast in your own font. Choose its TTF, OTF, TTC or WOFF files, every weight and italic you have; WOFF2 isn't supported. Code and emoji keep their fonts."
+msgstr "Используйте свой шрифт в Yapfast. Выберите файлы TTF, OTF, TTC или WOFF для всех доступных начертаний. Шрифты WOFF2 не поддерживаются. Для кода и эмодзи используются отдельные шрифты."
+
+msgid "Each as #rgb, #rrggbb or #rrggbbaa, or picked from its swatch. The window shows a change as you make it."
+msgstr "Введите цвет в формате #rgb, #rrggbb или #rrggbbaa либо выберите его в палитре. Изменения сразу видны в окне."
+
+msgid "Yapfast itself wears the theme while you make it, behind these settings."
+msgstr "Во время редактирования тема отображается в окне Yapfast за панелью настроек."
+
+msgid "Each as #rgb, #rrggbb or #rrggbbaa. The window shows a change as you type it."
+msgstr "Введите цвет в формате #rgb, #rrggbb или #rrggbbaa. Изменения сразу видны в окне."
+
+msgid "Enter an executable and a name of up to 128 characters, without line breaks."
+msgstr "Введите имя исполняемого файла и название до 128 символов без переносов строк."
+
+msgid "Enter an executable or a name, without line breaks."
+msgstr "Введите имя исполняемого файла или название без переносов строк."
+
+msgid "Enter the 6-digit code from your authenticator app."
+msgstr "Введите шестизначный код из приложения-аутентификатора."
+
+msgid "6-digit code"
+msgstr "Шестизначный код"
+
+msgid "Discord is sending a code to your phone."
+msgstr "Discord отправляет код на ваш телефон."
+
+msgid "Enter your password."
+msgstr "Введите пароль."
+
+msgid "Password"
+msgstr "Пароль"
+
+msgid "Enter one of your 8-digit backup codes. Each works only once."
+msgstr "Введите один из восьмизначных резервных кодов. Каждый код можно использовать один раз."
+
+msgid "Backup code"
+msgstr "Резервный код"
+
+msgid "Use your authenticator app"
+msgstr "Использовать приложение-аутентификатор"
+
+msgid "Use a code sent to your phone"
+msgstr "Использовать код с телефона"
+
+msgid "Use your password"
+msgstr "Использовать пароль"
+
+msgid "Use a backup code"
+msgstr "Использовать резервный код"
+
+msgid "Use a passkey or security key"
+msgstr "Использовать ключ доступа или ключ безопасности"
+
+msgid "Confirming..."
+msgstr "Подтверждение…"
+
+msgid "Confirm"
+msgstr "Подтвердить"
+
+msgid "Enter the 6-digit code Discord sent to {phone}."
+msgstr "Введите шестизначный код, отправленный Discord на номер {phone}."
+
+msgid "Linking {name}. Tap Log in on your phone to finish."
+msgstr "Подключение аккаунта {name}. Нажмите «Войти» на телефоне, чтобы завершить вход."
+
+msgid "Otherwise you join muted, and unmute when you're ready."
+msgstr "Иначе вы подключитесь с выключенным микрофоном и сможете включить его, когда будете готовы."
+
+msgid "Even out your voice"
+msgstr "Выравнивать громкость голоса"
+
+msgid "Keeps your voice steady as you lean towards the microphone or away from it. Whispers and shouts still come through as they are."
+msgstr "Поддерживает громкость голоса при изменении расстояния до микрофона. Шёпот и крики сохраняют свою громкость."
+
+msgid "Voice activity"
+msgstr "Активация по голосу"
+
+msgid "Push to talk"
+msgstr "Режим рации"
+
+msgid "Yapfast sends your microphone only while you hold a key."
+msgstr "Yapfast передаёт звук с микрофона, пока вы удерживаете клавишу."
+
+msgid "Yapfast sends your voice when it hears you speak."
+msgstr "Yapfast передаёт звук, когда распознаёт вашу речь."
+
+msgid "Starting your camera..."
+msgstr "Включение камеры…"
+
+msgid "Your camera is off."
+msgstr "Камера выключена."
+
+msgid "Full"
+msgstr "Полное"
+
+msgid "Medium"
+msgstr "Среднее"
+
+msgid "Light"
+msgstr "Лёгкое"
+
+msgid "Full takes out the most noise, but can cut off giggles and breathy laughs. Medium and Light leave a little of the room's sound in, which can sound more natural, and let a little more noise through."
+msgstr "Полное подавление убирает больше шума, но может приглушать тихий смех. Среднее и лёгкое сохраняют больше фоновых звуков, поэтому голос может звучать естественнее."
+
+msgid "Soundboard volume"
+msgstr "Громкость звуковой панели"
+
+msgid "Take out your room's echo in Discord calls"
+msgstr "Подавлять эхо комнаты в звонках Discord"
+
+msgid "For a bare or echoey room that makes your voice sound far away. Uses a little more processing, and your voice goes out 10 ms later."
+msgstr "Для гулких помещений, где голос звучит отдалённо. Обработка немного повышает нагрузку и добавляет 10 мс задержки."
+
+msgid "Let Windows process your microphone in Discord calls"
+msgstr "Разрешить Windows обрабатывать микрофон в звонках Discord"
+
+msgid "Runs the effects Windows and your sound driver add to the microphone, such as their own noise suppression. Off, Yapfast skips them, as they can muffle your voice on top of Yapfast's. Turn it on if your microphone sounds worse without them, as some laptop microphones can."
+msgstr "Использует эффекты Windows и звукового драйвера, включая их шумоподавление. При отключении Yapfast пропускает эти эффекты, так как вместе с его обработкой они могут приглушать голос. Включите настройку, если без неё микрофон звучит хуже."
+
+msgid "All servers"
+msgstr "Все серверы"
+
+msgid "Choose an entrance sound"
+msgstr "Выбрать звук входа"
+
+msgid "Plays to everyone in a voice channel or DM call as you join it, outside stage channels. A server's own comes before the one for all servers."
+msgstr "Звук слышат все, когда вы входите в голосовой канал или личный звонок. На сценах он не воспроизводится. Звук конкретного сервера имеет приоритет."
+
+msgid "Entrance sounds play to everyone as you join a voice channel. They need Nitro."
+msgstr "Звук входа слышат все участники голосового канала. Для этой функции нужен Nitro."
+
+msgid "Press the keys to hold while you talk, together. Escape stops without changing it."
+msgstr "Одновременно нажмите клавиши, которые будете удерживать во время разговора. Escape отменяет запись."
+
+msgid "Push to talk is on, but no keybind is set, so your microphone sends nothing."
+msgstr "Режим рации включён. Назначьте клавишу, чтобы передавать звук."
+
+msgid "Push to talk release delay"
+msgstr "Задержка после отпускания клавиши"
+
+msgid "Discord voice and its level aren't available on this system yet."
+msgstr "На этой системе пока недоступны голосовая связь Discord и измерение её уровня."
+
+msgid "Yapfast can't read this microphone. Check that it's connected, or choose another."
+msgstr "Yapfast не получает звук с микрофона. Проверьте подключение или выберите другой микрофон."
+
+msgid "Yapfast can't read this microphone."
+msgstr "Yapfast не получает звук с микрофона."
+
+msgid "Check that it's connected, or choose another."
+msgstr "Проверьте подключение или выберите другой микрофон."
+
+msgid "Yapfast can't play your voice back."
+msgstr "Yapfast не может воспроизвести ваш голос."
+
+msgid "Check your speakers, or choose others."
+msgstr "Проверьте динамики или выберите другое устройство."
+
+msgid "Yapfast isn't detecting any input from your mic."
+msgstr "Yapfast не обнаруживает сигнал с микрофона."
+
+msgid "Please check that you've selected the right input device."
+msgstr "Проверьте, что выбрано нужное устройство ввода."
+
+msgid "Playing back your beautiful voice"
+msgstr "Воспроизведение вашего голоса"
+
+msgid "Stop testing"
+msgstr "Остановить проверку"
+
+msgid "Let's check"
+msgstr "Начать проверку"
+
+msgid "Readable text"
+msgstr "Читаемый текст"
+
+msgid "Messages, names, channels and what you type use Yapfast's own font in every theme. The theme's art, colours and layout stay."
+msgstr "Сообщения, имена, каналы и вводимый текст используют шрифт Yapfast во всех темах. Оформление, цвета и расположение элементов темы сохраняются."
+
+msgid "Draw text glow"
+msgstr "Показывать свечение текста"
+
+msgid "The soft edge a theme puts round text. Off, text keeps its shadow and outline and takes less drawing."
+msgstr "Мягкое свечение вокруг текста. При отключении сохраняются тень и обводка, а нагрузка на отрисовку уменьшается."
+
+msgid "Play profile effects"
+msgstr "Воспроизводить эффекты профиля"
+
+msgid "The animations some people put over their profile cards."
+msgstr "Анимации поверх карточек профилей."
+
+msgid "Show avatar decorations"
+msgstr "Показывать украшения аватаров"
+
+msgid "The pictures around people's avatars."
+msgstr "Изображения вокруг аватаров."
+
+msgid "Show nameplates"
+msgstr "Показывать именные плашки"
+
+msgid "The pictures Discord members equip behind their rows in the member list and on your account card."
+msgstr "Фоновые изображения в списке участников Discord и на карточке аккаунта."
+
+msgid "Animate decorations and nameplates"
+msgstr "Анимировать украшения и именные плашки"
+
+msgid "They play when pointed at, as in Discord. Off, they hold still."
+msgstr "Анимация запускается при наведении, как в Discord. При отключении изображения остаются статичными."
+
+msgid "Show name styles"
+msgstr "Показывать стили имён"
+
+msgid "The fonts and colours people give their display names."
+msgstr "Шрифты и цвета отображаемых имён пользователей."
+
+msgid "Draw role colour gradients"
+msgstr "Показывать градиенты цветов ролей"
+
+msgid "The colours that run across a name with a gradient or holographic role colour. Off, the name keeps the role's first colour."
+msgstr "Градиентные и голографические цвета ролей в именах. При отключении используется первый цвет роли."
+
+msgid "Show server tags"
+msgstr "Показывать теги серверов"
+
+msgid "The tag and its badge beside people's names."
+msgstr "Теги и значки рядом с именами пользователей."
+
+msgid "Show profile frames"
+msgstr "Показывать рамки профилей"
+
+msgid "The frames some people put around their profile cards."
+msgstr "Рамки вокруг карточек профилей."
+
+msgid "Show badges"
+msgstr "Показывать значки"
+
+msgid "The badges Discord lists on a profile, and the levels its tooltips show. Off, neither their pictures nor their levels are asked for."
+msgstr "Значки Discord в профиле и уровни в их подсказках. При отключении изображения и уровни не загружаются."
+
+msgid "Show profile backgrounds"
+msgstr "Показывать фоны профилей"
+
+msgid "The banner picture at the top of a profile card, and its colour. Off, the top keeps the card's own colour and no banner is asked for."
+msgstr "Баннер и его цвет в верхней части карточки профиля. При отключении используется цвет карточки, а баннер не загружается."
+
+msgid "Show connections on profile cards"
+msgstr "Показывать связанные аккаунты в карточках профилей"
+
+msgid "The accounts people link, such as Steam or GitHub, on the card as on the full profile."
+msgstr "Связанные аккаунты, например Steam и GitHub, будут видны в карточке и полном профиле."
+
+msgid "Show activity cards"
+msgstr "Показывать карточки активности"
+
+msgid "What people in the server are playing, above its member list. Off, only the Activity heading stays, and its eye shows them again."
+msgstr "Игры участников сервера показываются над списком участников. Если скрыть карточки, останется заголовок «Активность» со значком для повторного показа."
+
+msgid "Discord asks for a passkey or security key, which Yapfast can't use. Confirm in Discord's app, then try again."
+msgstr "Discord требует ключ доступа или ключ безопасности. Подтвердите действие в приложении Discord и повторите попытку."
+
+msgid "Backup codes can only be used one time each and are for emergency access to your account!"
+msgstr "Каждый резервный код можно использовать только один раз. Такие коды предназначены для экстренного доступа к аккаунту."
+
+msgid "If you have access to any of your other methods, select ‘Verify with something else’ to go back."
+msgstr "Если доступен другой способ, нажмите «Выбрать другой способ подтверждения»."
+
+msgid "If you do not have access to any other methods, the button below will activate in {left} seconds."
+msgstr "Если другие способы недоступны, кнопка ниже станет активной через {left} с."
+
+msgid "If you do not have access to any other methods, use the other button below to proceed."
+msgstr "Если другие способы недоступны, воспользуйтесь второй кнопкой ниже."
+
+msgid "On your phone, open Discord, go to Settings, tap Scan QR Code, and point the camera here. A new code replaces this one after a couple of minutes."
+msgstr "Откройте Discord на телефоне, перейдите в настройки, нажмите «Сканировать QR-код» и наведите камеру на код. Через несколько минут код обновится."
+
+msgid "Use your Matrix recovery key, or verify Yapfast in another client and check again."
+msgstr "Введите ключ восстановления Matrix или подтвердите Yapfast в другом клиенте и повторите проверку."
+
+msgid "Join calls unmuted"
+msgstr "Подключаться с включённым микрофоном"
+
+msgid "Join calls undeafened"
+msgstr "Подключаться с включённым звуком"
+
+msgid "Input options"
+msgstr "Настройки микрофона"
+
+msgid "Output options"
+msgstr "Настройки звука"
+
+msgid "Settings"
+msgstr "Настройки"
+
+msgid "Change custom status"
+msgstr "Изменить свой статус"
+
+msgid "Copy User ID"
+msgstr "Копировать ID пользователя"
+
+msgid "User Settings"
+msgstr "Настройки пользователя"
+
+msgid "Switch Accounts"
+msgstr "Переключить аккаунт"
+
+msgid "What's happening?"
+msgstr "Что происходит?"
+
+msgid "4 hours"
+msgstr "4 часа"
+
+msgid "Today"
+msgstr "Сегодня"
+
+msgid "You won't get message notifications."
+msgstr "Уведомления о сообщениях отключены."
+
+msgid "Invisible"
+msgstr "Невидимый"
+
+msgid "You'll appear offline."
+msgstr "Другие будут видеть вас не в сети."
+
+msgid "Microphone volume"
+msgstr "Громкость микрофона"
+
+msgid "Speaker volume"
+msgstr "Громкость динамиков"
+
+msgid "Stop video"
+msgstr "Остановить видео"
+
+msgid "Test video"
+msgstr "Проверить видео"
+
+msgid "Turn on your microphone when you join a call"
+msgstr "Включать микрофон при подключении к звонку"
+
+msgid "None"
+msgstr "Нет"
+
+msgid "Yapfast sends your voice when it's louder than the handle, and other sounds when they're 18 dB louder still. The bar is your microphone after noise suppression and at its volume, as Yapfast hears it to decide."
+msgstr "Голос передаётся, когда его уровень превышает порог. Для остальных звуков порог на 18 дБ выше. Шкала показывает сигнал с учётом шумоподавления и громкости микрофона."
+
+msgid "Click to copy"
+msgstr "Нажмите, чтобы скопировать"
+
+msgid "Off"
+msgstr "Выключено"
+
+msgid "{count}m"
+msgstr "{count} мин"
+
+msgid "{count}h"
+msgstr "{count} ч"
+
+msgid "{count}d"
+msgstr "{count} дн."
+
+msgid "{time} elapsed"
+msgstr "Прошло {time}"
+
+msgid "{one} and {two}"
+msgstr "{one} и {two}"
+
+msgid "{one}, {two}, and 1 other"
+msgstr "{one}, {two} и ещё один"
+
+msgid "{one}, {two}, and {count} others"
+msgstr "{one}, {two} и ещё {count}"
+
+msgid "In a Voice Channel"
+msgstr "В голосовом канале"
+
+msgid "{count} People"
+msgstr "Участников: {count}"
+
+msgid "Streaming {name}"
+msgstr "Транслирует {name}"
+
+msgid "Listening to {name}"
+msgstr "Слушает {name}"
+
+msgid "Watching {name}"
+msgstr "Смотрит {name}"
+
+msgid "Competing in {name}"
+msgstr "Соревнуется в {name}"
+
+msgid "with {name}"
+msgstr "В {name}"

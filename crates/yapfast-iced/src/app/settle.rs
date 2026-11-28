@@ -312,6 +312,8 @@ impl App {
         match pref {
             Pref::Language => {
                 self.i18n.select(self.layout.prefs.language.as_deref());
+                self.active_now_made = None;
+                crate::active_now::active_now_sync(self);
                 if let Some(menu) = &mut self.win.menu {
                     menu.fits.take();
                 }

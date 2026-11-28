@@ -600,13 +600,11 @@ pub(crate) fn link_panel<'a>(ctx: crate::ctx::Ctx<'a>) -> Element<'a, Message> {
             let (heading, words) = match scanned {
                 Some(name) => (
                     crate::i18n::tr!(ctx.i18n, "Confirm on your phone").to_owned(),
-                    format!("Linking {name}. Tap Log in on your phone to finish."),
+                    crate::i18n::tr!(ctx.i18n, "Linking {name}. Tap Log in on your phone to finish.").replace("{name}", name),
                 ),
                 None => (
                     crate::i18n::tr!(ctx.i18n, "Scan it with the Discord app").to_owned(),
-                    "On your phone, open Discord, go to Settings, tap Scan QR Code, and \
-                     point the camera here. A new code replaces this one after a couple of \
-                     minutes."
+                    crate::i18n::tr!(ctx.i18n, "On your phone, open Discord, go to Settings, tap Scan QR Code, and point the camera here. A new code replaces this one after a couple of minutes.")
                         .to_owned(),
                 ),
             };
@@ -754,8 +752,7 @@ pub fn verify_banner<'a>(cx: Ctx<'a>) -> Option<Element<'a, Message>> {
                     .font(BOLD)
                     .color(theme.text),
                     text(
-                        "Use your Matrix recovery key, or verify Yapfast in another client \
-                         and check again."
+                        crate::i18n::tr!(cx.i18n, "Use your Matrix recovery key, or verify Yapfast in another client and check again.")
                     )
                     .size(14)
                     .color(theme.secondary),

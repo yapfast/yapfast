@@ -1,4 +1,4 @@
-//! Discord's crate::i18n::tr!(cx.i18n, "Multi-Factor Authentication") prompt: for a request Discord
+//! Discord's multi-factor authentication prompt: for a request Discord
 //! holds back until this account confirms, with a code from an
 //! authenticator app or a text, the password, or a backup code; then the
 //! request goes again. Cancelling fails the request. The core keeps the
@@ -34,7 +34,7 @@ const WAIT: u32 = 10;
 /// What's done in the prompt.
 #[derive(Clone, Debug)]
 pub enum Event {
-    /// Use a method, or with none list them (crate::i18n::tr!(cx.i18n, "Verify with something else")).
+    /// Use a method, or list the methods when none is selected.
     Choose(Option<MfaMethod>),
     Write(String),
     Resend,
@@ -128,24 +128,23 @@ pub fn view<'a>(mfa: &'a Mfa, cx: Ctx<'a>) -> Option<Element<'a, Message>> {
     let warning = prompt.warning();
     let (words, placeholder) = match prompt.method {
         Some(MfaMethod::App) => (
-            "Enter the 6-digit code from your authenticator app.".to_owned(),
-            "6-digit code",
+            crate::i18n::tr!(cx.i18n, "Enter the 6-digit code from your authenticator app.").to_owned(),
+            crate::i18n::tr!(cx.i18n, "6-digit code"),
         ),
         Some(MfaMethod::Sms) => (
             match &prompt.phone {
-                Some(phone) => format!("Enter the 6-digit code Discord sent to {phone}."),
-                None => "Discord is sending a code to your phone.".to_owned(),
+                Some(phone) => crate::i18n::tr!(cx.i18n, "Enter the 6-digit code Discord sent to {phone}.").replace("{phone}", phone),
+                None => crate::i18n::tr!(cx.i18n, "Discord is sending a code to your phone.").to_owned(),
             },
-            "6-digit code",
+            crate::i18n::tr!(cx.i18n, "6-digit code"),
         ),
-        Some(MfaMethod::Password) => ("Enter your password.".to_owned(), "Password"),
+        Some(MfaMethod::Password) => (crate::i18n::tr!(cx.i18n, "Enter your password.").to_owned(), crate::i18n::tr!(cx.i18n, "Password")),
         Some(MfaMethod::Backup) => (
-            "Enter one of your 8-digit backup codes. Each works only once.".to_owned(),
-            "Backup code",
+            crate::i18n::tr!(cx.i18n, "Enter one of your 8-digit backup codes. Each works only once.").to_owned(),
+            crate::i18n::tr!(cx.i18n, "Backup code"),
         ),
         Some(MfaMethod::Passkey) | None => (
-            "Discord asks for a passkey or security key, which Yapfast can't use. Confirm \
-             in Discord's app, then try again."
+            crate::i18n::tr!(cx.i18n, "Discord asks for a passkey or security key, which Yapfast can't use. Confirm in Discord's app, then try again.")
                 .to_owned(),
             "",
         ),
@@ -170,14 +169,17 @@ pub fn view<'a>(mfa: &'a Mfa, cx: Ctx<'a>) -> Option<Element<'a, Message>> {
     .spacing(12)
     .padding(20);
     if listing {
-        let mut list = column![note("Choose how to confirm it's you.".into())].spacing(2);
+        let mut list = column![note(
+            crate::i18n::tr!(cx.i18n, "Choose how to confirm it's you.").into()
+        )]
+        .spacing(2);
         for method in &choices {
             let label = match method {
-                MfaMethod::App => "Use your authenticator app",
-                MfaMethod::Sms => "Use a code sent to your phone",
-                MfaMethod::Password => "Use your password",
-                MfaMethod::Backup => "Use a backup code",
-                MfaMethod::Passkey => "Use a passkey or security key",
+                MfaMethod::App => crate::i18n::tr!(cx.i18n, "Use your authenticator app"),
+                MfaMethod::Sms => crate::i18n::tr!(cx.i18n, "Use a code sent to your phone"),
+                MfaMethod::Password => crate::i18n::tr!(cx.i18n, "Use your password"),
+                MfaMethod::Backup => crate::i18n::tr!(cx.i18n, "Use a backup code"),
+                MfaMethod::Passkey => crate::i18n::tr!(cx.i18n, "Use a passkey or security key"),
             };
             list = list.push(cx.look.menu_item(
                 Item {
@@ -203,26 +205,21 @@ pub fn view<'a>(mfa: &'a Mfa, cx: Ctx<'a>) -> Option<Element<'a, Message>> {
                 .color(theme.text),
         );
         body = body.push(note(
-            "Backup codes can only be used one time each and are for emergency access to \
-             your account!"
+            crate::i18n::tr!(cx.i18n, "Backup codes can only be used one time each and are for emergency access to your account!")
                 .into(),
         ));
         if choices.len() > 1 {
             body = body.push(note(
-                "If you have access to any of your other methods, select ‘Verify with \
-                 something else’ to go back."
+                crate::i18n::tr!(cx.i18n, "If you have access to any of your other methods, select ‘Verify with something else’ to go back.")
                     .into(),
             ));
         }
         let left = mfa.wait.left;
         body = body.push(note(if left > 0 {
-            format!(
-                "If you do not have access to any other methods, the button below will \
-                 activate in {left} seconds."
-            )
+            crate::i18n::tr!(cx.i18n, "If you do not have access to any other methods, the button below will activate in {left} seconds.")
+                .replace("{left}", &left.to_string())
         } else {
-            "If you do not have access to any other methods, use the other button below \
-             to proceed."
+            crate::i18n::tr!(cx.i18n, "If you do not have access to any other methods, use the other button below to proceed.")
                 .to_owned()
         }));
         body = body.push(
@@ -290,9 +287,9 @@ pub fn view<'a>(mfa: &'a Mfa, cx: Ctx<'a>) -> Option<Element<'a, Message>> {
         buttons = buttons.push(action(
             theme,
             if prompt.busy {
-                "Confirming..."
+                crate::i18n::tr!(cx.i18n, "Confirming...")
             } else {
-                "Confirm"
+                crate::i18n::tr!(cx.i18n, "Confirm")
             },
             Kind::Primary,
             prompt.ready().then_some(Message::Mfa(Event::Confirm)),

@@ -577,7 +577,7 @@ pub(super) fn share_menu<'a>(
     let dialog_index = share.screens.len() + share.windows.len();
     if share.dialog {
         choices = choices
-            .push(heading(theme, "SCREEN", 4.0))
+            .push(heading(theme, crate::i18n::tr!(ctx.i18n, "SCREEN"), 4.0))
             .push(crate::call::popups::popup_row(
                 ctx,
                 "Screen or window",
@@ -593,7 +593,7 @@ pub(super) fn share_menu<'a>(
         } else {
             4.0
         };
-        choices = choices.push(heading(theme, "CAMERAS", top));
+        choices = choices.push(heading(theme, crate::i18n::tr!(ctx.i18n, "CAMERAS"), top));
         let first = dialog_index + usize::from(share.dialog);
         for (index, title) in share.cameras.iter().enumerate() {
             let at = first + index;
