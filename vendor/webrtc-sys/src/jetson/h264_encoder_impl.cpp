@@ -335,8 +335,7 @@ int32_t JetsonH264EncoderImpl::ProcessEncodedFrame(
                   : VideoFrameType::kVideoFrameDelta;
   encoded_image_.SetColorSpace(input_frame.color_space());
 
-  std::vector<H264::NaluIndex> nalu_indices =
-      H264::FindNaluIndices(MakeArrayView(packet.data(), packet.size()));
+  std::vector<H264::NaluIndex> nalu_indices = H264::FindNaluIndices(packet);
   for (uint32_t i = 0; i < nalu_indices.size(); i++) {
     const H264::NaluType nalu_type =
         H264::ParseNaluType(packet[nalu_indices[i].payload_start_offset]);
@@ -360,10 +359,13 @@ int32_t JetsonH264EncoderImpl::ProcessEncodedFrame(
 
   const auto result =
       encoded_image_callback_->OnEncodedImage(encoded_image_, &codecInfo);
+  // The frame has already been delivered, so a failed send (for example, a
+  // simulcast layer paused by dynacast) must not be reported as an encode
+  // error: SimulcastEncoderAdapter would drop an RTP timestamp that its
+  // callback has already consumed.
   if (result.error != EncodedImageCallback::Result::OK) {
-    RTC_LOG(LS_ERROR) << "Encode m_encodedCompleteCallback failed "
-                      << result.error;
-    return WEBRTC_VIDEO_CODEC_ERROR;
+    RTC_LOG(LS_WARNING) << "Encode m_encodedCompleteCallback failed "
+                        << result.error;
   }
   return WEBRTC_VIDEO_CODEC_OK;
 }

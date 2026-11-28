@@ -1,16 +1,10 @@
 # Yapfast patches
 
-This is webrtc-sys 0.3.35 from crates.io under its original Apache-2.0 license.
-Five changes differ from it.
+This is webrtc-sys 0.3.55 from crates.io under its original Apache-2.0 license.
+The native media patches below are retained across the upstream update.
 
-## Windows link fix
-
-include/livekit/jsep.h differs: PeerContext is forward-declared as struct,
-matching the generated cxx bridge. The mismatched class declaration produced
-undefined observer constructors and Box<PeerContext>::drop on Windows MSVC.
-
-This backports the one-line fix documented in LiveKit issue 1154:
-https://github.com/livekit/rust-sdks/issues/1154
+The Windows `PeerContext` forward-declaration fix (LiveKit issue 1154) is now
+included upstream. The local changes are the following.
 
 ## Capture leveling
 
@@ -49,5 +43,4 @@ capturer for frames without the pointer and wraps it in libwebrtc's
 `DesktopAndCursorComposer`, which draws the pointer once, where Windows says
 it is. Window captures are as upstream.
 
-Otherwise the Rust API, media code, dependency versions and libwebrtc archive
-stay pinned.
+The matching native archive is `webrtc-a545de4`, shared by the Nix and Windows environments.

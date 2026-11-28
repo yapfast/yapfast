@@ -15,11 +15,7 @@ use std::path::Path;
 
 use chacha20poly1305::{
     XChaCha20Poly1305,
-    aead::{
-        generic_array::GenericArray,
-        rand_core::{OsRng, RngCore},
-        stream::{EncryptorBE32, NewStream, StreamBE32, StreamPrimitive},
-    },
+    aead::{AeadInOut, KeyInit},
 };
 
 /// The key the files are encrypted with, kept in the OS credential store.
@@ -37,7 +33,7 @@ const CHUNK: usize = 64 * 1024;
 
 pub fn new_key() -> Key {
     let mut key = [0; 32];
-    OsRng.fill_bytes(&mut key);
+    rand::fill(&mut key);
     key
 }
 
@@ -75,13 +71,15 @@ pub fn seal<W: Write>(mut out: W, key: &Key, login: &str) -> std::io::Result<Sea
         return Err(std::io::Error::other("not a login's hash"));
     }
     let mut prefix = [0; PREFIX];
-    OsRng.fill_bytes(&mut prefix);
+    rand::fill(&mut prefix);
     out.write_all(MAGIC)?;
     out.write_all(login.as_bytes())?;
     out.write_all(&prefix)?;
     Ok(Sealing {
         out,
-        stream: EncryptorBE32::new(key.into(), (&prefix).into()),
+        cipher: XChaCha20Poly1305::new(key.into()),
+        prefix,
+        position: 0,
         chunk: Vec::with_capacity(CHUNK + TAG),
     })
 }
@@ -90,7 +88,9 @@ pub fn seal<W: Write>(mut out: W, key: &Key, login: &str) -> std::io::Result<Sea
 /// the last.
 pub struct Sealing<W> {
     out: W,
-    stream: EncryptorBE32<XChaCha20Poly1305>,
+    cipher: XChaCha20Poly1305,
+    prefix: [u8; PREFIX],
+    position: u32,
     chunk: Vec<u8>,
 }
 
@@ -100,9 +100,17 @@ impl<W: Write> Write for Sealing<W> {
         self.chunk.extend_from_slice(&data[..taken]);
         // A full chunk is never the last, so the last is always shorter.
         if self.chunk.len() == CHUNK {
-            self.stream
-                .encrypt_next_in_place(b"", &mut self.chunk)
+            self.cipher
+                .encrypt_in_place(
+                    (&nonce(&self.prefix, self.position, false)).into(),
+                    b"",
+                    &mut self.chunk,
+                )
                 .map_err(|_| std::io::Error::other("could not encrypt"))?;
+            self.position = self
+                .position
+                .checked_add(1)
+                .ok_or_else(|| std::io::Error::other("file has too many chunks"))?;
             self.out.write_all(&self.chunk)?;
             self.chunk.clear();
         }
@@ -117,8 +125,12 @@ impl<W: Write> Write for Sealing<W> {
 impl<W: Write> Sealing<W> {
     /// Seals the last chunk, and gives back what it wrote to.
     pub fn finish(mut self) -> std::io::Result<W> {
-        self.stream
-            .encrypt_last_in_place(b"", &mut self.chunk)
+        self.cipher
+            .encrypt_in_place(
+                (&nonce(&self.prefix, self.position, true)).into(),
+                b"",
+                &mut self.chunk,
+            )
             .map_err(|_| std::io::Error::other("could not encrypt"))?;
         self.out.write_all(&self.chunk)?;
         Ok(self.out)
@@ -144,7 +156,8 @@ pub fn open(file: &Path, key: &Key) -> std::io::Result<(String, Opening<std::fs:
         login,
         Opening {
             input,
-            stream: StreamBE32::new(key.into(), GenericArray::from_slice(prefix)),
+            cipher: XChaCha20Poly1305::new(key.into()),
+            prefix: prefix.try_into().expect("fixed-size file header"),
             length,
             chunks,
             last: size - HEADER as u64 - (chunks - 1) * SEALED_CHUNK,
@@ -157,6 +170,17 @@ pub fn open(file: &Path, key: &Key) -> std::io::Result<(String, Opening<std::fs:
 
 const HEADER: usize = MAGIC.len() + LOGIN + PREFIX;
 const SEALED_CHUNK: u64 = (CHUNK + TAG) as u64;
+
+/// The legacy STREAM-BE32 nonce: its random prefix, a big-endian chunk
+/// number, then the final-chunk marker. STREAM left RustCrypto's AEAD 0.6,
+/// but keeping its nonce layout lets existing cache files continue to open.
+fn nonce(prefix: &[u8; PREFIX], position: u32, last: bool) -> [u8; 24] {
+    let mut nonce = [0; 24];
+    nonce[..PREFIX].copy_from_slice(prefix);
+    nonce[PREFIX..PREFIX + 4].copy_from_slice(&position.to_be_bytes());
+    nonce[23] = u8::from(last);
+    nonce
+}
 
 /// What a sealed file of `size` bytes holds: how long it is, and in how many
 /// chunks. None when it's too short to be one.
@@ -178,7 +202,8 @@ pub fn length(size: u64) -> Option<u64> {
 /// of one cut short.
 pub struct Opening<R> {
     input: R,
-    stream: StreamBE32<XChaCha20Poly1305>,
+    cipher: XChaCha20Poly1305,
+    prefix: [u8; PREFIX],
     /// How long what it holds is, and in how many chunks.
     length: u64,
     chunks: u64,
@@ -207,8 +232,12 @@ impl<R: Read + Seek> Opening<R> {
         (&mut self.input).take(size).read_to_end(&mut self.chunk)?;
         let opened = (self.chunk.len() as u64 == size)
             .then(|| {
-                self.stream
-                    .decrypt_in_place(index as u32, last, b"", &mut self.chunk)
+                self.cipher
+                    .decrypt_in_place(
+                        (&nonce(&self.prefix, index as u32, last)).into(),
+                        b"",
+                        &mut self.chunk,
+                    )
                     .ok()
             })
             .flatten();

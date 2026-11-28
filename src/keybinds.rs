@@ -406,10 +406,7 @@ mod linux {
         rust_connection::RustConnection,
     };
     use yapfast_core::runtime::{BackgroundRuntime, BackgroundTask};
-    use zbus::{
-        Connection, MessageStream,
-        zvariant::{ObjectPath, OwnedObjectPath, OwnedValue, Value},
-    };
+    use zbus::{Connection, MessageStream, ObjectPath, OwnedObjectPath, OwnedVariant, Variant};
 
     use super::{Matcher, Reach, Report, Sink, Status, Watched};
 
@@ -511,14 +508,16 @@ mod linux {
                 PATH,
                 Some("org.freedesktop.host.portal.Registry"),
                 "Register",
-                &(crate::APP_ID, HashMap::<&str, Value<'_>>::new()),
+                &(crate::APP_ID, HashMap::<&str, Variant<'_>>::new()),
             )
             .await;
         let rule = zbus::MatchRule::builder()
             .msg_type(zbus::message::Type::Signal)
-            .sender(PORTAL)?
-            .build();
-        let mut signals = MessageStream::for_match_rule(rule, &connection, Some(16)).await?;
+            .sender(PORTAL)
+            .build()?;
+        let mut signals =
+            MessageStream::for_match_rule(rule, &connection, std::num::NonZeroUsize::new(16))
+                .await?;
         let sender = connection
             .unique_name()
             .context("no name on the session bus")?
@@ -528,8 +527,8 @@ mod linux {
         let request = |step: &str| format!("{PATH}/request/{sender}/{token}_{step}");
 
         let options = HashMap::from([
-            ("handle_token", Value::from(format!("{token}_session"))),
-            ("session_handle_token", Value::from(token.clone())),
+            ("handle_token", Variant::from(format!("{token}_session"))),
+            ("session_handle_token", Variant::from(token.clone())),
         ]);
         connection
             .call_method(
@@ -542,22 +541,23 @@ mod linux {
             .await?;
         let results = response(&mut signals, &request("session")).await?;
         let session = match results.get("session_handle").map(|value| &**value) {
-            Some(Value::Str(handle)) => OwnedObjectPath::try_from(handle.as_str())?,
-            Some(Value::ObjectPath(handle)) => handle.clone().into(),
+            Some(Variant::Str(handle)) => OwnedObjectPath::try_from(handle.as_str())?,
+            Some(Variant::ObjectPath(handle)) => handle.clone().into(),
             _ => bail!("the portal gave no session"),
         };
 
-        let shortcuts: Vec<(&str, HashMap<&str, Value<'_>>)> = wanted
+        let shortcuts: Vec<(&str, HashMap<&str, Variant<'_>>)> = wanted
             .iter()
             .map(|wanted| {
-                let mut details = HashMap::from([("description", Value::from(wanted.description))]);
+                let mut details =
+                    HashMap::from([("description", Variant::from(wanted.description))]);
                 if let Some(trigger) = &wanted.trigger {
-                    details.insert("preferred_trigger", Value::from(trigger.as_str()));
+                    details.insert("preferred_trigger", Variant::from(trigger.as_str()));
                 }
                 (wanted.id.as_str(), details)
             })
             .collect();
-        let options = HashMap::from([("handle_token", Value::from(format!("{token}_bind")))]);
+        let options = HashMap::from([("handle_token", Variant::from(format!("{token}_bind")))]);
         connection
             .call_method(
                 Some(PORTAL),
@@ -582,7 +582,7 @@ mod linux {
                 Some("ShortcutsChanged") => {
                     if let Ok((path, shortcuts)) = message
                         .body()
-                        .deserialize::<(ObjectPath<'_>, Vec<(String, HashMap<String, OwnedValue>)>)>()
+                        .deserialize::<(ObjectPath<'_>, Vec<(String, HashMap<String, OwnedVariant>)>)>()
                         && path == *session
                     {
                         report(Status {
@@ -600,7 +600,7 @@ mod linux {
             if let Ok((path, id, ..)) =
                 message
                     .body()
-                    .deserialize::<(ObjectPath<'_>, &str, u64, HashMap<String, OwnedValue>)>()
+                    .deserialize::<(ObjectPath<'_>, &str, u64, HashMap<String, OwnedVariant>)>()
                 && path == *session
                 && let Some(binding) = wanted.iter().position(|wanted| wanted.id == id)
             {
@@ -614,7 +614,7 @@ mod linux {
     async fn response(
         signals: &mut MessageStream,
         request: &str,
-    ) -> Result<HashMap<String, OwnedValue>> {
+    ) -> Result<HashMap<String, OwnedVariant>> {
         while let Some(message) = signals.next().await {
             let message = message?;
             let header = message.header();
@@ -627,7 +627,7 @@ mod linux {
             }
             let (code, results) = message
                 .body()
-                .deserialize::<(u32, HashMap<String, OwnedValue>)>()?;
+                .deserialize::<(u32, HashMap<String, OwnedVariant>)>()?;
             return match code {
                 0 => Ok(results),
                 1 => Err(anyhow!("the shortcuts were declined")),
@@ -638,11 +638,12 @@ mod linux {
     }
 
     /// The shortcuts the desktop bound, in its words.
-    fn described(results: &HashMap<String, OwnedValue>) -> HashMap<String, String> {
+    fn described(results: &HashMap<String, OwnedVariant>) -> HashMap<String, String> {
         results
             .get("shortcuts")
             .and_then(|value| {
-                Vec::<(String, HashMap<String, OwnedValue>)>::try_from(value.try_clone().ok()?).ok()
+                Vec::<(String, HashMap<String, OwnedVariant>)>::try_from(value.try_clone().ok()?)
+                    .ok()
             })
             .map(|shortcuts| given(&shortcuts))
             .unwrap_or_default()
@@ -650,12 +651,12 @@ mod linux {
 
     /// Each shortcut's trigger, in the desktop's words; empty for one it
     /// bound to no keys yet.
-    fn given(shortcuts: &[(String, HashMap<String, OwnedValue>)]) -> HashMap<String, String> {
+    fn given(shortcuts: &[(String, HashMap<String, OwnedVariant>)]) -> HashMap<String, String> {
         shortcuts
             .iter()
             .map(|(id, details)| {
                 let text = match details.get("trigger_description").map(|value| &**value) {
-                    Some(Value::Str(text)) => text.to_string(),
+                    Some(Variant::Str(text)) => text.to_string(),
                     _ => String::new(),
                 };
                 (id.clone(), text)
@@ -850,13 +851,13 @@ mod linux {
         impl FakePortal {
             async fn create_session(
                 &self,
-                options: HashMap<String, OwnedValue>,
+                options: HashMap<String, OwnedVariant>,
                 #[zbus(header)] header: zbus::message::Header<'_>,
                 #[zbus(connection)] connection: &Connection,
             ) -> OwnedObjectPath {
                 let request = request_path(&header, &options);
                 let session = format!("{PATH}/session/test/1");
-                let results = HashMap::from([("session_handle", Value::from(session))]);
+                let results = HashMap::from([("session_handle", Variant::from(session))]);
                 respond(connection, &request, results).await;
                 request
             }
@@ -864,16 +865,17 @@ mod linux {
             async fn bind_shortcuts(
                 &self,
                 session: OwnedObjectPath,
-                shortcuts: Vec<(String, HashMap<String, OwnedValue>)>,
+                shortcuts: Vec<(String, HashMap<String, OwnedVariant>)>,
                 _parent_window: String,
-                options: HashMap<String, OwnedValue>,
+                options: HashMap<String, OwnedVariant>,
                 #[zbus(header)] header: zbus::message::Header<'_>,
                 #[zbus(connection)] connection: &Connection,
             ) -> OwnedObjectPath {
                 let request = request_path(&header, &options);
                 let mut bound = Vec::new();
                 for (id, details) in &shortcuts {
-                    let Some(Value::Str(trigger)) = details.get("preferred_trigger").map(|v| &**v)
+                    let Some(Variant::Str(trigger)) =
+                        details.get("preferred_trigger").map(|v| &**v)
                     else {
                         panic!("no preferred trigger for {id}");
                     };
@@ -885,14 +887,14 @@ mod linux {
                         id.clone(),
                         HashMap::from([(
                             "trigger_description".to_owned(),
-                            Value::from(trigger.to_uppercase()),
+                            Variant::from(trigger.to_uppercase()),
                         )]),
                     ));
                 }
                 respond(
                     connection,
                     &request,
-                    HashMap::from([("shortcuts", Value::from(bound))]),
+                    HashMap::from([("shortcuts", Variant::from(bound))]),
                 )
                 .await;
                 let connection = connection.clone();
@@ -907,14 +909,14 @@ mod linux {
 
         fn request_path(
             header: &zbus::message::Header<'_>,
-            options: &HashMap<String, OwnedValue>,
+            options: &HashMap<String, OwnedVariant>,
         ) -> OwnedObjectPath {
             let sender = header
                 .sender()
                 .unwrap()
                 .trim_start_matches(':')
                 .replace('.', "_");
-            let Some(Value::Str(token)) = options.get("handle_token").map(|v| &**v) else {
+            let Some(Variant::Str(token)) = options.get("handle_token").map(|v| &**v) else {
                 panic!("no handle token");
             };
             OwnedObjectPath::try_from(format!("{PATH}/request/{sender}/{token}")).unwrap()
@@ -923,7 +925,7 @@ mod linux {
         async fn respond(
             connection: &Connection,
             request: &OwnedObjectPath,
-            results: HashMap<&str, Value<'_>>,
+            results: HashMap<&str, Variant<'_>>,
         ) {
             connection
                 .emit_signal(
@@ -938,7 +940,7 @@ mod linux {
         }
 
         async fn press(connection: &Connection, session: &OwnedObjectPath, id: &str, signal: &str) {
-            let options = HashMap::<&str, Value<'_>>::new();
+            let options = HashMap::<&str, Variant<'_>>::new();
             connection
                 .emit_signal(
                     None::<()>,
@@ -958,19 +960,18 @@ mod linux {
         #[ignore = "needs a private session bus"]
         fn the_portal_binds_the_keybinds_and_runs_them() {
             let bound = Arc::new(Mutex::new(Vec::new()));
-            let server = zbus::blocking::connection::Builder::session()
-                .unwrap()
-                .name(PORTAL)
-                .unwrap()
-                .serve_at(
-                    PATH,
-                    FakePortal {
-                        bound: bound.clone(),
-                    },
-                )
-                .unwrap()
-                .build()
-                .unwrap();
+            let server = zbus::block_on(
+                zbus::connection::Builder::session()
+                    .name(PORTAL)
+                    .serve_at(
+                        PATH,
+                        FakePortal {
+                            bound: bound.clone(),
+                        },
+                    )
+                    .build(),
+            )
+            .unwrap();
             let keybinds = [
                 watched(
                     super::super::TALK_SHORTCUT,
@@ -1024,14 +1025,14 @@ mod linux {
             );
             let session = OwnedObjectPath::try_from(format!("{PATH}/session/test/1")).unwrap();
             zbus::block_on(press(
-                server.inner(),
+                &server,
                 &session,
                 super::super::TALK_SHORTCUT,
                 "Deactivated",
             ));
             wait_held(false);
-            zbus::block_on(press(server.inner(), &session, "keybind-3", "Activated"));
-            zbus::block_on(press(server.inner(), &session, "keybind-3", "Deactivated"));
+            zbus::block_on(press(&server, &session, "keybind-3", "Activated"));
+            zbus::block_on(press(&server, &session, "keybind-3", "Deactivated"));
             let until = Instant::now() + Duration::from_secs(2);
             while toggles.lock().unwrap().is_empty() {
                 assert!(Instant::now() < until, "the toggle wasn't heard");

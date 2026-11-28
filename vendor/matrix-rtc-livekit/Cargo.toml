@@ -19,14 +19,13 @@ async-trait = "0.1"
 log = "0.4"
 tokio = { version = "1", features = ["rt", "sync", "time"] }
 reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls"] }
-livekit = { version = "0.7", features = ["rustls-tls-native-roots", "rustls-tls-webpki-roots"] }
+livekit = { version = "=0.12.1", features = ["rustls-tls-native-roots", "rustls-tls-webpki-roots"] }
 futures-util = "0.3"
 matrix-sdk = { git = "https://github.com/matrix-org/matrix-rust-sdk", rev = "c6ad52ecc09eaa36601f55effb0a48a533eb87dd", optional = true, features = ["experimental-send-custom-to-device"] }
-matrix-sdk-ui = { git = "https://github.com/matrix-org/matrix-rust-sdk", rev = "c6ad52ecc09eaa36601f55effb0a48a533eb87dd", optional = true }
 
 [target.'cfg(target_os = "android")'.dependencies]
 jni = "0.21"
 
 [features]
-matrix-sdk = ["matrix-rtc-bridge/matrix-sdk", "dep:matrix-sdk", "dep:matrix-sdk-ui", "matrix-sdk-ui/unstable-msc4354"]
+matrix-sdk = ["matrix-rtc-bridge/matrix-sdk", "dep:matrix-sdk"]
 testing = ["matrix-sdk?/testing"]

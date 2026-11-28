@@ -51,13 +51,15 @@ licences and attribution into each package and `THIRD-PARTY.json`. Update by
 taking the new commit's files over these, as `vendor/twemoji/README.yapfast.md`
 says.
 
-LiveKit's Rust crates must stay on the mutually compatible versions in
-Cargo.lock. The manifests pin the LiveKit API, protocol and WebRTC build
-helper versions. Use targeted Cargo updates and upgrade LiveKit against the
-MatrixRTC lockfile, then rebuild the native media stack. On Linux, the Nix shell
-supplies libwebrtc `webrtc-51ef663`, matching webrtc-sys-build 0.3.18. Updating
-that crate requires updating the archive URL and checksum in `nix/native.nix`
-(Linux) and `nix/flake.nix` (Windows) too.
+Yapfast and its MatrixRTC transport share one LiveKit version. Cargo resolves
+LiveKit's protocol and signaling dependencies. Use targeted Cargo updates for
+LiveKit and WebRTC together, then rebuild the native media stack. On Linux and
+Windows, the Nix shells supply the `webrtc-a545de4` archive used by
+webrtc-sys-build 0.3.21. Changing the archive also requires updating the Nix
+URLs and checksums, the Arch package, and the Windows packaging script.
+Chromium's bundled FFmpeg in the Linux archive uses `LK_`-prefixed symbols.
+The file decoder and camera reader use those names through
+`crates/yapfast-core/native/webrtc_ffmpeg.h`.
 
 The Linux environment includes ALSA, PulseAudio, fontconfig, FreeType, GLib,
 Wayland, X11, Vulkan, OpenGL, OpenSSL, Clang 21, CMake, pkg-config, Protobuf
@@ -105,10 +107,10 @@ dependency in Cargo.toml:
 
 - `matrix-rtc-livekit`: Element's matrix-rust-rtc at `5831af8`, with native
   audio tracks and cancellable joins.
-- `webrtc-sys`: webrtc-sys 0.3.35 with a Windows link fix, capture leveling,
-  remote track volume and camera capture from pooled buffers.
-- `davey`: davey 0.1.4, keeping its key packages when a Go Live stream's group
-  id changes, and reading a frame's overlong nonce without panicking.
+- `webrtc-sys`: webrtc-sys 0.3.55 with capture leveling, remote track volume,
+  camera capture from pooled buffers and the pointer in Windows monitor shares.
+- `rusqlite`: forwards the pinned Matrix SDK's SQLite API and features to
+  rusqlite 0.41, which bundles the patched SQLite library.
 - `tungstenite`: tungstenite 0.26.2, giving back the read buffer a large frame
   such as Discord's READY grew.
 - `iced_tiny_skia`: iced 0.14's CPU renderer, 0.14.1: pictures drawn from the
