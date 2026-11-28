@@ -186,27 +186,20 @@ opt-level = 3
 [profile.dev.package.rustfft]
 opt-level = 3
 
-# Thin LTO with one codegen unit per crate. On one source, on Linux, it took
-# the stripped binary from 131.0 MiB to 115.9 (zstd 43.6 to 42.7) and the
-# cold build from 5 min 39 s to 11 min 19 s. Thin LTO with the default 16
-# units had made the binary bigger. No panic = "abort": the catch_unwind
-# guards around theme fonts and sounds need unwinding.
+# Thin LTO with 32 codegen units, 32 cgu offers optimal compile times alongside optimal, cpu efficient output, 1 CGU will take forever.
+# 32 CGU's offer us decent caching granularity for incremental builds as well, best of both worlds.
+
+# Arguably release should be incremental too because compile time is already slow as is.
 [profile.release]
-codegen-units = 1
+codegen-units = 32
 lto = "thin"
+incremental = true
 strip = true
 
-# Optimized like release, with symbols and incremental builds: for
-# measurements and profiling. Builds people use stay release. LTO and codegen
-# units stay as they were, so local builds stay quick: "off", as false still
-# runs LTO within each crate, and 256 is rustc's default for incremental
-# builds.
 [profile.measure]
 inherits = "release"
-codegen-units = 256
 lto = "off"
 strip = false
-incremental = true
 
 # The profile for tests, local runs and checks.
 [profile.fast]
