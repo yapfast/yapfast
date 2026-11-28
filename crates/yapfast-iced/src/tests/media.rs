@@ -839,3 +839,53 @@ fn pictures_are_fitted_at_the_windows_pixels() {
         (22, 22)
     );
 }
+
+/// Spoilers uncovered cover again once the channel is left and opened
+/// again, as Discord's client's do; a long message shown whole stays so.
+#[test]
+fn spoilers_cover_again_when_the_channel_opens_again() {
+    use crate::{app::Message, timeline::Event};
+    use yapfast_core::application::Action;
+    let (mut app, _folder) = preview();
+    only(
+        &mut app,
+        ChatMessage {
+            body: "It was ||the butler||".into(),
+            attachments: vec![picture_at("t.png", 80, Placement::Message, true)],
+            ..Default::default()
+        },
+    );
+    let _ = app.update(Message::Timeline(Event::Reveal("i0".into(), 0)));
+    let _ = app.update(Message::Timeline(Event::Unfold("i0".into())));
+    let _ = crate::links::follow_link(
+        &mut app,
+        &yapfast_core::spoiler::link("i0", 0),
+        iced::Point::ORIGIN,
+    );
+    assert!(app.timeline.revealed.contains("i0/0") && app.timeline.revealed.contains("i0/a0"));
+    let here = app.client.state().selected.clone().expect("a room");
+    let other = app
+        .client
+        .state()
+        .rooms
+        .iter()
+        .find(|room| room.id != here)
+        .expect("another room")
+        .id
+        .clone();
+    app.client.dispatch(Action::SelectRoom(other));
+    let _ = app.sync();
+    app.client.dispatch(Action::SelectRoom(here));
+    let _ = app.sync();
+    assert!(
+        !app.timeline.revealed.contains("i0/0") && !app.timeline.revealed.contains("i0/a0"),
+        "covered again: {:?}",
+        app.timeline.revealed
+    );
+    assert!(
+        app.timeline
+            .revealed
+            .contains(&crate::message::fold_key("i0")),
+        "a long message shown whole stays so"
+    );
+}

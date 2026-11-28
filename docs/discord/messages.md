@@ -439,7 +439,9 @@ Yapfast is back, rather than showing an error.
   a reply
   or a notification reads "(spoiler)". Attachments named `SPOILER_...` or
   flagged as spoilers, and pictures linked inside a spoiler, show blurred with
-  a "Spoiler" label until clicked. Revealing lasts while Yapfast runs. The eye
+  a "Spoiler" label until clicked. A spoiler uncovered stays so while its
+  channel is open, and covers again once another opens, as Discord's
+  client's do: it keeps the reveal only in the message on screen. The eye
   on a file waiting in the composer marks it as a spoiler, which blurs its
   thumbnail; Yapfast uploads it as `SPOILER_` and its name, as Discord's client
   does. Matrix has no spoiler for a file, so its rooms don't offer the eye.

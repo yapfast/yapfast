@@ -298,6 +298,12 @@ impl App {
         }
         if switched {
             self.selected = state.selected.clone();
+            // Spoilers cover what they hid again, as Discord's client's do
+            // when the channel opens again: it keeps them uncovered only
+            // while the messages stay on screen.
+            self.timeline
+                .revealed
+                .retain(|key| !crate::message::is_spoiler_key(key));
             self.timeline.from_end = 0.0;
             self.timeline.at_end = true;
             self.timeline.latest_due = false;
