@@ -14,7 +14,7 @@ workspace = true
 doctest = false
 
 [dependencies]
-tokio.workspace = true
+tokio = { workspace = true, features = ["rt", "time"] }
 tracing.workspace = true
 # As yapfast-iced builds it, so the two share one build of iced.
 iced = { version = "=0.14.0", default-features = false, features = ["x11", "wayland", "image-without-codecs", "advanced", "crisp", "tokio", "tiny-skia", "wgpu", "web-colors"] }
@@ -23,7 +23,7 @@ iced = { version = "=0.14.0", default-features = false, features = ["x11", "wayl
 iced_tiny_skia = "=0.14.1"
 iced_wgpu = "=0.14.0"
 # The type of cosmic-text's `Fallback::script_fallback` argument.
-unicode-script = "0.5.5"
+unicode-script = "0.5.9"
 # The language Han ideographs are drawn for where no variable gives a
 # locale (Windows, macOS); the version cosmic-text already builds.
 sys-locale = "0.3"
@@ -37,7 +37,7 @@ flate2 = { version = "1.1", default-features = false, features = ["rust_backend"
 # The kit's icons from icons/, drawn once per size and colour.
 # Without its default features it has no text, so it makes no font
 # database.
-resvg = { version = "0.49", default-features = false }
+resvg = { version = "0.50", default-features = false }
 # Words for a double press on selectable text (`widgets::Selectable`); the
 # version cosmic-text already builds.
 unicode-segmentation = "1.13"

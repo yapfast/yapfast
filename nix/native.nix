@@ -3,10 +3,10 @@
 { pkgs }:
 rec {
   webrtcArchive = pkgs.fetchurl {
-    url = "https://github.com/livekit/rust-sdks/releases/download/webrtc-51ef663/webrtc-linux-x64-release.zip";
-    hash = "sha256-3OnZQUzY4syaRxwFRIGFGyV60qh5ESzlvlY2m0/v2u0=";
+    url = "https://github.com/livekit/rust-sdks/releases/download/webrtc-a545de4/webrtc-linux-x64-release.zip";
+    hash = "sha256-Ls5zuacqLKzXPQxirDpBTiAvN4hcPI9J3dtDwUQ6wL0=";
   };
-  webrtc = pkgs.runCommand "talk-libwebrtc-51ef663" {
+  webrtc = pkgs.runCommand "talk-libwebrtc-a545de4" {
     nativeBuildInputs = [ pkgs.unzip ];
   } ''
     unzip -q ${webrtcArchive} -d unpacked

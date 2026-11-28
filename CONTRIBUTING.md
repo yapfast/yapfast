@@ -147,10 +147,8 @@ Pull requests to `main` run CI directly on Ubuntu, without Nix, using the Rust
 toolchain in `rust-toolchain.toml`. Strict Clippy and `cargo nextest` run in
 parallel, each with its own cache. The tests job checks the packaging font
 notices first and runs `scripts/test-fake-discord` after the workspace tests.
-The formatting job (prek, including
-rustfmt) and dependency job (cargo-audit and cargo-machete) are temporarily
-commented out until the dependency-update and formatting-baseline PRs are
-merged. The disabled audit command excludes the SQLite advisory `RUSTSEC-2026-0459`.
+The formatting job runs prek, including rustfmt. The dependency jobs run
+cargo-audit and cargo-machete.
 
 CI also runs on pushes to `main` and can be started manually; documentation-only
 and listed media-only changes do not trigger automatic runs. Documentation links

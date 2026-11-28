@@ -61,12 +61,12 @@ impl Transport {
             Cipher::Aes(cipher) => {
                 let mut nonce = aes_gcm::Nonce::default();
                 nonce[..4].copy_from_slice(&counter);
-                cipher.encrypt_in_place_detached(&nonce, header, body)
+                cipher.encrypt_inout_detached(&nonce, header, body.into())
             }
             Cipher::XChaCha(cipher) => {
                 let mut nonce = chacha20poly1305::XNonce::default();
                 nonce[..4].copy_from_slice(&counter);
-                cipher.encrypt_in_place_detached(&nonce, header, body)
+                cipher.encrypt_inout_detached(&nonce, header, body.into())
             }
         };
         let sealed = sealed.map_err(|_| anyhow!("could not encrypt a stream packet"))?;
@@ -91,17 +91,17 @@ impl Transport {
         let (header, rest) = packet.split_at_mut(clear);
         let (body, tail) = rest.split_at_mut(sealed - clear);
         let (tag, counter) = tail.split_at(TAG);
-        let tag: &[u8] = tag;
+        let tag: &[u8; TAG] = tag.try_into().ok()?;
         let opened = match &self.cipher {
             Cipher::Aes(cipher) => {
                 let mut nonce = aes_gcm::Nonce::default();
                 nonce[..4].copy_from_slice(counter);
-                cipher.decrypt_in_place_detached(&nonce, header, body, tag.into())
+                cipher.decrypt_inout_detached(&nonce, header, body.into(), tag.into())
             }
             Cipher::XChaCha(cipher) => {
                 let mut nonce = chacha20poly1305::XNonce::default();
                 nonce[..4].copy_from_slice(counter);
-                cipher.decrypt_in_place_detached(&nonce, header, body, tag.into())
+                cipher.decrypt_inout_detached(&nonce, header, body.into(), tag.into())
             }
         };
         opened.ok()?;

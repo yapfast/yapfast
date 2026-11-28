@@ -6,7 +6,6 @@ import sys
 import urllib.error
 import urllib.parse
 import urllib.request
-import uuid
 
 HOMESERVER = "http://localhost:18008"
 AUTHORIZATION = "http://localhost:16080"
@@ -32,7 +31,8 @@ def request(base, method, path, body=None, token=None):
 
 def require(status, body, expected=200):
     if status != expected:
-        raise RuntimeError(f"Expected HTTP {expected}, got {status}, {body.get('errcode', 'service error')}")
+        detail = body.get("errcode", "service error")
+        raise RuntimeError(f"Expected HTTP {expected}, got {status}, {detail}")
     return body
 
 
@@ -76,23 +76,21 @@ def check():
         openid = require(*request(HOMESERVER, "POST",
             "/_matrix/client/v3/user/" + user + "/openid/request_token", {}, alice["access_token"]))
         claims = {
-            "room_id": room["room_id"],
-            "slot_id": "m.call#ROOM",
+            "room": room["room_id"],
             "openid_token": openid,
-            "member": {
-                "id": str(uuid.uuid4()),
-                "claimed_user_id": alice["user_id"],
-                "claimed_device_id": alice["device_id"],
-            },
+            "device_id": alice["device_id"],
         }
-        result = require(*request(AUTHORIZATION, "POST", "/get_token", claims))
+        result = require(*request(AUTHORIZATION, "POST", "/sfu/get", claims))
         if not result.get("jwt") or result.get("url") != "ws://localhost:17880":
             raise RuntimeError("Authorization did not return the expected local LiveKit transport")
         claims["openid_token"] = {**openid, "access_token": "invalid-test-token"}
-        status, _ = request(AUTHORIZATION, "POST", "/get_token", claims)
+        status, _ = request(AUTHORIZATION, "POST", "/sfu/get", claims)
         if status not in (401, 403):
             raise RuntimeError(f"Invalid OpenID token was not rejected as expected, HTTP {status}")
-        print("Backend check passed: three accounts, Sliding Sync, sticky events, encrypted room, SFU authorization and invalid-token rejection.")
+        print(
+            "Backend check passed: three accounts, Sliding Sync, sticky events, "
+            "encrypted room, SFU authorization and invalid-token rejection."
+        )
     finally:
         for session in sessions:
             request(HOMESERVER, "POST", "/_matrix/client/v3/logout", {}, session["access_token"])

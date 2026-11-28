@@ -1,0 +1,42 @@
+#ifndef YAPFAST_WEBRTC_FFMPEG_H
+#define YAPFAST_WEBRTC_FFMPEG_H
+
+/* LiveKit prefixes Chromium's FFmpeg symbols in its Linux libwebrtc archive.
+ * Include this before Chromium's headers so their declarations match. */
+#ifdef __linux__
+#define av_find_best_stream LK_av_find_best_stream
+#define av_frame_alloc LK_av_frame_alloc
+#define av_frame_free LK_av_frame_free
+#define av_frame_unref LK_av_frame_unref
+#define av_free LK_av_free
+#define av_freep LK_av_freep
+#define av_get_packed_sample_fmt LK_av_get_packed_sample_fmt
+#define av_log_set_level LK_av_log_set_level
+#define av_malloc LK_av_malloc
+#define av_packet_alloc LK_av_packet_alloc
+#define av_packet_free LK_av_packet_free
+#define av_packet_get_side_data LK_av_packet_get_side_data
+#define av_packet_move_ref LK_av_packet_move_ref
+#define av_packet_unref LK_av_packet_unref
+#define av_pix_fmt_desc_get LK_av_pix_fmt_desc_get
+#define av_read_frame LK_av_read_frame
+#define av_rescale_q LK_av_rescale_q
+#define av_sample_fmt_is_planar LK_av_sample_fmt_is_planar
+#define avcodec_alloc_context3 LK_avcodec_alloc_context3
+#define avcodec_find_decoder LK_avcodec_find_decoder
+#define avcodec_flush_buffers LK_avcodec_flush_buffers
+#define avcodec_free_context LK_avcodec_free_context
+#define avcodec_open2 LK_avcodec_open2
+#define avcodec_parameters_to_context LK_avcodec_parameters_to_context
+#define avcodec_receive_frame LK_avcodec_receive_frame
+#define avcodec_send_packet LK_avcodec_send_packet
+#define avformat_alloc_context LK_avformat_alloc_context
+#define avformat_close_input LK_avformat_close_input
+#define avformat_find_stream_info LK_avformat_find_stream_info
+#define avformat_open_input LK_avformat_open_input
+#define avformat_seek_file LK_avformat_seek_file
+#define avio_alloc_context LK_avio_alloc_context
+#define avio_context_free LK_avio_context_free
+#endif
+
+#endif

@@ -21,10 +21,25 @@ fn main() {
         "hevc.c",
         "video_hevc.c",
         "video_hevc.h",
+        "webrtc_ffmpeg.h",
     ] {
         println!("cargo:rerun-if-changed=native/{file}");
     }
-    let include = webrtc_sys_build::webrtc_dir().join("include");
+    println!("cargo:rerun-if-env-changed=LK_CUSTOM_WEBRTC");
+    println!("cargo:rerun-if-env-changed=LK_DEBUG_WEBRTC");
+    let webrtc_dir = webrtc_sys_build::webrtc_dir();
+    // Cargo can run this script before webrtc-sys downloads the archive.
+    // The shared downloader serializes concurrent downloads and publishes
+    // the extracted directory atomically.
+    if !webrtc_dir.is_dir() {
+        assert!(
+            env::var_os("LK_CUSTOM_WEBRTC").is_none(),
+            "LK_CUSTOM_WEBRTC points to a missing directory: {}",
+            webrtc_dir.display()
+        );
+        webrtc_sys_build::download_webrtc().expect("download WebRTC headers for yapfast-core");
+    }
+    let include = webrtc_dir.join("include");
     let third_party = include.join("third_party");
     let mut picture = cc::Build::new();
     picture

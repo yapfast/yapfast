@@ -6,8 +6,9 @@ rust-version = "1.100"
 publish = false
 license = "GPL-3.0-or-later"
 
-# [package.metadata.cargo-machete]
-# ignored = ["livekit-api", "livekit-protocol"]
+[package.metadata.cargo-machete]
+# Constrains LiveKit's transitive signaling dependency.
+ignored = ["livekit-signaling"]
 
 [lints]
 workspace = true
@@ -20,9 +21,9 @@ doctest = false
 [features]
 default = ["discord"]
 # Matrix: sign-in, encrypted rooms and MatrixRTC voice.
-matrix = ["dep:keyring", "dep:matrix-sdk", "dep:matrix-sdk-ui", "dep:matrix-sdk-crypto", "dep:matrix-rtc-livekit", "dep:matrix-rtc-core", "dep:matrix-rtc-media", "dep:mime", "dep:url"]
+matrix = ["dep:keyring", "dep:matrix-sdk", "dep:matrix-sdk-ui", "dep:matrix-sdk-crypto", "dep:matrix-rtc-call", "dep:matrix-rtc-call-sdk", "dep:matrix-rtc-core", "dep:matrix-rtc-transport", "dep:mime", "dep:url"]
 # Discord through the account linked on this device; see docs/discord/README.md.
-discord = ["dep:yapfast-discord", "dep:rand", "dep:base64", "dep:nnnoiseless", "dep:deep_filter", "dep:ndarray", "dep:x264-src", "dep:ffmpeg-src", "dep:thorvg-sys"]
+discord = ["dep:yapfast-discord", "dep:rand", "dep:base64", "dep:nnnoiseless", "dep:df", "dep:ndarray", "dep:x264-src", "dep:ffmpeg-src", "dep:thorvg-sys"]
 # Sample states other crates' tests start from, such as a Discord server
 # whose member menu they check; and meters that open no microphone, so the
 # window's tests never read the one of whoever runs them.
@@ -32,12 +33,12 @@ test-fixtures = []
 anyhow.workspace = true
 chrono.workspace = true
 # A Go Live stream's preview goes to Discord as a data URI.
-base64 = { version = "0.22", optional = true }
+base64 = { version = "0.23", optional = true }
 # DeepFilterNet 3, through its Rust implementation libDF on tract: Discord
 # voice's noise suppression. The repository's last commit, ported to tract
 # 0.23; see vendor/deep_filter/README.yapfast.md. `default-model` builds the
 # model's weights (MIT/Apache-2.0, 8 MB) into Yapfast.
-deep_filter = { path = "../../vendor/deep_filter", default-features = false, features = ["tract", "default-model"], optional = true }
+df = { package = "deep_filter", path = "../../vendor/deep_filter", default-features = false, features = ["tract", "default-model"], optional = true }
 directories.workspace = true
 # Unicode's emoji, their names and shortcodes: what `:name` finds and the
 # names Discord's settings keep emoji by (`emoji.rs`).
@@ -46,15 +47,14 @@ futures-util.workspace = true
 # Decode received images with bounded dimensions before the UI sees them.
 image = { version = "0.25", default-features = false, features = ["png", "jpeg", "gif", "webp"] }
 # Discord's large badge pictures are SVGs; the window's kit builds it too.
-resvg = { version = "0.49", default-features = false }
+resvg = { version = "0.50", default-features = false }
 # An animated GIF's frame timings, read without decoding its pictures; the
 # version the image crate decodes with.
 gif = "0.14"
 keyring = { workspace = true, optional = true }
 livekit.workspace = true
-# LiveKit 0.7.48 needs the matching API and generated protocol types.
-livekit-api = "=0.5.3"
-livekit-protocol = "=0.7.9"
+# LiveKit 0.9.7 uses SignalOptions::use_legacy_data_streams, removed in 0.1.9.
+livekit-signaling = "=0.1.7"
 # libDF's frames, at the version it uses.
 ndarray = { version = "0.17", optional = true }
 # The FFT for taking room reverb out of the Discord microphone, and for the
@@ -62,22 +62,23 @@ ndarray = { version = "0.17", optional = true }
 realfft = "3.5"
 # RNNoise, a Rust port: Discord voice's other noise suppressor, to compare.
 nnnoiseless = { version = "0.5.2", default-features = false, optional = true }
-rand = { version = "0.9", optional = true }
+rand = { version = "0.10", optional = true }
 # The stream worker hands video frames to the UI through a shared mapping.
 memmap2 = "0.9"
 matrix-sdk = { workspace = true, optional = true }
 matrix-sdk-ui = { workspace = true, optional = true }
 matrix-sdk-crypto = { workspace = true, optional = true }
-matrix-rtc-livekit = { workspace = true, optional = true }
+matrix-rtc-call-sdk = { workspace = true, optional = true }
+matrix-rtc-call = { workspace = true, optional = true }
 matrix-rtc-core = { workspace = true, optional = true }
-matrix-rtc-media = { workspace = true, optional = true }
+matrix-rtc-transport = { workspace = true, optional = true }
 mime = { version = "0.3", optional = true }
 # Plain-text reply snippets from Markdown; the SDK already uses it to format messages.
 pulldown-cmark = { version = "0.13", default-features = false }
 rustls.workspace = true
 serde.workspace = true
 # The digests that name an installed theme's files.
-sha2 = "0.10"
+sha2 = "0.11"
 serde_json.workspace = true
 yapfast-discord = { path = "../yapfast-discord", optional = true }
 # Go Live's and the camera's H264 encoder, built from source; see native/h264.c.
@@ -91,8 +92,8 @@ flate2 = "1"
 tar = { version = "0.4", default-features = false }
 # A theme's fonts are parsed whole before anything draws with them; the
 # version Yapfast's dependencies already build.
-ttf-parser = "0.25"
-tokio.workspace = true
+ttf-parser = { version = "0.25", default-features = false, features = ["std", "variable-fonts"] }
+tokio = { workspace = true, features = ["rt-multi-thread", "sync", "time", "net"] }
 tracing.workspace = true
 tracing-subscriber.workspace = true
 # CPU rendering of Discord's Lottie stickers, without file access or expressions.
@@ -101,7 +102,7 @@ uuid.workspace = true
 url = { workspace = true, optional = true }
 # Levels the voice in LiveKit's calls, and sends the camera from pooled
 # buffers, through Yapfast's patch to its WebRTC bindings.
-webrtc-sys = "=0.3.35"
+webrtc-sys = "=0.3.55"
 # Holds the camera's video source from those bindings.
 cxx = "1"
 
@@ -109,7 +110,7 @@ cxx = "1"
 # The Go Live codec shims compile against the libvpx, OpenH264 and FFmpeg
 # headers in libwebrtc's archive.
 cc = "1"
-webrtc-sys-build = "=0.3.18"
+webrtc-sys-build = "=0.3.21"
 
 [target.'cfg(target_os = "linux")'.dependencies]
 # Real-time priority for the audio threads.
@@ -120,9 +121,8 @@ libpulse-binding = { version = "2", default-features = false }
 libpulse-simple-binding = { version = "2", default-features = false }
 
 [target.'cfg(windows)'.dependencies]
-# Yapfast's own sound goes through WASAPI. sysinfo already builds this
-# version of the crate for Windows.
-windows = { version = "0.62", features = [
+# Yapfast's own sound goes through WASAPI.
+windows = { version = "0.62.2", features = [
     "Win32_Foundation",
     "Win32_Media_Audio",
     "Win32_Media_KernelStreaming",
@@ -138,8 +138,8 @@ windows = { version = "0.62", features = [
     "Win32_UI_HiDpi",
     "Win32_UI_WindowsAndMessaging",
 ] }
-# What `#[implement]` expands to names it.
-windows-core = "0.62"
+# `#[implement]` names this crate directly and must use the same version as windows.
+windows-core = "0.62.2"
 
 [dev-dependencies]
 # Animated PNGs to read frame timings from, the version the image crate uses.

@@ -95,8 +95,12 @@ const x264_cpu_name_t x264_cpu_names[] =
 #elif ARCH_AARCH64
     {"ARMv8",           X264_CPU_ARMV8},
     {"NEON",            X264_CPU_NEON},
+    {"DotProd",         X264_CPU_DOTPROD},
+    {"I8MM",            X264_CPU_I8MM},
     {"SVE",             X264_CPU_SVE},
     {"SVE2",            X264_CPU_SVE2},
+#elif ARCH_RISCV64
+    {"RVV",             X264_CPU_RVV},
 #elif ARCH_MIPS
     {"MSA",             X264_CPU_MSA},
 #elif ARCH_LOONGARCH
@@ -448,10 +452,34 @@ uint32_t x264_cpu_detect( void )
     // x264 instance disables or reinits the counters while x264 is using them,
     // which may result in incorrect detection and the counters stuck enabled.
     // right now Apple does not seem to support performance counters for this test
-#ifndef __MACH__
+    // Don't test this on Windows; performance counters are readable, but
+    // the PMNC is not readable.
+#if !defined(__MACH__) && !defined(_WIN32)
     flags |= x264_cpu_fast_neon_mrc_test() ? X264_CPU_FAST_NEON_MRC : 0;
 #endif
     // TODO: write dual issue test? currently it's A8 (dual issue) vs. A9 (fast mrc)
+    return flags;
+}
+
+#elif HAVE_RISCV64
+
+#define HWCAP_RISCV64_RVV     (1 << ('V' - 'A'))
+
+uint32_t x264_cpu_detect( void )
+{
+    uint32_t flags = 0;
+
+#if HAVE_GETAUXVAL || HAVE_ELF_AUX_INFO
+    unsigned long hwcap = x264_getauxval( AT_HWCAP );
+
+    if ( hwcap & HWCAP_RISCV64_RVV )
+        flags |= X264_CPU_RVV;
+#else
+#if HAVE_RVV
+    flags |= X264_CPU_RVV;
+#endif
+#endif
+
     return flags;
 }
 
@@ -459,8 +487,10 @@ uint32_t x264_cpu_detect( void )
 
 #if defined(__linux__) || HAVE_ELF_AUX_INFO
 
-#define HWCAP_AARCH64_SVE   (1U << 22)
-#define HWCAP2_AARCH64_SVE2 (1U << 1)
+#define HWCAP_AARCH64_ASIMDDP (1U << 20)
+#define HWCAP_AARCH64_SVE     (1U << 22)
+#define HWCAP2_AARCH64_SVE2   (1U << 1)
+#define HWCAP2_AARCH64_I8MM   (1U << 13)
 
 static uint32_t detect_flags( void )
 {
@@ -469,6 +499,10 @@ static uint32_t detect_flags( void )
     unsigned long hwcap = x264_getauxval( AT_HWCAP );
     unsigned long hwcap2 = x264_getauxval( AT_HWCAP2 );
 
+    if ( hwcap & HWCAP_AARCH64_ASIMDDP )
+        flags |= X264_CPU_DOTPROD;
+    if ( hwcap2 & HWCAP2_AARCH64_I8MM )
+        flags |= X264_CPU_I8MM;
     if ( hwcap & HWCAP_AARCH64_SVE )
         flags |= X264_CPU_SVE;
     if ( hwcap2 & HWCAP2_AARCH64_SVE2 )
@@ -476,6 +510,60 @@ static uint32_t detect_flags( void )
 
     return flags;
 }
+
+#elif defined(__APPLE__)
+#include <sys/sysctl.h>
+
+static int have_feature( const char *feature )
+{
+    int supported = 0;
+    size_t size = sizeof(supported);
+    if ( sysctlbyname( feature, &supported, &size, NULL, 0 ) )
+        return 0;
+    return supported;
+}
+
+static uint32_t detect_flags( void )
+{
+    uint32_t flags = 0;
+
+    if ( have_feature( "hw.optional.arm.FEAT_DotProd" ) )
+        flags |= X264_CPU_DOTPROD;
+    if ( have_feature( "hw.optional.arm.FEAT_I8MM" ) )
+        flags |= X264_CPU_I8MM;
+    /* No SVE and SVE2 feature detection available on Apple platforms. */
+    return flags;
+}
+
+#elif defined(_WIN32)
+#include <windows.h>
+
+static uint32_t detect_flags( void )
+{
+    uint32_t flags = 0;
+
+#ifdef PF_ARM_V82_DP_INSTRUCTIONS_AVAILABLE
+    if ( IsProcessorFeaturePresent( PF_ARM_V82_DP_INSTRUCTIONS_AVAILABLE ) )
+        flags |= X264_CPU_DOTPROD;
+#endif
+#ifdef PF_ARM_SVE_INSTRUCTIONS_AVAILABLE
+    if ( IsProcessorFeaturePresent( PF_ARM_SVE_INSTRUCTIONS_AVAILABLE ) )
+        flags |= X264_CPU_SVE;
+#endif
+#ifdef PF_ARM_SVE2_INSTRUCTIONS_AVAILABLE
+    if ( IsProcessorFeaturePresent( PF_ARM_SVE2_INSTRUCTIONS_AVAILABLE ) )
+        flags |= X264_CPU_SVE2;
+#endif
+#ifdef PF_ARM_SVE_I8MM_INSTRUCTIONS_AVAILABLE
+    /* There's no PF_* flag that indicates whether plain I8MM is available
+     * or not. But if SVE_I8MM is available, that also implies that
+     * regular I8MM is available. */
+    if ( IsProcessorFeaturePresent( PF_ARM_SVE_I8MM_INSTRUCTIONS_AVAILABLE ) )
+        flags |= X264_CPU_I8MM;
+#endif
+    return flags;
+}
+
 #endif
 
 uint32_t x264_cpu_detect( void )
@@ -487,6 +575,12 @@ uint32_t x264_cpu_detect( void )
 
     // If these features are enabled unconditionally in the compiler, we can
     // assume that they are available.
+#ifdef __ARM_FEATURE_DOTPROD
+    flags |= X264_CPU_DOTPROD;
+#endif
+#ifdef __ARM_FEATURE_MATMUL_INT8
+    flags |= X264_CPU_I8MM;
+#endif
 #ifdef __ARM_FEATURE_SVE
     flags |= X264_CPU_SVE;
 #endif
@@ -495,7 +589,8 @@ uint32_t x264_cpu_detect( void )
 #endif
 
     // Where possible, try to do runtime detection as well.
-#if defined(__linux__) || HAVE_ELF_AUX_INFO
+#if defined(__linux__) || HAVE_ELF_AUX_INFO || \
+    defined(__APPLE__) || defined(_WIN32)
     flags |= detect_flags();
 #endif
 

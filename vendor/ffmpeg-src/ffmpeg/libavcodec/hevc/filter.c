@@ -540,14 +540,13 @@ static void deblocking_filter_CTB(const HEVCContext *s, const HEVCLayerContext *
     if (y_end > sps->height)
         y_end = sps->height;
 
-    tc_offset   = cur_tc_offset;
-    beta_offset = cur_beta_offset;
-
     x_end2 = x_end;
     if (x_end2 != sps->width)
         x_end2 -= 8;
     for (y = y0; y < y_end; y += 8) {
         // vertical filtering luma
+        tc_offset   = cur_tc_offset;
+        beta_offset = cur_beta_offset;
         for (x = x0 ? x0 : 8; x < x_end; x += 8) {
             const int bs0 = l->vertical_bs[(x +  y      * l->bs_width) >> 2];
             const int bs1 = l->vertical_bs[(x + (y + 4) * l->bs_width) >> 2];
@@ -622,8 +621,8 @@ static void deblocking_filter_CTB(const HEVCContext *s, const HEVCLayerContext *
                         const int qp1 = (get_qPy(sps, l->qp_y_tab, x - 1, y + (4 * v)) +
                                          get_qPy(sps, l->qp_y_tab, x,     y + (4 * v)) + 1) >> 1;
 
-                        c_tc[0] = (bs0 == 2) ? chroma_tc(pps, sps, qp0, chroma, tc_offset) : 0;
-                        c_tc[1] = (bs1 == 2) ? chroma_tc(pps, sps, qp1, chroma, tc_offset) : 0;
+                        c_tc[0] = (bs0 == 2) ? chroma_tc(pps, sps, qp0, chroma, cur_tc_offset) : 0;
+                        c_tc[1] = (bs1 == 2) ? chroma_tc(pps, sps, qp1, chroma, cur_tc_offset) : 0;
                         src       = &data[chroma][(y >> sps->vshift[chroma]) * linesize[chroma] + ((x >> sps->hshift[chroma]) << sps->pixel_shift)];
                         if (pcmf) {
                             no_p[0] = get_pcm(sps, l->is_pcm, x - 1, y);
@@ -642,7 +641,6 @@ static void deblocking_filter_CTB(const HEVCContext *s, const HEVCLayerContext *
                     continue;
 
                 // horizontal filtering chroma
-                tc_offset = x0 ? left_tc_offset : cur_tc_offset;
                 x_end2 = x_end;
                 if (x_end != sps->width)
                     x_end2 = x_end - 8 * h;
@@ -650,13 +648,14 @@ static void deblocking_filter_CTB(const HEVCContext *s, const HEVCLayerContext *
                     const int bs0 = l->horizontal_bs[( x          + y * l->bs_width) >> 2];
                     const int bs1 = l->horizontal_bs[((x + 4 * h) + y * l->bs_width) >> 2];
                     if ((bs0 == 2) || (bs1 == 2)) {
+                        const int off = x >= x0 ? cur_tc_offset : left_tc_offset;
                         const int qp0 = bs0 == 2 ? (get_qPy(sps, l->qp_y_tab, x,           y - 1) +
                                                     get_qPy(sps, l->qp_y_tab, x,           y)     + 1) >> 1 : 0;
                         const int qp1 = bs1 == 2 ? (get_qPy(sps, l->qp_y_tab, x + (4 * h), y - 1) +
                                                     get_qPy(sps, l->qp_y_tab, x + (4 * h), y)     + 1) >> 1 : 0;
 
-                        c_tc[0]   = bs0 == 2 ? chroma_tc(pps, sps, qp0, chroma, tc_offset)     : 0;
-                        c_tc[1]   = bs1 == 2 ? chroma_tc(pps, sps, qp1, chroma, cur_tc_offset) : 0;
+                        c_tc[0]   = bs0 == 2 ? chroma_tc(pps, sps, qp0, chroma, off) : 0;
+                        c_tc[1]   = bs1 == 2 ? chroma_tc(pps, sps, qp1, chroma, off) : 0;
                         src       = &data[chroma][(y >> sps->vshift[1]) * linesize[chroma] + ((x >> sps->hshift[1]) << sps->pixel_shift)];
                         if (pcmf) {
                             no_p[0] = get_pcm(sps, l->is_pcm, x,           y - 1);
@@ -672,6 +671,25 @@ static void deblocking_filter_CTB(const HEVCContext *s, const HEVCLayerContext *
                 }
             }
         }
+    }
+}
+
+static av_always_inline int mvf_equal(const MvField *a, const MvField *b)
+{
+    return !memcmp(a, b, offsetof(MvField, pred_flag) + sizeof(a->pred_flag));
+}
+
+static av_always_inline int mvf_run_equal(const MvField *a, const MvField *b, int m)
+{
+    const size_t tail = offsetof(MvField, pred_flag) + sizeof(a->pred_flag);
+
+    switch (m) {
+    case 15: return !memcmp(a, b, 15 * sizeof(*a) + tail);
+    case 12: return !memcmp(a, b, 12 * sizeof(*a) + tail);
+    case  7: return !memcmp(a, b,  7 * sizeof(*a) + tail);
+    case  4: return !memcmp(a, b,  4 * sizeof(*a) + tail);
+    case  3: return !memcmp(a, b,  3 * sizeof(*a) + tail);
+    default: return !memcmp(a, b, tail);
     }
 }
 
@@ -760,7 +778,7 @@ void ff_hevc_deblocking_boundary_strengths(HEVCLocalContext *lc, const HEVCLayer
         ((!s->sh.slice_loop_filter_across_slices_enabled_flag &&
           lc->boundary_flags & BOUNDARY_UPPER_SLICE &&
           (y0 % (1 << sps->log2_ctb_size)) == 0) ||
-         (!pps->loop_filter_across_tiles_enabled_flag &&
+         ((!pps->loop_filter_across_tiles_enabled_flag || lc->tile_bs_defer) &&
           lc->boundary_flags & BOUNDARY_UPPER_TILE &&
           (y0 % (1 << sps->log2_ctb_size)) == 0)))
         boundary_upper = 0;
@@ -769,6 +787,7 @@ void ff_hevc_deblocking_boundary_strengths(HEVCLocalContext *lc, const HEVCLayer
         const RefPicList *rpl_top = (lc->boundary_flags & BOUNDARY_UPPER_SLICE) ?
                                     ff_hevc_get_ref_list(s->cur_frame, x0, y0 - 1) :
                                     s->cur_frame->refPicList;
+        int same_rpl = rpl_top == s->cur_frame->refPicList;
         int yp_pu = (y0 - 1) >> log2_min_pu_size;
         int yq_pu =  y0      >> log2_min_pu_size;
         int yp_tu = (y0 - 1) >> log2_min_tu_size;
@@ -786,6 +805,8 @@ void ff_hevc_deblocking_boundary_strengths(HEVCLocalContext *lc, const HEVCLayer
                     bs = 2;
                 else if (curr_cbf_luma || top_cbf_luma)
                     bs = 1;
+                else if (same_rpl && mvf_equal(curr, top))
+                    bs = 0;
                 else
                     bs = boundary_strength(s, curr, top, rpl_top);
                 l->horizontal_bs[((x0 + i) + y0 * l->bs_width) >> 2] = bs;
@@ -798,7 +819,7 @@ void ff_hevc_deblocking_boundary_strengths(HEVCLocalContext *lc, const HEVCLayer
         ((!s->sh.slice_loop_filter_across_slices_enabled_flag &&
           lc->boundary_flags & BOUNDARY_LEFT_SLICE &&
           (x0 % (1 << sps->log2_ctb_size)) == 0) ||
-         (!pps->loop_filter_across_tiles_enabled_flag &&
+         ((!pps->loop_filter_across_tiles_enabled_flag || lc->tile_bs_defer) &&
           lc->boundary_flags & BOUNDARY_LEFT_TILE &&
           (x0 % (1 << sps->log2_ctb_size)) == 0)))
         boundary_left = 0;
@@ -807,6 +828,7 @@ void ff_hevc_deblocking_boundary_strengths(HEVCLocalContext *lc, const HEVCLayer
         const RefPicList *rpl_left = (lc->boundary_flags & BOUNDARY_LEFT_SLICE) ?
                                      ff_hevc_get_ref_list(s->cur_frame, x0 - 1, y0) :
                                      s->cur_frame->refPicList;
+        int same_rpl = rpl_left == s->cur_frame->refPicList;
         int xp_pu = (x0 - 1) >> log2_min_pu_size;
         int xq_pu =  x0      >> log2_min_pu_size;
         int xp_tu = (x0 - 1) >> log2_min_tu_size;
@@ -824,6 +846,8 @@ void ff_hevc_deblocking_boundary_strengths(HEVCLocalContext *lc, const HEVCLayer
                     bs = 2;
                 else if (curr_cbf_luma || left_cbf_luma)
                     bs = 1;
+                else if (same_rpl && mvf_equal(curr, left))
+                    bs = 0;
                 else
                     bs = boundary_strength(s, curr, left, rpl_left);
                 l->vertical_bs[(x0 + (y0 + i) * l->bs_width) >> 2] = bs;
@@ -832,6 +856,44 @@ void ff_hevc_deblocking_boundary_strengths(HEVCLocalContext *lc, const HEVCLayer
 
     if (log2_trafo_size > log2_min_pu_size && !is_intra) {
         const RefPicList *rpl = s->cur_frame->refPicList;
+
+        // whole edge lines can be tested at once when there is one MvField entry per 4px segment
+        if (log2_min_pu_size == 2 && log2_trafo_size >= 4 && log2_trafo_size <= 6) {
+            int n     = 1 << (log2_trafo_size - 2);
+            int x_pu0 = x0 >> 2;
+
+            // bs for TU internal horizontal PU boundaries
+            for (j = 8; j < (1 << log2_trafo_size); j += 8) {
+                int yq_pu = (y0 + j) >> 2;
+                const MvField *top  = &tab_mvf[(yq_pu - 1) * min_pu_width + x_pu0];
+                const MvField *curr = &tab_mvf[ yq_pu      * min_pu_width + x_pu0];
+                uint8_t *bs_h = &l->horizontal_bs[(x0 + (y0 + j) * l->bs_width) >> 2];
+
+                if (mvf_run_equal(top, curr, n - 1)) {
+                    memset(bs_h, 0, n);
+                } else {
+                    for (i = 0; i < n; i++)
+                        bs_h[i] = mvf_equal(&curr[i], &top[i]) ? 0 : boundary_strength(s, &curr[i], &top[i], rpl);
+                }
+            }
+
+            // bs for TU internal vertical PU boundaries
+            for (j = 0; j < (1 << log2_trafo_size); j += 4) {
+                int y_pu = (y0 + j) >> 2;
+                const MvField *row = &tab_mvf[y_pu * min_pu_width + x_pu0];
+                uint8_t *bs_v = &l->vertical_bs[(x0 + (y0 + j) * l->bs_width) >> 2];
+
+                // row[1..] vs row[2..] checks all adjacent pairs, a superset of the pairs needed
+                if (mvf_run_equal(row + 1, row + 2, n - 4)) {
+                    for (i = 2; i < n; i += 2)
+                        bs_v[i] = 0;
+                } else {
+                    for (i = 2; i < n; i += 2)
+                        bs_v[i] = mvf_equal(&row[i], &row[i - 1]) ? 0 : boundary_strength(s, &row[i], &row[i - 1], rpl);
+                }
+            }
+            return;
+        }
 
         // bs for TU internal horizontal PU boundaries
         for (j = 8; j < (1 << log2_trafo_size); j += 8) {
@@ -843,7 +905,7 @@ void ff_hevc_deblocking_boundary_strengths(HEVCLocalContext *lc, const HEVCLayer
                 const MvField *top  = &tab_mvf[yp_pu * min_pu_width + x_pu];
                 const MvField *curr = &tab_mvf[yq_pu * min_pu_width + x_pu];
 
-                bs = boundary_strength(s, curr, top, rpl);
+                bs = mvf_equal(curr, top) ? 0 : boundary_strength(s, curr, top, rpl);
                 l->horizontal_bs[((x0 + i) + (y0 + j) * l->bs_width) >> 2] = bs;
             }
         }
@@ -858,9 +920,71 @@ void ff_hevc_deblocking_boundary_strengths(HEVCLocalContext *lc, const HEVCLayer
                 const MvField *left = &tab_mvf[y_pu * min_pu_width + xp_pu];
                 const MvField *curr = &tab_mvf[y_pu * min_pu_width + xq_pu];
 
-                bs = boundary_strength(s, curr, left, rpl);
+                bs = mvf_equal(curr, left) ? 0 : boundary_strength(s, curr, left, rpl);
                 l->vertical_bs[((x0 + i) + (y0 + j) * l->bs_width) >> 2] = bs;
             }
+        }
+    }
+}
+
+void ff_hevc_tile_boundary_bs(HEVCLocalContext *lc, const HEVCLayerContext *l,
+                              const HEVCPPS *pps, int x0, int y0)
+{
+    const HEVCSPS *const sps = pps->sps;
+    const HEVCContext *s = lc->parent;
+    const MvField *tab_mvf = s->cur_frame->tab_mvf;
+    const int log2_min_pu_size = sps->log2_min_pu_size;
+    const int log2_min_tu_size = sps->log2_min_tb_size;
+    const int min_pu_width     = sps->min_pu_width;
+    const int min_tu_width     = sps->min_tb_width;
+    const int ctb_size         = 1 << sps->log2_ctb_size;
+    int i, bs;
+
+    if ((lc->boundary_flags & BOUNDARY_UPPER_TILE) && y0 > 0) {
+        const RefPicList *rpl_top = (lc->boundary_flags & BOUNDARY_UPPER_SLICE) ?
+                                    ff_hevc_get_ref_list(s->cur_frame, x0, y0 - 1) :
+                                    s->cur_frame->refPicList;
+        int yp_pu = (y0 - 1) >> log2_min_pu_size, yq_pu = y0 >> log2_min_pu_size;
+        int yp_tu = (y0 - 1) >> log2_min_tu_size, yq_tu = y0 >> log2_min_tu_size;
+        int len = FFMIN(ctb_size, sps->width - x0);
+        for (i = 0; i < len; i += 4) {
+            int x_pu = (x0 + i) >> log2_min_pu_size;
+            int x_tu = (x0 + i) >> log2_min_tu_size;
+            const MvField *top  = &tab_mvf[yp_pu * min_pu_width + x_pu];
+            const MvField *curr = &tab_mvf[yq_pu * min_pu_width + x_pu];
+            uint8_t top_cbf  = l->cbf_luma[yp_tu * min_tu_width + x_tu];
+            uint8_t curr_cbf = l->cbf_luma[yq_tu * min_tu_width + x_tu];
+            if (curr->pred_flag == PF_INTRA || top->pred_flag == PF_INTRA)
+                bs = 2;
+            else if (curr_cbf || top_cbf)
+                bs = 1;
+            else
+                bs = boundary_strength(s, curr, top, rpl_top);
+            l->horizontal_bs[((x0 + i) + y0 * l->bs_width) >> 2] = bs;
+        }
+    }
+
+    if ((lc->boundary_flags & BOUNDARY_LEFT_TILE) && x0 > 0) {
+        const RefPicList *rpl_left = (lc->boundary_flags & BOUNDARY_LEFT_SLICE) ?
+                                     ff_hevc_get_ref_list(s->cur_frame, x0 - 1, y0) :
+                                     s->cur_frame->refPicList;
+        int xp_pu = (x0 - 1) >> log2_min_pu_size, xq_pu = x0 >> log2_min_pu_size;
+        int xp_tu = (x0 - 1) >> log2_min_tu_size, xq_tu = x0 >> log2_min_tu_size;
+        int len = FFMIN(ctb_size, sps->height - y0);
+        for (i = 0; i < len; i += 4) {
+            int y_pu = (y0 + i) >> log2_min_pu_size;
+            int y_tu = (y0 + i) >> log2_min_tu_size;
+            const MvField *left = &tab_mvf[y_pu * min_pu_width + xp_pu];
+            const MvField *curr = &tab_mvf[y_pu * min_pu_width + xq_pu];
+            uint8_t left_cbf = l->cbf_luma[y_tu * min_tu_width + xp_tu];
+            uint8_t curr_cbf = l->cbf_luma[y_tu * min_tu_width + xq_tu];
+            if (curr->pred_flag == PF_INTRA || left->pred_flag == PF_INTRA)
+                bs = 2;
+            else if (curr_cbf || left_cbf)
+                bs = 1;
+            else
+                bs = boundary_strength(s, curr, left, rpl_left);
+            l->vertical_bs[(x0 + (y0 + i) * l->bs_width) >> 2] = bs;
         }
     }
 }
@@ -890,19 +1014,35 @@ void ff_hevc_hls_filter(HEVCLocalContext *lc, const HEVCLayerContext *l,
     if (!skip)
         deblocking_filter_CTB(s, l, pps, sps, x, y);
     if (sps->sao_enabled && !skip) {
-        int y_end = y >= sps->height - ctb_size;
-        if (y && x)
-            sao_filter_CTB(lc, l, s, pps, sps, x - ctb_size, y - ctb_size);
-        if (x && y_end)
-            sao_filter_CTB(lc, l, s, pps, sps, x - ctb_size, y);
+        int y_end  = y >= sps->height - ctb_size;
+        int x0, x_sao, x_delay = ctb_size;
+
+        /* Horizontal chroma deblocking leaves the last 8<<hshift luma columns
+         * of a CTB to the next CTB. With a 16x16 CTB and horizontally
+         * subsampled chroma that span is the whole CTB, so those edges are
+         * filtered only while the CTB to the right is deblocked. EO classes
+         * 0 and 2 on the rightmost chroma column read that region and have
+         * to run one CTB later. Every other CTB size, and 4:4:4, keep the
+         * original one-CTB delay. The total number of SAO invocations is
+         * unchanged; row-end catch-up covers the columns this delay skips. */
+        if (ctb_size == 16 && sps->hshift[1])
+            x_delay = 2 * ctb_size;
+        x_sao = x - x_delay;
+
+        if (y && x_sao >= 0)
+            sao_filter_CTB(lc, l, s, pps, sps, x_sao, y - ctb_size);
+        if (x_sao >= 0 && y_end)
+            sao_filter_CTB(lc, l, s, pps, sps, x_sao, y);
         if (y && x_end) {
-            sao_filter_CTB(lc, l, s, pps, sps, x, y - ctb_size);
-            if (s->avctx->active_thread_type & FF_THREAD_FRAME )
+            for (x0 = FFMAX(x_sao + ctb_size, 0); x0 <= x; x0 += ctb_size)
+                sao_filter_CTB(lc, l, s, pps, sps, x0, y - ctb_size);
+            if (s->avctx->active_thread_type & FF_THREAD_FRAME)
                 ff_progress_frame_report(&s->cur_frame->tf, y);
         }
         if (x_end && y_end) {
-            sao_filter_CTB(lc, l, s, pps, sps, x , y);
-            if (s->avctx->active_thread_type & FF_THREAD_FRAME )
+            for (x0 = FFMAX(x_sao + ctb_size, 0); x0 <= x; x0 += ctb_size)
+                sao_filter_CTB(lc, l, s, pps, sps, x0, y);
+            if (s->avctx->active_thread_type & FF_THREAD_FRAME)
                 ff_progress_frame_report(&s->cur_frame->tf, y + ctb_size);
         }
     } else if (s->avctx->active_thread_type & FF_THREAD_FRAME && x_end)

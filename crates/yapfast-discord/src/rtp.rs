@@ -6,7 +6,7 @@
 use std::fmt::Write as _;
 use std::time::{Duration, Instant};
 
-use aes_gcm::{Aes256Gcm, KeyInit, aead::AeadInPlace};
+use aes_gcm::{Aes256Gcm, KeyInit, aead::AeadInOut};
 use anyhow::{Result, anyhow, bail};
 use chacha20poly1305::XChaCha20Poly1305;
 

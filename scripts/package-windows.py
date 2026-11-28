@@ -217,8 +217,8 @@ def main():
             "cargo_lock_sha256": digest(ROOT / "Cargo.lock"),
             "executable_sha256": digest(executable),
             "source_archive_sha256": digest(source_path),
-            "webrtc_tag": "webrtc-51ef663",
-            "webrtc_archive_sha256": "0a56a5c91b3b7b4222082b8a09388d16a802cde22d67295beb24c55700755b30",
+            "webrtc_tag": "webrtc-a545de4",
+            "webrtc_archive_sha256": "862403fcb248c7d8803487e4c22b8821c6130e89100cb9c69be95ef45ff46146",
         }
         if rtc:
             build["homeserver_default"] = "https://matrix.org"

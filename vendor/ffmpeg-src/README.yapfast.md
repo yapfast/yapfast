@@ -1,6 +1,6 @@
 # FFmpeg for Yapfast
 
-Go Live's hardware encoders: FFmpeg 9.0.2's NVENC encoders for NVIDIA, on
+Go Live's hardware encoders: FFmpeg 9.1's NVENC encoders for NVIDIA, on
 Linux and Windows, on Windows its AMF ones for AMD, and on Linux its VA-API
 ones for AMD and Intel, for H264, HEVC and AV1; and its HEVC decoder, for
 watching H265 streams and video attachments, which libwebrtc's FFmpeg can't decode, with its

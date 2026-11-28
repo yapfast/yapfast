@@ -218,11 +218,13 @@ static const struct channel_layout_name channel_layout_map[] = {
     { "5.1.2(back)",    AV_CHANNEL_LAYOUT_5POINT1POINT2_BACK  },
     { "octagonal",      AV_CHANNEL_LAYOUT_OCTAGONAL           },
     { "cube",           AV_CHANNEL_LAYOUT_CUBE                },
-    { "5.1.4",          AV_CHANNEL_LAYOUT_5POINT1POINT4_BACK  },
+    { "5.1.4",          AV_CHANNEL_LAYOUT_5POINT1POINT4       },
+    { "5.1.6",          AV_CHANNEL_LAYOUT_5POINT1POINT6       },
     { "7.1.2",          AV_CHANNEL_LAYOUT_7POINT1POINT2       },
-    { "7.1.4",          AV_CHANNEL_LAYOUT_7POINT1POINT4_BACK  },
+    { "7.1.4",          AV_CHANNEL_LAYOUT_7POINT1POINT4       },
+    { "7.1.6",          AV_CHANNEL_LAYOUT_7POINT1POINT6       },
     { "7.2.3",          AV_CHANNEL_LAYOUT_7POINT2POINT3       },
-    { "9.1.4",          AV_CHANNEL_LAYOUT_9POINT1POINT4_BACK  },
+    { "9.1.4",          AV_CHANNEL_LAYOUT_9POINT1POINT4       },
     { "9.1.6",          AV_CHANNEL_LAYOUT_9POINT1POINT6       },
     { "hexadecagonal",  AV_CHANNEL_LAYOUT_HEXADECAGONAL       },
     { "binaural",       AV_CHANNEL_LAYOUT_BINAURAL            },
@@ -402,8 +404,8 @@ int av_channel_layout_from_string(AVChannelLayout *channel_layout,
         return ret;
 
     if (ret >= 0) {
-        end = strchr(str, ')');
-        if (matches == 2 && (nb_channels != channel_layout->nb_channels || !end || *++end)) {
+        const char *end_par = strchr(str, ')');
+        if (matches == 2 && (nb_channels != channel_layout->nb_channels || !end_par || *++end_par)) {
             av_channel_layout_uninit(channel_layout);
             return AVERROR(EINVAL);
         }
@@ -749,7 +751,7 @@ int av_channel_layout_index_from_channel(const AVChannelLayout *channel_layout,
 int av_channel_layout_index_from_string(const AVChannelLayout *channel_layout,
                                         const char *str)
 {
-    char *chname;
+    const char *chname;
     enum AVChannel ch = AV_CHAN_NONE;
 
     switch (channel_layout->order) {

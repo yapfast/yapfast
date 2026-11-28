@@ -77,6 +77,15 @@
 #define AV_PROFILE_MPEG2_AAC_LOW  128
 #define AV_PROFILE_MPEG2_AAC_HE   131
 
+#define AV_PROFILE_ASTC_LDR_SRGB        1 ///< sRGB LDR.
+#define AV_PROFILE_ASTC_LDR             2 ///< Linear LDR.
+#define AV_PROFILE_ASTC_HDR_RGB_LDR_A   3 ///< HDR RGB with LDR alpha.
+#define AV_PROFILE_ASTC_HDR             4 ///< HDR RGB and alpha.
+/* Linear interpretation of a stream, without restricting its block endpoint
+ * encodings to an LDR or HDR profile. This is stream metadata and does not
+ * select an encoding profile. */
+#define AV_PROFILE_ASTC_LINEAR_ANY      5
+
 #define AV_PROFILE_DNXHD         0
 #define AV_PROFILE_DNXHR_LB      1
 #define AV_PROFILE_DNXHR_SQ      2
@@ -96,6 +105,11 @@
 #define AV_PROFILE_EAC3_DDP_ATMOS         30
 
 #define AV_PROFILE_TRUEHD_ATMOS           30
+
+#define AV_PROFILE_MPEGH_3DA_MAIN      0
+#define AV_PROFILE_MPEGH_3DA_HIGH      1
+#define AV_PROFILE_MPEGH_3DA_LC        2
+#define AV_PROFILE_MPEGH_3DA_BL        3
 
 #define AV_PROFILE_MPEG2_422           0
 #define AV_PROFILE_MPEG2_HIGH          1

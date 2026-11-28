@@ -587,10 +587,8 @@ fn key_name(key: &Pressed, physical: key::Physical, location: Location) -> Strin
 
 /// The key's keysym name, as the XDG shortcuts specification writes a
 /// trigger; on Linux, where only the portal needs it.
+#[cfg(target_os = "linux")]
 fn trigger(key: &Pressed, location: Location) -> Option<String> {
-    if !cfg!(target_os = "linux") {
-        return None;
-    }
     let right = location == Location::Right;
     let side =
         |left: &str, right_name: &str| Some(if right { right_name } else { left }.to_owned());
@@ -635,4 +633,9 @@ fn trigger(key: &Pressed, location: Location) -> Option<String> {
         },
         Pressed::Unidentified => None,
     }
+}
+
+#[cfg(not(target_os = "linux"))]
+fn trigger(_: &Pressed, _: Location) -> Option<String> {
+    None
 }

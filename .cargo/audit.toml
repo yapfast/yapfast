@@ -1,0 +1,46 @@
+# Temporary exceptions. Remove each entry once its dependency path is fixed
+# or removed, then verify with cargo audit.
+[advisories]
+ignore = [
+    # DAVE/OpenMLS: remove when all paths use crypto-bigint >= 0.7.6.
+    "RUSTSEC-2026-0387",
+
+    # Optional HPKE libcrux backend: remove when it switches from
+    # libcrux-aesgcm to a fixed libcrux-aes release, or leaves Cargo.lock.
+    "RUSTSEC-2026-0209",
+    "RUSTSEC-2026-0211",
+    "RUSTSEC-2026-0210",
+
+    # Optional HPKE libcrux backend: remove when the lockfile resolves to
+    # libcrux-chacha20poly1305 >= 0.0.8, libcrux-kem >= 0.0.10,
+    # and libcrux-secrets >= 0.0.6, respectively, or drops those crates.
+    "RUSTSEC-2026-0124",
+    "RUSTSEC-2026-0330",
+    "RUSTSEC-2026-0331",
+    "RUSTSEC-2026-0212",
+
+    # HPKE (including the RustCrypto backend): remove when all paths use
+    # libcrux-sha3 >= 0.0.10.
+    "RUSTSEC-2026-0207",
+    "RUSTSEC-2026-0208",
+
+    # Matrix SDK: remove when the pinned revision uses rusqlite >= 0.41
+    # and the lockfile resolves libsqlite3-sys >= 0.39.0.
+    "RUSTSEC-2026-0459",
+
+    # Remove each maintenance exception when its crate leaves Cargo.lock
+    # or RustSec marks the resolved version as maintained.
+    "RUSTSEC-2026-0543", # chrono
+    "RUSTSEC-2024-0388", # derivative
+    "RUSTSEC-2024-0384", # instant
+    "RUSTSEC-2024-0436", # paste
+    "RUSTSEC-2026-0441", # pin-utils
+    "RUSTSEC-2026-0173", # proc-macro-error2
+    "RUSTSEC-2026-0192", # ttf-parser
+    "RUSTSEC-2026-0371", # zbus_names
+    "RUSTSEC-2026-0370", # zvariant
+    "RUSTSEC-2026-0372", # zvariant_derive
+
+    # Cryoglyph via iced_wgpu: remove when it uses lru >= 0.18.2.
+    "RUSTSEC-2026-0253",
+]

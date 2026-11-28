@@ -18,16 +18,20 @@ doctest = false
 chrono.workspace = true
 # Voice's transport encryption, and DAVE. ChaCha's stream also encrypts the
 # files kept on disk: see src/cache/sealed.rs.
-aes-gcm = "0.10.3"
-chacha20poly1305 = { version = "0.10.1", features = ["stream"] }
-davey = "0.1.4"
-rand = "0.9"
+aes-gcm = "0.11.1"
+chacha20poly1305 = "0.11.0"
+davey = "0.2.0"
+rand = "0.10"
 # Linking by QR code: Discord's remote login encrypts what it sends with the
 # client's RSA key, OAEP with SHA-256.
-rsa = { version = "0.9", features = ["getrandom"] }
-sha2 = "0.10"
+rsa = { version = "0.10", default-features = false, features = [
+    "encoding",
+    "getrandom",
+    "std",
+] }
+sha2 = "0.11"
 anyhow.workspace = true
-base64 = "0.22"
+base64 = "0.23"
 # The gateway's zlib-stream compression, as the web client asks for it.
 flate2 = "1"
 futures-util.workspace = true
@@ -35,33 +39,58 @@ futures-util.workspace = true
 # already builds it.
 iana-time-zone = "0.1.65"
 keyring.workspace = true
-reqwest = { version = "0.13", default-features = false, features = ["cookies", "http2", "rustls-no-provider"] }
-cookie_store = { version = "0.22", features = ["serde_json"] }
+reqwest = { version = "0.13", default-features = false, features = [
+    "cookies",
+    "http2",
+    "rustls-no-provider",
+] }
+cookie_store = "0.22"
 rustls.workspace = true
 # Which certificates the WebSockets trust: the same as reqwest's HTTPS.
 rustls-platform-verifier = "0.7"
 serde.workspace = true
 serde_json.workspace = true
-sysinfo = { version = "0.39.6", default-features = false, features = ["system"] }
 tempfile.workspace = true
 # The voice gateway's messages, DAVE's among them.
 serenity-voice-model = "0.3"
-tokio = { workspace = true, features = ["macros", "signal", "io-util", "fs"] }
-# The voice gateway.
-tokio-tungstenite = { version = "0.26", default-features = false, features = ["connect", "__rustls-tls"] }
+tokio = { workspace = true, features = [
+    "rt",
+    "sync",
+    "time",
+    "net",
+    "macros",
+    "io-util",
+    "fs",
+] }
+# Discord WebSockets share the 0.29 branch with LiveKit.
+tokio-tungstenite = { version = "0.29", default-features = false, features = [
+    "connect",
+    "__rustls-tls",
+] }
 tracing.workspace = true
-tracing-subscriber.workspace = true
 url.workspace = true
 # Links Yapfast's libwebrtc archive, whose libopus calls use.
-webrtc-sys = "=0.3.35"
+webrtc-sys = "=0.3.55"
 
-# The Rich Presence socket's lock opens with O_NOFOLLOW, whose value differs
-# from one processor to another.
-[target.'cfg(target_os = "linux")'.dependencies]
-libc = "0.2.189"
+# Process detection and Linux's Rich Presence socket lock.
+[target.'cfg(any(target_os = "linux", target_os = "macos"))'.dependencies]
+libc = "0.2.191"
+
+[target.'cfg(windows)'.dependencies]
+windows-sys = { version = "0.61.2", features = [
+    "Wdk_System_Threading",
+    "Win32_Foundation",
+    "Win32_Security",
+    "Win32_System_Diagnostics_ToolHelp",
+    "Win32_System_Threading",
+    "Win32_UI_Shell",
+] }
 
 [dev-dependencies]
+# The manual Discord probe.
+tokio = { workspace = true, features = ["rt-multi-thread", "signal"] }
+tracing-subscriber.workspace = true
 # Building DAVE handshake messages in tests, at the versions davey uses.
-openmls = "0.8.1"
+openmls = "0.8.3"
 openmls_basic_credential = "0.5.0"
 openmls_rust_crypto = "0.5.1"

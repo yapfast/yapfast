@@ -604,10 +604,10 @@ const AVClass *av_opt_child_class_iterate(const AVClass *parent, void **iter);
 #define AV_OPT_SEARCH_CHILDREN   (1 << 0) /**< Search in possible children of the
                                                given object first. */
 /**
- *  The obj passed to av_opt_find() is fake -- only a double pointer to AVClass
- *  instead of a required pointer to a struct containing AVClass. This is
- *  useful for searching for options without needing to allocate the corresponding
- *  object.
+ *  The obj passed to av_opt_find() or av_opt_set() is fake -- only a double pointer
+ *  to AVClass instead of a required pointer to a struct containing AVClass. This is
+ *  useful for searching for options or verifying they can be applied without needing
+ *  to allocate the corresponding object.
  */
 #define AV_OPT_SEARCH_FAKE_OBJ   (1 << 1)
 
@@ -841,7 +841,8 @@ int av_opt_copy(void *dest, const void *src);
  * @{
  * Those functions set the field of obj with the given name to value.
  *
- * @param[in] obj A struct whose first element is a pointer to an AVClass.
+ * @param[in] obj A struct whose first element is a pointer to an AVClass. Alternatively
+ * a double pointer to an AVClass, if AV_OPT_SEARCH_FAKE_OBJ search flag is set.
  * @param[in] name the name of the field to set
  * @param[in] val The value to set. In case of av_opt_set() if the field is not
  * of a string type, then the given string is parsed.
@@ -1089,8 +1090,17 @@ int av_opt_is_set_to_default_by_name(void *obj, const char *name, int search_fla
 int av_opt_flag_is_set(void *obj, const char *field_name, const char *flag_name);
 
 #define AV_OPT_SERIALIZE_SKIP_DEFAULTS              0x00000001  ///< Serialize options that are not set to default values only.
-#define AV_OPT_SERIALIZE_OPT_FLAGS_EXACT            0x00000002  ///< Serialize options that exactly match opt_flags only.
+/**
+ * Match only options with the exact @ref AVOption.flags flags
+ * in @ref opt_flags, for exclusion or inclusion in serialization.
+ */
+#define AV_OPT_SERIALIZE_OPT_FLAGS_EXACT            0x00000002
 #define AV_OPT_SERIALIZE_SEARCH_CHILDREN            0x00000004  ///< Serialize options in possible children of the given object.
+/**
+ * Serialize options with @ref AVOption.flags flags not
+ * in @ref opt_flags.
+ */
+#define AV_OPT_SERIALIZE_OPT_FLAGS_EXCLUDE          0x00000008
 
 /**
  * Serialize object's options.

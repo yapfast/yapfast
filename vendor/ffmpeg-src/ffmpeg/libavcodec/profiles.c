@@ -59,6 +59,14 @@ const AVProfile ff_truehd_profiles[] = {
   { AV_PROFILE_UNKNOWN },
 };
 
+const AVProfile ff_mpegh_3da_profiles[] = {
+  { AV_PROFILE_MPEGH_3DA_MAIN,   "Main"},
+  { AV_PROFILE_MPEGH_3DA_HIGH,   "High"},
+  { AV_PROFILE_MPEGH_3DA_LC,     "LC"},
+  { AV_PROFILE_MPEGH_3DA_BL,     "BL"},
+  { AV_PROFILE_UNKNOWN },
+};
+
 const AVProfile ff_dnxhd_profiles[] = {
   { AV_PROFILE_DNXHD,      "DNXHD"},
   { AV_PROFILE_DNXHR_LB,   "DNXHR LB"},
@@ -217,6 +225,15 @@ const AVProfile ff_apv_profiles[] = {
     { AV_PROFILE_APV_4444_10,            "4444-10"         },
     { AV_PROFILE_APV_4444_12,            "4444-12"         },
     { AV_PROFILE_APV_400_10,             "400-10"          },
+    { AV_PROFILE_UNKNOWN },
+};
+
+const AVProfile ff_astc_profiles[] = {
+    { AV_PROFILE_ASTC_LDR_SRGB,      "sRGB LDR"           },
+    { AV_PROFILE_ASTC_LDR,           "Linear LDR"         },
+    { AV_PROFILE_ASTC_HDR_RGB_LDR_A, "HDR RGB, LDR alpha" },
+    { AV_PROFILE_ASTC_HDR,           "HDR"                },
+    { AV_PROFILE_ASTC_LINEAR_ANY,    "Linear (any)"       },
     { AV_PROFILE_UNKNOWN },
 };
 

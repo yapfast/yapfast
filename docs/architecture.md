@@ -54,10 +54,11 @@ reads video files, `encode.rs` encodes Go Live and the camera, and
 `decode.rs` decodes a watched stream, each through C in `native/*.c`.
 `audio_io.rs` and `audio_io/` are Yapfast's own sound devices.
 
-`vendor/` holds iced's two renderers and cosmic-text, patched, webrtc-sys,
-matrix-rtc-livekit, davey and tungstenite, plus x264's and FFmpeg's C source; see
-[dependency sources](building.md#dependency-sources). LiveKit itself comes
-from crates.io, not `vendor/`.
+`vendor/` holds iced's two renderers and cosmic-text, patched, webrtc-sys and
+tungstenite, plus x264's and FFmpeg's C source. MatrixRTC comes from Element's
+Git repository.
+See [dependency sources](building.md#dependency-sources). LiveKit and davey
+come from crates.io.
 
 Two experiments stay in the tree: `experiment.rs` behind `--call-experiment`
 and `voice_demo.rs` behind `--voice-demo`, both in yapfast-core and

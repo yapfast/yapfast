@@ -17,7 +17,7 @@ pub(crate) async fn connect(
     request: impl IntoClientRequest + Unpin,
 ) -> Result<(WebSocketStream<MaybeTlsStream<TcpStream>>, Response), Box<tungstenite::Error>> {
     let connector = Connector::Rustls(
-        config().map_err(|error| tungstenite::Error::Tls(TlsError::Rustls(error)))?,
+        config().map_err(|error| tungstenite::Error::Tls(TlsError::Rustls(Box::new(error))))?,
     );
     connect_async_tls_with_config(request, None, false, Some(connector))
         .await

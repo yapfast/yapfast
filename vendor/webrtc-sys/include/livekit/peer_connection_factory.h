@@ -31,6 +31,7 @@ namespace livekit_ffi {
 class PeerConnectionFactory;
 class AudioDeviceController;
 class PeerConnectionObserverWrapper;
+class VideoEncoderFactory;
 }  // namespace livekit_ffi
 #include "webrtc-sys/src/peer_connection_factory.rs.h"
 
@@ -45,6 +46,11 @@ webrtc::PeerConnectionInterface::RTCConfiguration to_native_rtc_configuration(
 class PeerConnectionFactory {
  public:
   explicit PeerConnectionFactory(std::shared_ptr<RtcRuntime> rtc_runtime);
+  PeerConnectionFactory(std::shared_ptr<RtcRuntime> rtc_runtime,
+                        bool zero_playout_delay);
+  PeerConnectionFactory(std::shared_ptr<RtcRuntime> rtc_runtime,
+                        bool zero_playout_delay,
+                        bool enable_warp);
   ~PeerConnectionFactory();
 
   std::shared_ptr<PeerConnection> create_peer_connection(
@@ -68,16 +74,34 @@ class PeerConnectionFactory {
 
   RtpCapabilities rtp_receiver_capabilities(MediaType type) const;
 
+  // SDP codec names (VP8, VP9, AV1, H264, H265) that `backend` can produce
+  // with this factory's video encoders.
+  rust::Vec<rust::String> video_encoder_backend_codecs(
+      VideoEncoderBackend backend) const;
+
   std::shared_ptr<RtcRuntime> rtc_runtime() const { return rtc_runtime_; }
   std::shared_ptr<AudioDeviceController> audio_device() const;
+  bool zero_playout_delay_enabled() const;
 
  private:
+  // Declaration order matters: rtc_runtime_ must be declared before
+  // adm_proxy_/audio_device_ so it is destroyed last. Releasing the proxy
+  // does a BlockingCall onto the runtime's worker thread, which must still
+  // be running at that point.
   std::shared_ptr<RtcRuntime> rtc_runtime_;
   webrtc::scoped_refptr<AdmProxy> adm_proxy_;
   std::shared_ptr<AudioDeviceController> audio_device_;
   webrtc::scoped_refptr<webrtc::PeerConnectionFactoryInterface> peer_factory_;
+  // Not owned: the media engine inside peer_factory_ owns it, so it lives as
+  // long as peer_factory_ does.
+  const VideoEncoderFactory* video_encoder_factory_ = nullptr;
   webrtc::Environment env_;
 };
 
 std::shared_ptr<PeerConnectionFactory> create_peer_connection_factory();
+std::shared_ptr<PeerConnectionFactory>
+create_peer_connection_factory_with_zero_playout_delay();
+std::shared_ptr<PeerConnectionFactory>
+create_peer_connection_factory_with_options(bool zero_playout_delay,
+                                            bool enable_warp);
 }  // namespace livekit_ffi

@@ -28,10 +28,10 @@
         };
       });
       windowsWebrtcArchive = pkgs.fetchurl {
-        url = "https://github.com/livekit/rust-sdks/releases/download/webrtc-51ef663/webrtc-win-x64-release.zip";
-        hash = "sha256-ClalyRs7e0IiCCuKCTiNFqgCzeItZylb6yTFVwB1WzA=";
+        url = "https://github.com/livekit/rust-sdks/releases/download/webrtc-a545de4/webrtc-win-x64-release.zip";
+        hash = "sha256-hiQD/LJIx9iANIfkwiuIIcYTDokQDLnGm+le9F/0YUY=";
       };
-      windowsWebrtc = pkgs.runCommand "talk-libwebrtc-windows-51ef663" {
+      windowsWebrtc = pkgs.runCommand "talk-libwebrtc-windows-a545de4" {
         nativeBuildInputs = [ pkgs.unzip ];
       } ''
         unzip -q ${windowsWebrtcArchive} -d unpacked

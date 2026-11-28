@@ -2,8 +2,8 @@ libavcodec/ac3_parser.c
 libavcodec/adts_parser.c
 libavcodec/allcodecs.c
 libavcodec/amfdec.c
-libavcodec/amfenc_av1.c
 libavcodec/amfenc.c
+libavcodec/amfenc_av1.c
 libavcodec/amfenc_h264.c
 libavcodec/amfenc_hevc.c
 libavcodec/aom_film_grain.c
@@ -12,7 +12,12 @@ libavcodec/avcodec.c
 libavcodec/avdct.c
 libavcodec/bitstream.c
 libavcodec/bitstream_filters.c
+libavcodec/bitstreamfilter.c
 libavcodec/bsf.c
+libavcodec/bsf/packetsync.c
+libavcodec/bsf/sink.c
+libavcodec/bsf/source.c
+libavcodec/bsfgraph.c
 libavcodec/bswapdsp.c
 libavcodec/cabac.c
 libavcodec/codec_desc.c
@@ -33,10 +38,10 @@ libavcodec/file_open.c
 libavcodec/frame_thread_encoder.c
 libavcodec/get_buffer.c
 libavcodec/golomb.c
-libavcodec/h2645data.c
 libavcodec/h2645_parse.c
 libavcodec/h2645_sei.c
 libavcodec/h2645_vui.c
+libavcodec/h2645data.c
 libavcodec/h274.c
 libavcodec/hevc/cabac.c
 libavcodec/hevc/data.c
@@ -59,8 +64,8 @@ libavcodec/jrevdct.c
 libavcodec/mathtables.c
 libavcodec/mediacodec.c
 libavcodec/mpeg12framerate.c
-libavcodec/nvenc_av1.c
 libavcodec/nvenc.c
+libavcodec/nvenc_av1.c
 libavcodec/nvenc_h264.c
 libavcodec/nvenc_hevc.c
 libavcodec/options.c
@@ -87,6 +92,7 @@ libavcodec/x86/fdct.c
 libavcodec/x86/fdctdsp_init.c
 libavcodec/x86/h26x/h2656dsp.c
 libavcodec/x86/hevc/dsp_init.c
+libavcodec/x86/hevc/pred_init.c
 libavcodec/x86/idctdsp_init.c
 libavcodec/x86/videodsp_init.c
 libavcodec/xiph.c
@@ -126,12 +132,13 @@ libavutil/fixed_dsp.c
 libavutil/float_dsp.c
 libavutil/float_scalarproduct.c
 libavutil/frame.c
+libavutil/gain_map.c
 libavutil/hash.c
 libavutil/hdr_dynamic_metadata.c
 libavutil/hdr_dynamic_vivid_metadata.c
 libavutil/hmac.c
-libavutil/hwcontext_amf.c
 libavutil/hwcontext.c
+libavutil/hwcontext_amf.c
 libavutil/hwcontext_cuda.c
 libavutil/hwcontext_stub.c
 libavutil/iamf.c
@@ -139,8 +146,8 @@ libavutil/imgutils.c
 libavutil/integer.c
 libavutil/lfg.c
 libavutil/lls.c
-libavutil/log2_tab.c
 libavutil/log.c
+libavutil/log2_tab.c
 libavutil/lzo.c
 libavutil/mastering_display_metadata.c
 libavutil/mathematics.c
@@ -159,8 +166,8 @@ libavutil/refstruct.c
 libavutil/reverse.c
 libavutil/ripemd.c
 libavutil/samplefmt.c
-libavutil/sha512.c
 libavutil/sha.c
+libavutil/sha512.c
 libavutil/side_data.c
 libavutil/slicethread.c
 libavutil/spherical.c

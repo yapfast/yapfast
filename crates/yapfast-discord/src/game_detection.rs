@@ -12,11 +12,11 @@ use std::{
     sync::Arc,
     time::{Duration, Instant},
 };
-use sysinfo::{ProcessRefreshKind, ProcessesToUpdate, System, UpdateKind};
 use tokio::sync::{mpsc, oneshot, watch};
 
 mod catalog;
 pub mod custom_games;
+mod processes;
 mod steam;
 use catalog::{Catalog, GameInfo};
 
@@ -45,7 +45,7 @@ pub(crate) fn start(
     let isolated_cache = std::env::var_os("YAPFAST_DISCORD_GAMES_CACHE").is_some();
     let disabled = std::env::var_os("YAPFAST_DISCORD_GAME_DETECTION").is_some_and(|v| v == "0")
         || (crate::client::test_server().is_some() && custom.is_none() && !isolated_cache);
-    if disabled || !sysinfo::IS_SUPPORTED_SYSTEM {
+    if disabled || !cfg!(any(target_os = "linux", windows, target_os = "macos")) {
         return receiver;
     }
     let detected = custom_games::Detection::start();
@@ -302,25 +302,26 @@ fn blocked_match(blocked: &[String], path: &str, name: &str, windows: bool) -> b
         .any(|entry| entry.eq_ignore_ascii_case(name) || names_executable(entry, path, windows))
 }
 
-fn fingerprint(process: &sysinfo::Process) -> u64 {
+fn fingerprint(process: &processes::Process) -> u64 {
     let mut hash = DefaultHasher::new();
-    process.name().hash(&mut hash);
-    process.exe().hash(&mut hash);
+    process.name.hash(&mut hash);
+    process.exe.hash(&mut hash);
     hash.finish()
 }
 
-fn is_wine(process: &sysinfo::Process) -> bool {
+fn is_wine(process: &processes::Process) -> bool {
     if !cfg!(target_os = "linux") {
         return false;
     }
     let name = process
-        .exe()
+        .exe
+        .as_deref()
         .and_then(|path| path.file_name())
-        .unwrap_or_else(|| process.name())
+        .unwrap_or(&process.name)
         .to_string_lossy();
     name.starts_with("wine")
         || process
-            .name()
+            .name
             .to_string_lossy()
             .to_ascii_lowercase()
             .ends_with(".exe")
@@ -379,10 +380,6 @@ fn wine_executable(args: &[std::ffi::OsString]) -> Option<String> {
 
 impl Detector {
     fn new(catalog: Catalog, steam_roots: Vec<PathBuf>) -> Self {
-        // sysinfo normally caches an open /proc/<pid>/stat fd for each process.
-        // Detection runs infrequently, so keep no such per-process file handles.
-        #[cfg(target_os = "linux")]
-        sysinfo::set_open_files_limit(0);
         Self {
             seen: 0,
             catalog,
@@ -460,126 +457,67 @@ impl Detector {
             }
             self.next_steam = Instant::now() + STEAM_INTERVAL;
         }
-        // A table of every process for this scan only: what lasts between
-        // scans is what Yapfast learned of each, in `known`.
-        let mut system = System::new();
-        system.refresh_processes_specifics(
-            ProcessesToUpdate::All,
-            true,
-            ProcessRefreshKind::nothing()
-                .without_tasks()
-                // A launcher can exec() a game with the same PID/start time.
-                // One executable lookup per scan avoids stale sysinfo paths.
-                .with_exe(UpdateKind::Always)
-                .with_user(UpdateKind::OnlyIfNotSet),
-        );
-        let me = sysinfo::get_current_pid()
-            .ok()
-            .and_then(|pid| system.process(pid))
-            .and_then(|p| p.user_id())
-            .cloned();
-        // Fetch command lines only for new Wine processes or catalogue rules
-        // that explicitly require arguments. Never read process environments.
-        let arguments: Vec<_> = system
-            .processes()
-            .iter()
-            .filter_map(|(pid, process)| {
-                if me
-                    .as_ref()
-                    .zip(process.user_id())
-                    .is_some_and(|(me, other)| me != other)
-                {
-                    return None;
-                }
-                let known = self.known.get(&pid.as_u32());
-                let changed = known.is_none_or(|known| {
-                    known.started != process.start_time()
-                        || known.fingerprint != fingerprint(process)
-                });
-                // Warm scans do no name normalization or catalogue lookup for
-                // unchanged processes. A new catalogue can introduce an
-                // argument-dependent rule for an already running executable.
-                if !changed && known.is_some_and(|known| known.generation == self.generation) {
-                    return None;
-                }
-                let needs = is_wine(process)
-                    || process
-                        .exe()
-                        .is_some_and(|path| self.catalog.needs_arguments(&path.to_string_lossy()));
-                needs.then_some(*pid)
-            })
-            .collect();
-        if !arguments.is_empty() {
-            system.refresh_processes_specifics(
-                ProcessesToUpdate::Some(&arguments),
-                false,
-                ProcessRefreshKind::nothing()
-                    .without_tasks()
-                    .with_cmd(UpdateKind::Always)
-                    .with_cwd(UpdateKind::Always),
-            );
-        }
-        self.known.retain(|pid, _| {
-            system
-                .process(sysinfo::Pid::from_u32(*pid))
-                .is_some_and(|process| {
-                    me.as_ref()
-                        .zip(process.user_id())
-                        .is_none_or(|(me, other)| me == other)
-                })
-        });
-        // The processes new or changed since the last scan, and what each
-        // runs: for Wine, the Windows program in its command line.
-        let mut due = Vec::new();
-        self.seen = system.processes().len();
-        for (pid, process) in system.processes() {
-            if me
-                .as_ref()
-                .zip(process.user_id())
-                .is_some_and(|(me, other)| me != other)
-            {
-                continue;
+        let processes = match processes::scan() {
+            Ok(processes) => processes,
+            Err(error) => {
+                tracing::debug!(%error, "could not scan processes");
+                return None;
             }
-            let started = process.start_time();
-            let fingerprint = fingerprint(process);
-            let unchanged = self.known.get(&pid.as_u32()).is_some_and(|known| {
+        };
+        self.known.retain(|pid, _| processes.contains_key(pid));
+        let mut due = Vec::new();
+        self.seen = processes.len();
+        for (pid, process) in processes {
+            let started = process.started;
+            let fingerprint = fingerprint(&process);
+            if self.known.get(&pid).is_some_and(|known| {
                 known.started == started
                     && known.fingerprint == fingerprint
                     && known.generation == self.generation
-            });
-            if unchanged {
+            }) {
                 continue;
             }
-            let wine = is_wine(process);
-            let path = if wine {
-                wine_executable(process.cmd())
+            let wine = is_wine(&process);
+            let needs_arguments = wine
+                || process
+                    .exe
+                    .as_ref()
+                    .is_some_and(|path| self.catalog.needs_arguments(&path.to_string_lossy()));
+            let args = if needs_arguments {
+                processes::arguments(pid, started)
             } else {
-                process.exe().map(|p| p.to_string_lossy().into_owned())
+                Vec::new()
             };
-            due.push((*pid, started, fingerprint, wine, path));
+            let path = if wine {
+                wine_executable(&args)
+            } else {
+                process.exe.map(|path| {
+                    path.into_os_string()
+                        .into_string()
+                        .unwrap_or_else(|path| path.to_string_lossy().into_owned())
+                })
+            };
+            due.push((pid, started, fingerprint, wine, path, args));
         }
         // One read of the catalogue for all the names it has rules for.
         let windows = cfg!(target_os = "windows");
         self.catalog
-            .prepare(due.iter().filter_map(|(_, _, _, wine, path)| {
+            .prepare(due.iter().filter_map(|(_, _, _, wine, path, _)| {
                 path.as_deref()
                     .filter(|path| !ignored(path))
                     .map(|path| (path, *wine || windows))
             }));
-        for (pid, started, fingerprint, wine, path) in due {
-            let Some(process) = system.process(pid) else {
-                continue;
-            };
+        for (pid, started, fingerprint, wine, path, args) in due {
             let game = path.and_then(|path| {
                 let game = custom_match(&self.executables, &path, wine || windows).or_else(|| {
                     if ignored(&path) {
                         return None;
                     }
                     self.catalog
-                        .matches(&path, process.cmd(), wine || windows)
+                        .matches(&path, &args, wine || windows)
                         .or_else(|| self.steam.matches(&path))
                         .or_else(|| {
-                            let cwd = process.cwd().filter(|_| wine)?;
+                            let cwd = wine.then(|| processes::cwd(pid, started)).flatten()?;
                             self.steam.matches(&cwd.to_string_lossy())
                         })
                 });
@@ -589,7 +527,7 @@ impl Detector {
                 })
             });
             self.known.insert(
-                pid.as_u32(),
+                pid,
                 Known {
                     started,
                     fingerprint,

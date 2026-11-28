@@ -70,6 +70,9 @@ pub async fn run() -> Result<()> {
         .map(|session| session.client.user_id().unwrap().to_owned())
         .collect();
     request.initial_state = vec![Raw::from_json_string(json!({"type":"m.room.encryption", "state_key":"", "content":{"algorithm":"m.megolm.v1.aes-sha2"}}).to_string())?];
+    request.power_level_content_override = Some(Raw::from_json_string(
+        json!({"events": {matrix_rtc_core::compat::STATE_MEMBER_EVENT_TYPE: 0}}).to_string(),
+    )?);
     let room = sessions[0].client.create_room(request).await?;
     for session in &sessions[1..] {
         session.client.join_room_by_id(room.room_id()).await?;

@@ -357,11 +357,23 @@ struct AVFrame;
  * -  Several modifiers can be applied to the tag name. This is done by
  *    appending a dash character ('-') and the modifier name in the order
  *    they appear in the list below -- e.g. foo-eng-sort, not foo-sort-eng.
+ *    -  descriptor -- some formats (e.g. ID3v2 COMM and USLT frames) attach
+ *       a free-form descriptor to a tag to distinguish multiple instances.
+ *       The full key format is "<tag>-<descriptor>-<lang>", but either
+ *       component may be absent. When writing, the last dash-separated suffix
+ *       is interpreted as a language code if it is a valid ISO 639-2/B code;
+ *       otherwise the entire portion after the first dash is treated as a
+ *       descriptor. Examples: "comment-eng" (lang only),
+ *       "comment-MusicMatch_Bio-eng" (descriptor + lang),
+ *       "comment-foobar" (descriptor only, foobar is not a valid lang code).
  *    -  language -- a tag whose value is localized for a particular language
  *       is appended with the ISO 639-2/B 3-letter language code.
  *       For example: Author-ger=Michael, Author-eng=Mike
  *       The original/default language is in the unqualified "Author" tag.
  *       A demuxer should set a default if it sets any translated tag.
+ *       When a language is required by the format but not specified in the key
+ *       (e.g. ID3v2 COMM and USLT frames), the default is left to the
+ *       underlying implementation (ID3v2 defaults to "und").
  *    -  sorting  -- a modified version of a tag that should be used for
  *       sorting will have '-sort' appended. E.g. artist="The Beatles",
  *       artist-sort="Beatles, The".
@@ -381,6 +393,9 @@ struct AVFrame;
                  e.g. "Various Artists" for compilation albums.
  artist       -- main creator of the work
  comment      -- any additional description of the file.
+                 ID3v2 COMM frames: bare "comment" has no lang or descriptor;
+                 "comment-<lang>" for lang only; "comment-<descriptor>-<lang>"
+                 for both (see descriptor modifier above).
  composer     -- who composed the work, if different from artist.
  copyright    -- name of copyright holder.
  creation_time-- date when the file was created, preferably in ISO 8601.
@@ -394,6 +409,10 @@ struct AVFrame;
  language     -- main language in which the work is performed, preferably
                  in ISO 639-2 format. Multiple languages can be specified by
                  separating them with commas.
+ lyrics       -- lyrics for the work.
+                 ID3v2 USLT frames: bare "lyrics" has no lang or descriptor;
+                 "lyrics-<lang>" for lang only; "lyrics-<descriptor>-<lang>"
+                 for both (see descriptor modifier above).
  performer    -- artist who performed the work, if different from artist.
                  E.g for "Also sprach Zarathustra", artist would be "Richard
                  Strauss" and performer "London Philharmonic Orchestra".
@@ -402,7 +421,9 @@ struct AVFrame;
  service_provider -- name of the service provider in broadcasting.
  title        -- name of the work.
  track        -- number of this work in the set, can be in form current/total.
- variant_bitrate -- the total bitrate of the bitrate variant that the current stream is part of
+ variant_bitrate -- the total bitrate of the bitrate variant that the program
+                    represents or that the current stream is part of. On
+                    streams it is only set when unambiguous.
  @endverbatim
  *
  * Look in the examples section for an application example how to use the Metadata API.
@@ -1050,26 +1071,35 @@ typedef struct AVStreamGroupTileGrid {
      */
     int height;
 
+#if FF_API_STREAM_GROUP_ENTRIES
     /**
      * Additional data associated with the grid.
      *
      * Should be allocated with av_packet_side_data_new() or
      * av_packet_side_data_add(), and will be freed by avformat_free_context().
+     *
+     * @deprecated, use @ref AVStreamGroup.coded_side_data.
      */
+    attribute_deprecated
     AVPacketSideData *coded_side_data;
 
     /**
      * Amount of entries in @ref coded_side_data.
+     *
+     * @deprecated, use @ref AVStreamGroup.nb_coded_side_data.
      */
+    attribute_deprecated
     int nb_coded_side_data;
+#endif
 } AVStreamGroupTileGrid;
 
 /**
  * AVStreamGroupLayeredVideo is meant to define the relation between a base
  * layer video stream and a separate enhancement layer stream that together
  * form a single layered video presentation (for example a video stream and a
- * data stream containing LCEVC enhancement layer NALUs, or Dolby Vision
- * Profile 7 dual-layer encoding).
+ * data stream containing LCEVC enhancement layer NALUs, Dolby Vision
+ * Profile 7 dual-layer encoding, an Alpha plane being a separate stream, or
+ * a base rendition accompanied by an ISO 21496-1 gain map).
  *
  * The enhancement layer stream is identified by @ref el_index.
  */
@@ -1134,10 +1164,25 @@ enum AVStreamGroupParamsType {
     AV_STREAM_GROUP_PARAMS_LCEVC,
     AV_STREAM_GROUP_PARAMS_TREF,
     AV_STREAM_GROUP_PARAMS_DOLBY_VISION,
+    AV_STREAM_GROUP_PARAMS_GAIN_MAP,
+    AV_STREAM_GROUP_PARAMS_ALPHA,
 };
 
 struct AVIAMFAudioElement;
 struct AVIAMFMixPresentation;
+
+enum AVStreamGroupEntryType {
+    AV_STREAM_GROUP_ENTRY_STREAM,
+    AV_STREAM_GROUP_ENTRY_STREAM_GROUP,
+};
+
+typedef struct AVStreamGroupEntry {
+    enum AVStreamGroupEntryType type;
+    union {
+        AVStream *stream;
+        struct AVStreamGroup *stream_group;
+    };
+} AVStreamGroupEntry;
 
 typedef struct AVStreamGroup {
     /**
@@ -1196,11 +1241,15 @@ typedef struct AVStreamGroup {
      */
     AVDictionary *metadata;
 
+#if FF_API_STREAM_GROUP_ENTRIES
     /**
      * Number of elements in AVStreamGroup.streams.
      *
-     * Set by avformat_stream_group_add_stream() must not be modified by any other code.
+     * Set by avformat_stream_group_add_stream(), must not be modified by any other code.
+     *
+     * @deprecated Use AVStreamGroup.nb_entries.
      */
+    attribute_deprecated
     unsigned int nb_streams;
 
     /**
@@ -1213,8 +1262,12 @@ typedef struct AVStreamGroup {
      * - muxing: entries are created by the user before avformat_write_header().
      *
      * Freed by libavformat in avformat_free_context().
+     *
+     * @deprecated Use AVStreamGroup.entries.
      */
+    attribute_deprecated
     AVStream **streams;
+#endif
 
     /**
      * Stream group disposition - a combination of AV_DISPOSITION_* flags.
@@ -1225,6 +1278,40 @@ typedef struct AVStreamGroup {
      * - muxing: may be set by the caller before avformat_write_header().
      */
     int disposition;
+
+    /**
+     * Number of elements in AVStreamGroup.entries.
+     *
+     * Set by avformat_stream_group_add_stream() or avformat_stream_group_add_stream_group(),
+     * must not be modified by any other code.
+     */
+    unsigned int nb_entries;
+
+    /**
+     * A list of streams or child groups in the group. New entries are created with
+     * or avformat_stream_group_add_stream() or avformat_stream_group_add_stream_group().
+     *
+     * - demuxing: entries are created by libavformat on group creation.
+     *             If AVFMTCTX_NOHEADER is set in ctx_flags, then new entries may also
+     *             appear in av_read_frame().
+     * - muxing: entries are created by the user before avformat_write_header().
+     *
+     * Freed by libavformat in avformat_free_context().
+     */
+    AVStreamGroupEntry **entries;
+
+    /**
+     * Additional data associated with the group.
+     *
+     * Should be allocated with av_packet_side_data_new() or
+     * av_packet_side_data_add(), and will be freed by avformat_free_context().
+     */
+    AVPacketSideData *coded_side_data;
+
+    /**
+     * Amount of entries in @ref coded_side_data.
+     */
+    int nb_coded_side_data;
 } AVStreamGroup;
 
 struct AVCodecParserContext *av_stream_get_parser(const AVStream *s);
@@ -1391,7 +1478,8 @@ typedef struct AVFormatContext {
     unsigned int nb_stream_groups;
     /**
      * A list of all stream groups in the file. New groups are created with
-     * avformat_stream_group_create(), and filled with avformat_stream_group_add_stream().
+     * avformat_stream_group_create(), and filled with avformat_stream_group_add_stream()
+     * and avformat_stream_group_add_stream_group.
      *
      * - demuxing: groups may be created by libavformat in avformat_open_input().
      *             If AVFMTCTX_NOHEADER is set in ctx_flags, then new groups may also
@@ -1485,6 +1573,21 @@ typedef struct AVFormatContext {
 #define AVFMT_FLAG_SORT_DTS    0x10000 ///< try to interleave outputted packets by dts (using this flag can slow demuxing down)
 #define AVFMT_FLAG_FAST_SEEK   0x80000 ///< Enable fast, but inaccurate seeks for some formats
 #define AVFMT_FLAG_AUTO_BSF   0x200000 ///< Add bitstream filters as requested by the muxer
+
+#if FF_API_OLD_ID3V2_COMMENT
+/**
+ * Also export ID3v2 COMM frames with a non-empty descriptor under the
+ * descriptor as metadata key, next to the "comment-<descriptor>-<lang>" key.
+ *
+ * Only applies to the ID3v2 tag read as container metadata, not to in-band
+ * or timed ID3 tags.
+ *
+ * @deprecated the bare descriptor key is ambiguous: a descriptor matching a
+ * known tag name (e.g. "album") is written back as that tag. Use the
+ * "comment-<descriptor>-<lang>" key instead.
+ */
+#define AVFMT_FLAG_LEGACY_ID3V2_COMM_KEYS 0x400000
+#endif
 
     /**
      * Maximum number of bytes read from input in order to determine stream
@@ -1944,6 +2047,15 @@ typedef struct AVFormatContext {
      * Name of this format context, only used for logging purposes.
      */
     char *name;
+
+    /**
+     * Depth recursion limit,
+     *
+     * The maximum recursion depth that a Demuxer can open a Demuxer within itself.
+     *
+     * - demuxing: Set by user
+     */
+    int recursion_limit;
 } AVFormatContext;
 
 /**
@@ -2069,11 +2181,13 @@ const char *avformat_stream_group_name(enum AVStreamGroupParamsType type);
  * by avformat_stream_group_create().
  *
  * New streams can be added to the group with avformat_stream_group_add_stream().
+ * Child groups can be added to the group with avformat_stream_group_add_stream_group().
  *
  * @param s media file handle
  *
  * @return newly created group or NULL on error.
- * @see avformat_new_stream, avformat_stream_group_add_stream.
+ * @see avformat_new_stream.
+ * @see avformat_stream_group_add_stream, avformat_stream_group_add_stream_group.
  */
 AVStreamGroup *avformat_stream_group_create(AVFormatContext *s,
                                             enum AVStreamGroupParamsType type,
@@ -2122,6 +2236,31 @@ AVStream *avformat_new_stream(AVFormatContext *s, const struct AVCodec *c);
  * @see avformat_new_stream, avformat_stream_group_create.
  */
 int avformat_stream_group_add_stream(AVStreamGroup *stg, AVStream *st);
+
+/**
+ * Add an already allocated stream group to another stream group.
+ *
+ * When demuxing, it may be called by the demuxer in read_header(). If the
+ * flag AVFMTCTX_NOHEADER is set in s.ctx_flags, then it may also
+ * be called in read_packet().
+ *
+ * When muxing, may be called by the user before avformat_write_header() after
+ * having allocated a both the parent and child groups with
+ * avformat_stream_group_create().
+ *
+ * User is required to call avformat_free_context() to clean up the allocation
+ * by avformat_stream_group_add_stream_group().
+ *
+ * @param stg stream group belonging to a media file.
+ * @param group stream group in the media file to add to the group.
+ *
+ * @retval 0                 success
+ * @retval AVERROR(EEXIST)   the stream group was already in the group
+ * @retval "another negative error code" legitimate errors
+ *
+ * @see avformat_stream_group_create.
+ */
+int avformat_stream_group_add_stream_group(AVStreamGroup *stg, AVStreamGroup *group);
 
 AVProgram *av_new_program(AVFormatContext *s, int id);
 
@@ -2663,6 +2802,10 @@ int avformat_init_output(AVFormatContext *s, AVDictionary **options);
  *            set to the index of the corresponding stream in @ref
  *            AVFormatContext.streams "s->streams".
  *            <br>
+ *            The packet data must be followed by AV_INPUT_BUFFER_PADDING_SIZE
+ *            bytes, as for decoder input; packets from libavcodec and from
+ *            demuxers are.
+ *            <br>
  *            The timestamps (@ref AVPacket.pts "pts", @ref AVPacket.dts "dts")
  *            must be set to correct values in the stream's timebase (unless the
  *            output format is flagged with the AVFMT_NOTIMESTAMPS flag, then
@@ -2706,6 +2849,10 @@ int av_write_frame(AVFormatContext *s, AVPacket *pkt);
  *            Packet's @ref AVPacket.stream_index "stream_index" field must be
  *            set to the index of the corresponding stream in @ref
  *            AVFormatContext.streams "s->streams".
+ *            <br>
+ *            The packet data must be followed by AV_INPUT_BUFFER_PADDING_SIZE
+ *            bytes, as for decoder input; packets from libavcodec and from
+ *            demuxers are.
  *            <br>
  *            The timestamps (@ref AVPacket.pts "pts", @ref AVPacket.dts "dts")
  *            must be set to correct values in the stream's timebase (unless the
@@ -2767,7 +2914,7 @@ int av_write_uncoded_frame_query(AVFormatContext *s, int stream_index);
  * May only be called after a successful call to avformat_write_header.
  *
  * @param s media file handle
- * @return 0 if OK, AVERROR_xxx on error
+ * @return >=0 if OK, AVERROR_xxx on error
  */
 int av_write_trailer(AVFormatContext *s);
 

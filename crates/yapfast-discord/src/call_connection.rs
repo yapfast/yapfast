@@ -794,7 +794,7 @@ impl Media {
     /// whole frame of the microphone waiting, as when its thread is held
     /// up, sends nothing: others' clients conceal the missing packet, which
     /// sounds smoother than a frame cut short with silence, and what waited
-    /// goes in the next one.
+    /// goes in the next one. Five ticks without a voice packet end speaking.
     async fn send(
         &mut self,
         connection: &mut Connection,
@@ -820,45 +820,49 @@ impl Media {
                     "the call's microphone had no whole frame to send"
                 );
             }
-            self.timestamp = self.timestamp.wrapping_add(FRAME as u32);
-            return Ok(());
         }
-        let playing = taken == Some(true);
-        let marker = playing && !self.speaking;
-        if marker {
-            send_json(
-                &mut connection.ws,
-                5,
-                json!({"speaking": MICROPHONE, "delay": 0, "ssrc": connection.ssrc}),
-            )
-            .await?;
-            self.speaking = true;
-        }
-        if playing && self.encrypting != Some(connection.dave.encrypting()) {
-            self.encrypting = Some(connection.dave.encrypting());
-            tracing::info!(
-                encrypting = connection.dave.encrypting(),
-                dave = connection.dave.status(),
-                "the call's microphone is sending"
-            );
-        }
-        if playing {
+        let ready = connection.dave.can_send_call_audio();
+        let payload = if taken == Some(true) && ready {
             let length = self.encoder.encode_float(&self.pcm, &mut self.packet)?;
-            let opus = &self.packet[..length];
-            if let Some(payload) = connection.dave.encrypt_opus(opus) {
-                Self::transmit(
-                    &mut self.sequence,
-                    self.timestamp,
-                    &mut self.out,
-                    connection,
-                    &payload,
-                    marker,
+            connection.dave.encrypt_opus(&self.packet[..length])
+        } else {
+            None
+        };
+        if let Some(payload) = payload {
+            let marker = !self.speaking;
+            if marker {
+                send_json(
+                    &mut connection.ws,
+                    5,
+                    json!({"speaking": MICROPHONE, "delay": 0, "ssrc": connection.ssrc}),
                 )
                 .await?;
+                self.speaking = true;
+            }
+            Self::transmit(
+                &mut self.sequence,
+                self.timestamp,
+                &mut self.out,
+                connection,
+                &payload,
+                marker,
+            )
+            .await?;
+            let encrypting = connection.dave.encrypting();
+            if self.encrypting != Some(encrypting) {
+                self.encrypting = Some(encrypting);
+                tracing::info!(
+                    encrypting,
+                    dave = connection.dave.status(),
+                    "the call's microphone is sending"
+                );
             }
             self.silent = SILENT_FRAMES;
         } else if self.silent > 0 {
-            if let Some(payload) = connection.dave.encrypt_opus(&SILENCE) {
+            if taken.is_none()
+                && ready
+                && let Some(payload) = connection.dave.encrypt_opus(&SILENCE)
+            {
                 Self::transmit(
                     &mut self.sequence,
                     self.timestamp,

@@ -317,6 +317,8 @@ static const enum AVPixelFormat supported_formats[] = {
     AV_PIX_FMT_RGBA,
     AV_PIX_FMT_BGR0,
     AV_PIX_FMT_P010,
+    AV_PIX_FMT_X2BGR10,
+    AV_PIX_FMT_RGBAF16,
 #if CONFIG_D3D11VA
     AV_PIX_FMT_D3D11,
 #endif
@@ -334,6 +336,8 @@ static const enum AVPixelFormat supported_transfer_formats[] = {
     AV_PIX_FMT_BGRA,
     AV_PIX_FMT_RGBA,
     AV_PIX_FMT_P010,
+    AV_PIX_FMT_X2BGR10,
+    AV_PIX_FMT_RGBAF16,
     AV_PIX_FMT_NONE,
 };
 
@@ -558,11 +562,75 @@ static void amf_device_uninit(AVHWDeviceContext *device_ctx)
     amf_ctx->version = 0;
 }
 
+enum AMF_MEMORY_TYPE av_amf_get_memory_type(AVAMFDeviceContext *amf_ctx)
+{
+    AMFContext  *context = amf_ctx->context;
+    AMFContext1 *context1 = NULL;
+    AMFGuid guid1 = IID_AMFContext1();
+    void * device = NULL;
+
+#ifdef _WIN32
+    // At the moment used only for DX12.
+    AMFContext2 *context2 = NULL;
+
+    /*
+    Work around the incorrect C Context2 IID in unpatched AMF 1.5.2 headers;
+    mostly pedantic fix as it works as it is in practice.
+    TODO: replace with AMFGuid guid2 = IID_AMFContext2()
+    once AMF 1.5.3 is available to public and marked as required version in ffmpeg.
+    */
+    static const AMFGuid guid2 = {
+        0x726241d3, 0xbd46, 0x4e90,
+        0x99, 0x68, 0x93, 0xe0, 0x7e, 0xa2, 0x98, 0x4d
+    };
+#endif
+
+    if (!amf_ctx)
+        return AMF_MEMORY_UNKNOWN;
+
+#ifdef _WIN32
+    if (AMF_IFACE_CALL(context, QueryInterface, &guid2, (void**)&context2) == AMF_OK)
+    {
+        device = AMF_IFACE_CALL(context2, GetDX12Device, AMF_DX12);
+        AMF_IFACE_CALL(context2, Release);
+
+        if (device)
+            return AMF_MEMORY_DX12;
+    }
+
+    if (AMF_IFACE_CALL(context, GetDX11Device, AMF_DX11_1))
+        return AMF_MEMORY_DX11;
+
+    if (AMF_IFACE_CALL(context, GetDX9Device, AMF_DX9))
+        return AMF_MEMORY_DX9;
+#endif
+
+    if (AMF_IFACE_CALL(context, QueryInterface, &guid1, (void**)&context1) != AMF_OK)
+        return AMF_MEMORY_UNKNOWN;
+
+    device = AMF_IFACE_CALL(context1, GetVulkanDevice);
+    AMF_IFACE_CALL(context1, Release);
+    if (device)
+        return AMF_MEMORY_VULKAN;
+
+    return AMF_MEMORY_UNKNOWN;
+}
+
 static int amf_device_init(AVHWDeviceContext *ctx)
 {
     AVAMFDeviceContext *amf_ctx = ctx->hwctx;
+    AMFContext  *context = amf_ctx->context;
     AMFContext1 *context1 = NULL;
+    AMFGuid guid1 = IID_AMFContext1();
     AMF_RESULT res;
+
+#ifdef _WIN32
+    AMFContext2 *context2 = NULL;
+    static const AMFGuid guid2 = {
+        0x726241d3, 0xbd46, 0x4e90,
+        0x99, 0x68, 0x93, 0xe0, 0x7e, 0xa2, 0x98, 0x4d
+    };
+#endif
 
     if (!amf_ctx->lock) {
         amf_ctx->lock_ctx = av_mallocz(sizeof(AVMutex));
@@ -574,34 +642,58 @@ static int amf_device_init(AVHWDeviceContext *ctx)
         amf_ctx->unlock = amf_unlock_default;
     }
 
-#ifdef _WIN32
-    res = amf_ctx->context->pVtbl->InitDX11(amf_ctx->context, NULL, AMF_DX11_1);
-    if (res == AMF_OK || res == AMF_ALREADY_INITIALIZED) {
-        av_log(ctx, AV_LOG_VERBOSE, "AMF initialisation succeeded via D3D11.\n");
-    } else {
-        res = amf_ctx->context->pVtbl->InitDX9(amf_ctx->context, NULL);
-        if (res == AMF_OK) {
-            av_log(ctx, AV_LOG_VERBOSE, "AMF initialisation succeeded via D3D9.\n");
-        } else {
-#endif
-            AMFGuid guid = IID_AMFContext1();
-            res = amf_ctx->context->pVtbl->QueryInterface(amf_ctx->context, &guid, (void**)&context1);
-            AMF_RETURN_IF_FALSE(ctx, res == AMF_OK, AVERROR_UNKNOWN, "CreateContext1() failed with error %d\n", res);
+    if (av_amf_get_memory_type(amf_ctx) != AMF_MEMORY_UNKNOWN) {
+        av_log(ctx, AV_LOG_VERBOSE, "AMF is already initialized, skipping init.\n");
+        return 0;
+    }
 
-            res = context1->pVtbl->InitVulkan(context1, NULL);
-            context1->pVtbl->Release(context1);
-            if (res != AMF_OK && res != AMF_ALREADY_INITIALIZED) {
-                if (res == AMF_NOT_SUPPORTED)
-                    av_log(ctx, AV_LOG_ERROR, "AMF via Vulkan is not supported on the given device.\n");
-                else
-                    av_log(ctx, AV_LOG_ERROR, "AMF failed to initialise on the given Vulkan device: %d.\n", res);
-                 return AVERROR(ENOSYS);
-            }
-            av_log(ctx, AV_LOG_VERBOSE, "AMF initialisation succeeded via Vulkan.\n");
 #ifdef _WIN32
+    res = AMF_IFACE_CALL(context, InitDX11, NULL, AMF_DX11_1);
+    if (res == AMF_OK) {
+        av_log(ctx, AV_LOG_VERBOSE, "Successfully initialized AMF via D3D11.\n");
+        return 0;
+    }
+
+    res = AMF_IFACE_CALL(context, QueryInterface, &guid2, (void**)&context2);
+    if (res == AMF_OK) {
+        res = AMF_IFACE_CALL(context2, InitDX12, NULL, AMF_DX12);
+        AMF_IFACE_CALL(context2, Release);
+        if (res == AMF_OK) {
+            av_log(ctx, AV_LOG_VERBOSE, "Successfully initialized AMF via D3D12.\n");
+            return 0;
         }
-     }
+    } else {
+        av_log(ctx, AV_LOG_VERBOSE, "QueryInterface(AMFContext2) failed with error %d, trying older D3D APIs...\n", res);
+    }
+
+    res = AMF_IFACE_CALL(context, InitDX9, NULL);
+    if (res == AMF_OK) {
+        av_log(ctx, AV_LOG_VERBOSE, "Successfully initialized AMF via D3D9.\n");
+        return 0;
+    }
+
+    av_log(ctx, AV_LOG_WARNING, "AMF failed to initialize with any of supported versions of DirectX, trying Vulkan instead...\n");
 #endif
+
+    res = AMF_IFACE_CALL(context, QueryInterface, &guid1, (void**)&context1);
+    if (res != AMF_OK) {
+        av_log(ctx, AV_LOG_ERROR, "QueryInterface(AMFContext1) failed with error %d\n", res);
+        return AVERROR_UNKNOWN;
+    }
+
+    res = AMF_IFACE_CALL(context1, InitVulkan, NULL);
+    AMF_IFACE_CALL(context1, Release);
+
+    if (res == AMF_OK) {
+        av_log(ctx, AV_LOG_VERBOSE, "Successfully initialized AMF via Vulkan.\n");
+    } else {
+        if (res == AMF_NOT_SUPPORTED)
+            av_log(ctx, AV_LOG_ERROR, "AMF via Vulkan is not supported on the given device.\n");
+        else
+            av_log(ctx, AV_LOG_ERROR, "Failed to initialize AMF via Vulkan, error %d\n", res);
+
+        return AVERROR(ENOSYS);
+    }
 
     return 0;
 }
@@ -758,6 +850,7 @@ static int amf_init_from_d3d11_device(AVAMFDeviceContext* amf_ctx, AVHWDeviceCon
         return AVERROR(ENODEV);
     }
     av_log(child_device_ctx, AV_LOG_INFO, "AMF via D3D11.\n");
+    hwctx->BindFlags |= D3D11_BIND_SHADER_RESOURCE;
     return 0;
 }
 #endif
@@ -790,7 +883,7 @@ static int amf_device_derive(AVHWDeviceContext *device_ctx,
                               AVHWDeviceContext *child_device_ctx, AVDictionary *opts,
                               int flags)
 {
-#if CONFIG_DXVA2 || CONFIG_D3D11VA
+#if CONFIG_DXVA2 || CONFIG_D3D11VA || CONFIG_D3D12VA
     AVAMFDeviceContext        *amf_ctx = device_ctx->hwctx;
 #endif
     int ret;

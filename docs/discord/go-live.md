@@ -320,9 +320,11 @@ server drops every packet, and viewers time out with error 2012.
 DAVE follows songbird's handshake (`dave.rs`) and encrypts each frame once the
 group is ready. A stream's MLS group isn't the voice channel's: its id is the
 RTC server id minus one, which Discord-video-stream found too. If the server's
-proposals or commits name another group, Yapfast moves to it. The vendored
-davey's `set_channel_id` keeps the key package already sent, so the streamer's
-welcome still opens. Yapfast accepts the people op 11 names into the group, and
+proposals or commits name another group before Yapfast joins, it restarts the
+DAVE session under that id and sends a fresh key package. A welcome for the
+old package triggers the usual invalid-welcome recovery. Outgoing media
+switches to the new key when the gateway executes the transition. Yapfast
+accepts the people op 11 names into the group, and
 also those named in video attributes (op 12) or in the stream key.
 
 With `YAPFAST_LOG=debug`, Yapfast logs every 5 s while sharing what it sent and the
