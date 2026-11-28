@@ -296,6 +296,7 @@ fn a_picture_shown(app: &mut App) -> Arc<yapfast_core::chat::Picture> {
                 gif: None,
                 spoiler: false,
                 video: false,
+                audio: false,
                 url: None,
                 description: None,
             }],

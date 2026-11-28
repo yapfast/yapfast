@@ -127,7 +127,7 @@ impl<'a, M: Clone + 'a> Viewer<'a, M> {
         }
         let room = room(look.window);
         let top = (room.height - self.size.height) / 2.0;
-        let mut middle = column![
+        let middle = column![
             Space::new().height(top.max(0.0)),
             opaque(
                 container(self.content)
@@ -137,12 +137,19 @@ impl<'a, M: Clone + 'a> Viewer<'a, M> {
         ]
         .align_x(Alignment::Center)
         .width(Length::Fill);
-        if let Some(foot) = self.foot {
-            middle = middle.push(Space::new().height(8)).push(opaque(
-                container(foot).width(self.size.width.max(FOOT)).height(40),
-            ));
-        }
         let mut layers = iced::widget::stack![backdrop, column![opaque(bar), middle]];
+        if let Some(foot) = self.foot {
+            // In a layer over the content, so a popup rising out of the foot
+            // (a video's volume slider) takes its clicks before the content
+            // under it does.
+            let foot = column![
+                Space::new().height(BAR + top.max(0.0) + self.size.height + 8.0),
+                opaque(container(foot).width(self.size.width.max(FOOT)).height(40)),
+            ]
+            .align_x(Alignment::Center)
+            .width(Length::Fill);
+            layers = layers.push(foot);
+        }
         for layer in self.over {
             layers = layers.push(layer);
         }

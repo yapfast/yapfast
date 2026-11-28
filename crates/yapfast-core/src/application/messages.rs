@@ -346,7 +346,7 @@ impl Application {
             .state
             .message(&item)
             .and_then(|message| message.attachments.get(index))
-            .is_some_and(|attachment| attachment.video);
+            .is_some_and(|attachment| attachment.video || attachment.audio);
         let Some(room) = self.state.room_of(&item).cloned().filter(|_| video) else {
             return vec![];
         };

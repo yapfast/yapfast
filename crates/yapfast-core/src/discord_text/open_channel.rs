@@ -1553,6 +1553,13 @@ impl OpenChannel {
                     server.deletes(channel, &me, &server.marks.roles)
                 })
         });
+        // In the server, not the channel, as Discord's client asks before it
+        // marks a timed out author (canManageUser).
+        let moderates = server.as_ref().is_some_and(|server| {
+            server.server_permissions(&me, &server.marks.roles)
+                & yapfast_discord::ready::permission::MODERATE_MEMBERS
+                != 0
+        });
         let rendering = Rendering {
             names: discord.names_version(),
             me: me.clone(),
@@ -1562,6 +1569,7 @@ impl OpenChannel {
             may_pin,
             may_forward,
             deletes,
+            moderates,
         };
         if !rendering.alike(&self.rendered_with) {
             self.rendered.clear();
@@ -1661,6 +1669,7 @@ impl OpenChannel {
                         url: None,
                         spoiler: file.spoiler,
                         video: false,
+                        audio: false,
                         description: None,
                     })
                     .collect(),
@@ -1744,6 +1753,7 @@ impl OpenChannel {
                     },
                     spoiler: attachment.spoiler,
                     video: attachment.video_url.is_some(),
+                    audio: attachment.audio,
                     gif: super::gifs::favorite_gif(attachment),
                     url: Some(
                         attachment
@@ -1845,6 +1855,12 @@ impl OpenChannel {
                         .joined_at(&self.guild, &message.author_id)
                         .is_some_and(|joined| now.saturating_sub(joined) < NEW_MEMBER_MS)
             },
+            author_timed_out_until: self.moderated_timeout(
+                discord,
+                server.zip(marks),
+                me,
+                &message.author_id,
+            ),
             forwarded: message.forwarded,
             forward_origin: message.forward_origin.as_ref().map(|origin| {
                 let guild = origin.guild_id.as_deref().unwrap_or(discord::DM_GUILD);
@@ -1893,6 +1909,30 @@ impl OpenChannel {
             voice: chat_voice(message),
             notice: chat_notice(message),
         }
+    }
+
+    /// When `author`'s timeout ends, for an account that may time them out;
+    /// see [`shown_timeout`]. Their roles are looked up only while they're
+    /// timed out.
+    fn moderated_timeout(
+        &self,
+        discord: &Discord,
+        server: Option<(
+            &yapfast_discord::ready::Server,
+            &yapfast_discord::marked::ServerMarks,
+        )>,
+        me: &str,
+        author: &str,
+    ) -> Option<u64> {
+        let (server, marks) = server.filter(|_| self.rendered_with.moderates)?;
+        let until = discord.timed_out_until(&self.guild, author)?;
+        let roles = discord.roles(&self.guild, author);
+        shown_timeout(
+            server,
+            (me, marks.roles.as_slice()),
+            (author, &roles[..]),
+            until,
+        )
     }
 
     /// Whether the list of accounts whose messages are collapsed changed.
@@ -1963,6 +2003,22 @@ impl OpenChannel {
     }
 }
 
+/// When `author`, holding their roles and timed out `until`, has their
+/// timeout shown to `me`, holding its roles, which has Moderate Members in
+/// the server ([`Rendering::moderates`]): only when it outranks them, as
+/// Discord's client asks (canManageUser), so never on the owner, on itself
+/// or on someone whose highest role is as high.
+pub(super) fn shown_timeout(
+    server: &yapfast_discord::ready::Server,
+    (me, my_roles): (&str, &[String]),
+    (author, roles): (&str, &[String]),
+    until: u64,
+) -> Option<u64> {
+    server
+        .outranks(me, my_roles, author, roles)
+        .then_some(until)
+}
+
 /// What rendering a message depends on besides the message and its
 /// previews: the names known, who this account is and blocks, the server's
 /// roles and channels, which mentions show by name, and this account's roles
@@ -1980,6 +2036,9 @@ pub(super) struct Rendering {
     pub(super) may_forward: bool,
     /// Whose messages this account may delete here.
     pub(super) deletes: Deletes,
+    /// This account has Moderate Members in the server, so its messages
+    /// show whom it outranks timed out.
+    pub(super) moderates: bool,
 }
 
 impl Rendering {
@@ -2002,6 +2061,10 @@ impl Rendering {
                     || (one.role_names == other.role_names
                         && one.role_colors == other.role_colors
                         && channels(one).eq(channels(other))))
+                    // Whom this account outranks, for the timeout clock.
+                    && (Arc::ptr_eq(&one.server, &other.server)
+                        || (one.role_positions == other.role_positions
+                            && one.owner_id == other.owner_id))
                     && (Arc::ptr_eq(marks, others)
                         || (marks.roles == others.roles
                             && marks.suppress_everyone == others.suppress_everyone
@@ -2016,6 +2079,7 @@ impl Rendering {
             && self.may_pin == other.may_pin
             && self.may_forward == other.may_forward
             && self.deletes == other.deletes
+            && self.moderates == other.moderates
             && server
     }
 }

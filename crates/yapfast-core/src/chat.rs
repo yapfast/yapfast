@@ -564,6 +564,11 @@ pub struct ChatServer {
     pub banner: Option<String>,
     /// Verified or partnered, which its name carries a tick for.
     pub verified: bool,
+    /// When its paused invites resume, in Unix seconds ([`u64::MAX`] for
+    /// no end), for an account that may Manage Server, which its rail
+    /// tooltip tells while they're paused, as Discord's does. None for
+    /// anyone else, or invites that aren't paused.
+    pub invites_paused_until: Option<u64>,
     /// Its scheduled events that haven't ended, soonest first, which its
     /// channel list counts in an "N Events" row.
     pub events: Vec<ServerEvent>,
@@ -1838,6 +1843,9 @@ pub struct Attachment {
     /// A video that plays in place of its picture, which is its poster:
     /// [`Command::PlayVideo`].
     pub video: bool,
+    /// A sound file, such as an MP3 or a WAV, that plays in its card as a
+    /// video without pictures: [`Command::PlayVideo`].
+    pub audio: bool,
     /// A GIF that can be a favourite: a linked one, or an attached `.gif`.
     pub gif: Option<Gif>,
     /// Its address on the web, which Copy Link and Open Link give, and from
@@ -1875,8 +1883,14 @@ pub struct Video {
     pub item: String,
     /// Its attachment's index in the item's attachments.
     pub index: usize,
+    /// A sound file, which has no pictures: its time comes as `played_ms`
+    /// rather than with its frames.
+    pub audio: bool,
     /// Its pictures, while it plays.
     pub frames: Option<Arc<crate::frames::Frames>>,
+    /// How far a sound file has played, in milliseconds, as its worker
+    /// says a few times a second.
+    pub played_ms: Option<u64>,
     /// How long it plays, once the file says.
     pub duration_ms: Option<u64>,
     /// Its pictures' full width and height, once its file opens.
@@ -2126,6 +2140,11 @@ pub struct ChatMessage {
     /// The author joined the server in the last week, which Discord marks
     /// by their name as a new member.
     pub new_member: bool,
+    /// When the author's Discord timeout ends, in Unix milliseconds, for an
+    /// account that may time them out: Moderate Members and a higher role,
+    /// as Discord's client asks before it marks their name with a clock.
+    /// None for anyone else; it may have ended since.
+    pub author_timed_out_until: Option<u64>,
     pub body: String,
     /// The body is Markdown source whose sender also sent formatting.
     pub formatted: bool,

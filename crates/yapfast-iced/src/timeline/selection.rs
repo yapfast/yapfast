@@ -290,6 +290,7 @@ mod tests {
                 gif: None,
                 spoiler: false,
                 video: false,
+                audio: false,
                 url: None,
                 description: None,
             }],

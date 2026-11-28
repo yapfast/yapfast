@@ -129,15 +129,24 @@ recording. Each change is kept at once in
   unavailable. Existing explicit choices made in Messages carry over.
   Yapfast saves the selected mode as `time_format` in `layout.json` and
   updates the displayed clock immediately.
-- Notifications, Sounds (the set, which plays a sound when chosen, the
-  volume, and each sound's own with its play button) and Advanced.
+- Notifications, Sounds and Advanced. Sounds has the sound set (which
+  plays a sound when chosen), Event volume, each sound's own volume with
+  its play button, and Custom sound set, off until turned on. With it on,
+  the incoming and outgoing DM call tones and each sound get a menu:
+  Default (the theme's sound, the set's or the call tone), Custom to pick a
+  file, and Uploaded file once one is picked, with a button to remove it.
+  The files are WAV, Ogg, Opus or MP3, up to 1 MiB and four seconds, six
+  for call tones, kept decoded on this device and loaded only while the
+  switch is on; turning it off keeps them and the choices.
   Advanced holds Discord's two startup switches on Windows and Linux
   outside the preview: Automatically open Yapfast when your computer starts
   up, and Start Yapfast minimized (to the tray), off until chosen and greyed
   out, shown off, while the first is off. Advanced also holds Open Discord
   links in Yapfast (outside the preview), Close to tray, saying where
   there's no tray, and the renderer's switch: while it differs from the
-  renderer drawing, when it takes effect and Restart Yapfast.
+  renderer drawing, when it takes effect and Restart Yapfast. Enhanced
+  live preview quality lifts the local preview's 720p and 30 fps caps for the
+  next stream, up to its own size and frame rate.
 
   English text lives in the view code, for example
   `tr!(self.cx.i18n, "Interface language")`. Use `tr_mark!` for a source

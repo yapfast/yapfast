@@ -1324,6 +1324,58 @@ fn group_dm_icons_render_placeholder_and_overlapping_pair_with_cutout() {
 }
 
 #[test]
+fn a_servers_tooltip_says_its_invites_are_paused_to_one_who_may_manage_it() {
+    use crate::rail::Event;
+    use iced::{Point, Rectangle, Size};
+    let (mut app, _folder) = preview();
+    // Below where a plain tooltip reaches: it is 32 px tall, centred on
+    // the tile, and its shadow 12 px past that. The paused line under the
+    // name makes it taller.
+    let below_name = |tile: Point| {
+        Rectangle::new(
+            Point::new(tile.x + 44.0, tile.y + 33.0),
+            Size::new(160.0, 4.0),
+        )
+    };
+    let tip_reaches_lower = |app: &mut App| {
+        let _ = app.update(Message::Rail(Event::Point("coop".into(), true)));
+        let mut drawn = false;
+        interact(app, |ui| {
+            let at = ui
+                .find("CC")
+                .expect("Co-op crew's tile")
+                .visible_bounds()
+                .expect("in view")
+                .center();
+            drawn = super::hover_draws(ui, at, below_name(at));
+        });
+        drawn
+    };
+    let pause = |app: &mut App, until: Option<u64>| {
+        change(app, |state| {
+            let coop = state
+                .servers
+                .iter_mut()
+                .find(|server| server.id == "coop")
+                .expect("Co-op crew");
+            Arc::make_mut(coop).invites_paused_until = until;
+        });
+    };
+    assert!(!tip_reaches_lower(&mut app), "its name alone");
+    // The core says when they resume only to one who may Manage Server.
+    let now = super::now_ms() / 1000;
+    pause(&mut app, Some(now + 600));
+    assert!(
+        tip_reaches_lower(&mut app),
+        "Invites paused for this server"
+    );
+    pause(&mut app, Some(u64::MAX));
+    assert!(tip_reaches_lower(&mut app), "paused with no end");
+    pause(&mut app, Some(now - 600));
+    assert!(!tip_reaches_lower(&mut app), "resumed");
+}
+
+#[test]
 fn a_closed_folder_shows_up_to_four_server_icons_in_a_two_by_two_grid() {
     use iced_test::{Simulator, selector::Candidate};
     use yapfast_core::chat::{ChatServer, Picture, Pixels, ServerFolder};

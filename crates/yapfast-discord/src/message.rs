@@ -85,6 +85,20 @@ pub(crate) const IS_SPOILER: u64 = 1 << 3;
 /// The flag of an attachment, or an embed's picture, that moves.
 const IS_ANIMATED: u64 = 1 << 5;
 
+/// Whether an attached file plays as sound where it shows, as Discord's
+/// client plays it: by its name, unless it has a picture's width and
+/// height.
+fn plays_as_audio(name: &str, sized: bool) -> bool {
+    let extension = name
+        .rsplit_once('.')
+        .map(|(_, extension)| extension.to_ascii_lowercase());
+    !sized
+        && matches!(
+            extension.as_deref(),
+            Some("mp3" | "m4a" | "ogg" | "opus" | "wav" | "flac")
+        )
+}
+
 /// Whether an attachment or an embed's picture moves: Discord marks it
 /// animated, or it's a GIF.
 pub(crate) fn animated(media: &Value) -> bool {
@@ -489,6 +503,9 @@ pub struct Attachment {
     /// attached video, or a link's through the media proxy.
     #[serde(default)]
     pub video_url: Option<String>,
+    /// A sound file, such as an MP3, that plays in its card, from `url`.
+    #[serde(default)]
+    pub audio: bool,
     /// The address a GIF or moving picture linked on its own was sent as,
     /// which Discord's client keeps it among the favourites by: a GIF's page,
     /// or the picture's own address.
@@ -851,6 +868,8 @@ pub fn parse(value: &Value) -> Option<Message> {
             let video = kind.starts_with("video/");
             let url: Arc<str> = attachment["url"].as_str()?.into();
             let name = attachment["filename"].as_str()?;
+            let sized = attachment["width"].as_u64().unwrap_or_default() > 0
+                && attachment["height"].as_u64().unwrap_or_default() > 0;
             Some(Attachment {
                 name: name.into(),
                 size: attachment["size"].as_u64(),
@@ -868,6 +887,7 @@ pub fn parse(value: &Value) -> Option<Message> {
                     .then(|| scaled_url(attachment, VIEW_WIDTH, VIEW_HEIGHT, true))
                     .flatten(),
                 video_url: video.then(|| url.to_string()),
+                audio: plays_as_audio(name, sized),
                 link_url: None,
                 animated: image && animated(attachment),
                 url,
@@ -934,6 +954,7 @@ pub fn parse(value: &Value) -> Option<Message> {
             view_url: Some(url),
             still_url: None,
             video_url: None,
+            audio: false,
             link_url: None,
             animated: false,
             shown: Shown::Sticker,
@@ -1853,10 +1874,10 @@ impl Names {
             learned |= changed(&mut self.member_styles, key, Style::parse(style));
         }
         // Present when known, null when they aren't timed out; a time past
-        // is a timeout that ended.
+        // is a timeout that ended. A moderator's messages show it.
         if let Some(until) = member.get("communication_disabled_until") {
             let until = until.as_str().and_then(iso_ms);
-            changed(&mut self.timeouts, key, until);
+            learned |= changed(&mut self.timeouts, key, until);
         }
         // Present when known, null when they don't boost it.
         if let Some(since) = member.get("premium_since") {
@@ -2710,6 +2731,28 @@ mod tests {
         .unwrap();
         assert_eq!(message.attachments.len(), 1);
         assert_eq!(message.components[0].rows.len(), 1);
+    }
+
+    #[test]
+    fn sound_files_play_by_their_names() {
+        let file = |name: &str, sized: bool| {
+            let mut file =
+                json!({"filename": name, "size": 1, "url": format!("https://cdn/{name}")});
+            if sized {
+                file["width"] = json!(640);
+                file["height"] = json!(360);
+            }
+            file
+        };
+        let message = parse(&json!({
+            "id": "1", "channel_id": "2", "author": {"id": "3", "username": "ann"},
+            "content": "",
+            "attachments": [file("song.MP3", false), file("take.wav", false),
+                            file("loop.ogg", false), file("film.ogg", true), file("notes.txt", false)],
+        }))
+        .unwrap();
+        let audio: Vec<_> = message.attachments.iter().map(|a| a.audio).collect();
+        assert_eq!(audio, [true, true, true, false, false]);
     }
 
     #[test]

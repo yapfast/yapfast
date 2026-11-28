@@ -2,8 +2,10 @@
 //! dropdown under its button, a menu over the composer's +. The popup is
 //! drawn in iced's overlay layer, over everything else, placed by the
 //! widget's own bounds on screen (above it or below it, as wide as it or at
-//! its own width, its left or right edge level with the widget's), and kept
-//! inside the window. While it's open it takes the pointer over it; a press
+//! its own width, its left or right edge level with the widget's or centred
+//! on it), and kept
+//! inside the window. While it's open it takes the pointer over all of it,
+//! from what's under it too; a press
 //! outside both says so, for a popup that closes then, and goes no further.
 
 use iced::{
@@ -46,6 +48,7 @@ pub struct Popover<'a, M> {
     width: Width,
     gap: f32,
     right: bool,
+    centred: bool,
     outside: Option<M>,
 }
 
@@ -58,6 +61,7 @@ impl<'a, M: Clone> Popover<'a, M> {
             width: Width::Same,
             gap: 8.0,
             right: false,
+            centred: false,
             outside: None,
         }
     }
@@ -75,6 +79,13 @@ impl<'a, M: Clone> Popover<'a, M> {
     /// The popup's right edge level with the widget's.
     pub fn right(mut self) -> Self {
         self.right = true;
+        self
+    }
+
+    /// The popup centred across the widget, as a slider wider than its
+    /// button.
+    pub fn centred(mut self) -> Self {
+        self.centred = true;
         self
     }
 
@@ -215,6 +226,7 @@ impl<M: Clone> Widget<M, Theme, Renderer> for Popover<'_, M> {
                 width: self.width,
                 gap: self.gap,
                 right: self.right,
+                centred: self.centred,
                 outside: self.outside.clone(),
             }))),
             _ => None,
@@ -245,6 +257,7 @@ struct Open<'a, 'b, M> {
     width: Width,
     gap: f32,
     right: bool,
+    centred: bool,
     outside: Option<M>,
 }
 
@@ -268,7 +281,9 @@ impl<M: Clone> overlay::Overlay<M, Theme, Renderer> for Open<'_, '_, M> {
             .as_widget_mut()
             .layout(self.tree, renderer, &limits);
         let size = node.size();
-        let x = if self.right {
+        let x = if self.centred {
+            base.x + (base.width - size.width) / 2.0
+        } else if self.right {
             base.x + base.width - size.width
         } else {
             base.x
@@ -343,9 +358,18 @@ impl<M: Clone> overlay::Overlay<M, Theme, Renderer> for Open<'_, '_, M> {
         renderer: &Renderer,
     ) -> mouse::Interaction {
         let bounds = layout.bounds();
-        self.popup
+        let interaction = self
+            .popup
             .as_widget()
-            .mouse_interaction(self.tree, layout, cursor, &bounds, renderer)
+            .mouse_interaction(self.tree, layout, cursor, &bounds, renderer);
+        // iced hides the pointer from what's under an overlay only where the
+        // overlay has an interaction: its padding too, or a button under it
+        // would light up and show its tooltip.
+        if interaction == mouse::Interaction::None && cursor.is_over(bounds) {
+            mouse::Interaction::Idle
+        } else {
+            interaction
+        }
     }
 
     fn overlay<'c>(
@@ -360,5 +384,52 @@ impl<M: Clone> overlay::Overlay<M, Theme, Renderer> for Open<'_, '_, M> {
             &layout.bounds(),
             Vector::ZERO,
         )
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use iced::{
+        Event, Point, Settings, Size,
+        widget::{Space, column, container, mouse_area},
+    };
+    use iced_test::Simulator;
+
+    use super::{Popover, Side, Width};
+    use crate::testing::{Message, install_fonts};
+
+    /// A widget 100 px tall that says when the pointer comes onto it, then
+    /// a button-sized base whose popup rises over its foot: a slider over
+    /// a card's Save, its padding with nothing to point at.
+    fn view() -> iced::Element<'static, Message> {
+        let under = mouse_area(Space::new().width(100).height(100))
+            .on_enter(Message::Copied("under".into()));
+        let popup =
+            container(Space::new().width(40).height(10)).padding(iced::Padding::ZERO.bottom(30));
+        let base = Popover::new(
+            Space::new().width(20).height(20),
+            Some(popup.into()),
+            Side::Above,
+        )
+        .width(Width::Own(40.0))
+        .gap(0.0);
+        column![under, base].into()
+    }
+
+    #[test]
+    fn its_padding_hides_the_pointer_from_what_is_under_it() {
+        install_fonts();
+        let entered = |at: Point| {
+            let mut ui = Simulator::with_size(Settings::default(), Size::new(200.0, 200.0), view());
+            ui.point_at(at);
+            ui.simulate([Event::Mouse(iced::mouse::Event::CursorMoved {
+                position: at,
+            })]);
+            ui.into_messages()
+                .any(|message| matches!(message, Message::Copied(_)))
+        };
+        assert!(entered(Point::new(80.0, 80.0)), "beside the popup");
+        // In its padding, under its 10 px of content.
+        assert!(!entered(Point::new(20.0, 80.0)), "under the popup");
     }
 }

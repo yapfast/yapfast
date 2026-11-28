@@ -35,7 +35,7 @@ pub use games::{block_game, open_detected_games_menu};
 mod language_time;
 mod messages;
 mod notifications;
-mod sounds;
+pub(super) mod sounds;
 
 /// The choices of Accessibility's animations, in the order they show.
 const ANIMATES: [Animate; 3] = [Animate::Focused, Animate::Always, Animate::Never];
@@ -71,9 +71,9 @@ pub enum Pref {
     SoundVolume(u32, bool),
     AdjustEach(bool),
     EachSound(usize, u32, bool),
-    PlaySound(usize),
     GpuRendering(bool),
     GpuEncoding(bool),
+    EnhancedLivePreview(bool),
     CloseToTray(bool),
     MultipleWindows(bool),
     DeveloperMode(bool),
@@ -263,7 +263,12 @@ impl Settings {
                 let set = SoundSet::ALL[index.min(SoundSet::ALL.len() - 1)];
                 cx.layout.voice.sound_set = set;
                 cx.keep("sound_set", set);
-                try_sound(cx, Sound::ALL[0]);
+                yapfast_core::sounds::play(
+                    set,
+                    Sound::Join,
+                    cx.layout.voice.sound_gain(Sound::Join),
+                    cx.state().voice.speaker.as_deref(),
+                );
             }
             Pref::SoundVolume(value, done) => {
                 cx.layout.voice.sound_volume = Some(value.min(200) as u8);
@@ -291,11 +296,6 @@ impl Settings {
                     try_sound(cx, sound);
                 }
             }
-            Pref::PlaySound(index) => {
-                if let Some(&sound) = Sound::ALL.get(index) {
-                    try_sound(cx, sound);
-                }
-            }
             Pref::GpuRendering(on) => {
                 prefs.gpu_rendering = on;
                 cx.keep("gpu_rendering", on);
@@ -304,6 +304,11 @@ impl Settings {
                 cx.layout.voice.gpu_encoding = Some(on);
                 yapfast_core::stream_worker::set_hardware_encoding(on);
                 cx.keep("gpu_encoding", on);
+            }
+            Pref::EnhancedLivePreview(on) => {
+                cx.layout.voice.enhanced_live_preview = on;
+                yapfast_core::stream_worker::set_enhanced_preview(on);
+                cx.keep("enhanced_live_preview", on);
             }
             Pref::CloseToTray(on) => {
                 prefs.close_to_tray = Some(on);
@@ -400,12 +405,7 @@ fn set_autostart(mode: Autostart) {
 /// One of Yapfast's sounds, to try a setting, on the call's speakers.
 fn try_sound(cx: &Cx<'_>, sound: Sound) {
     let voice = &cx.state().voice;
-    yapfast_core::sounds::play(
-        cx.layout.voice.sound_set,
-        sound,
-        cx.layout.voice.sound_gain(sound),
-        voice.speaker.as_deref(),
-    );
+    cx.layout.voice.play_sound(sound, voice.speaker.as_deref());
 }
 
 impl<'a> Page<'a> {

@@ -153,6 +153,7 @@ fn favourite_gifs_show_from_disk_and_stars_wait_for_discords() {
             gif: Some(gif.clone()),
             spoiler: false,
             video: false,
+            audio: false,
             url: None,
             description: None,
         }],

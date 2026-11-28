@@ -55,7 +55,7 @@ pub const EMBED_PARTS: crate::piece::PartNo = 16384;
 /// A thread's card under its message at its widest.
 const THREAD_WIDTH: f32 = 480.0;
 /// A file's card at its widest, and its icon.
-const FILE_CARD_WIDTH: f32 = 432.0;
+pub(crate) const FILE_CARD_WIDTH: f32 = 432.0;
 const FILE_ICON: u32 = 30;
 /// An embed's padding across, around its text and pictures.
 const EMBED_PADDING: f32 = 4.0 + 12.0 + 16.0;
@@ -167,7 +167,12 @@ pub fn message_content<'a>(
         && !(message_style == MessageStyle::Bubbles && message.own)
     {
         content = content.push(
-            container(author_line(ctx, index, message)).padding(Padding::ZERO.bottom(AUTHOR_GAP)),
+            container(timed_out_mark(
+                ctx,
+                message,
+                author_line(ctx, index, message),
+            ))
+            .padding(Padding::ZERO.bottom(AUTHOR_GAP)),
         );
     }
     if message.forwarded {
@@ -250,6 +255,13 @@ pub fn message_content<'a>(
             && let Some(voice) = &message.voice
         {
             content = content.push(crate::playback::voice_card(ctx, message, voice));
+            continue;
+        }
+        if attachment.audio {
+            content = content.push(
+                container(crate::playback::audio_card(ctx, message, index, attachment))
+                    .padding(Padding::ZERO.top(4)),
+            );
             continue;
         }
         content = content.push(
@@ -1208,6 +1220,41 @@ fn author_height(ctx: crate::ctx::Ctx<'_>) -> f32 {
 fn sent_time<'a>(ctx: crate::ctx::Ctx<'a>, index: usize, message: &'a ChatMessage) -> &'a str {
     ctx.row_look(index)
         .map_or(message.time.as_str(), |look| &*look.time)
+}
+
+/// What the timeout clock's tooltip says, as Discord's client words it.
+pub const TIMED_OUT_TIP: &str =
+    "This is only visible to moderators and indicates this user is timed out.";
+
+/// A message's author line with Discord's timeout clock before the name,
+/// while the author is timed out and this account may time them out (the
+/// core leaves [`ChatMessage::author_timed_out_until`] empty otherwise).
+/// Its end is checked when the row is drawn, as Discord's client checks it
+/// when it renders the message: nothing wakes for it.
+fn timed_out_mark<'a>(
+    ctx: crate::ctx::Ctx<'a>,
+    message: &ChatMessage,
+    line: Element<'a, Message>,
+) -> Element<'a, Message> {
+    let now = yapfast_core::clock::now_ms();
+    if !message
+        .author_timed_out_until
+        .is_some_and(|until| until > now)
+    {
+        return line;
+    }
+    let theme = ctx.look.theme;
+    // The member list's clock, in its colour.
+    let clock = iced::widget::tooltip(
+        ctx.look.glyph(Icon::Clock, 14, theme.danger),
+        controls::tip(theme, TIMED_OUT_TIP),
+        iced::widget::tooltip::Position::Top,
+    )
+    .gap(6);
+    row![clock, line]
+        .spacing(4)
+        .align_y(Alignment::Center)
+        .into()
 }
 
 /// A message's author line: the name in its style's font (only the font, in

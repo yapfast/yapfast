@@ -276,7 +276,11 @@ fn the_share_menu_fits_a_short_window_and_keeps_its_button() {
             Event::Share(ShareEvent::Picture(
                 preview_count,
                 Source::Window(1),
-                iced::advanced::image::Handle::from_rgba(1, 1, vec![0, 0, 0, 255]),
+                crate::call::popups::share::SourcePreview {
+                    handle: iced::advanced::image::Handle::from_rgba(1, 1, vec![0, 0, 0, 255]),
+                    width: 1,
+                    height: 1,
+                },
             )),
         );
         let share = app.call.share.as_ref().expect("share menu");
@@ -378,6 +382,18 @@ fn the_share_menus_settings_are_rows_that_open_their_choices_beside_them() {
     use iced::keyboard::{Key, key};
     let spot = Point::new(300.0, 640.0);
     let (mut app, _folder) = share_menu(Size::new(1200.0, 720.0), spot, sources(3), false);
+    assert!(shows(&app, "Quality preset for the GPU encoder"));
+    interact(&mut app, |ui| {
+        ui.click("Higher quality").expect("GPU quality");
+    });
+    app.layout.voice.gpu_encoding = Some(false);
+    assert!(shows(&app, "Sharper, at twice the CPU"));
+    interact(&mut app, |ui| {
+        ui.click("Higher quality").expect("CPU quality");
+    });
+    let quality = app.call.share.as_ref().unwrap().quality;
+    assert!(quality.gpu_high_quality && quality.high_quality);
+    assert!(app.call.share.as_ref().unwrap().side.is_none());
     // Each setting is one row that names what's chosen, and none of the
     // choices show.
     for shown in [
@@ -392,11 +408,13 @@ fn the_share_menus_settings_are_rows_that_open_their_choices_beside_them() {
     ] {
         assert!(shows(&app, shown), "{shown}");
     }
-    for hidden in ["No audio", "720p", "Source", "15 fps", "60 fps"] {
+    for hidden in [
+        "No audio", "480p", "720p", "1440p", "Source", "15 fps", "60 fps",
+    ] {
         assert!(!super::present(&app, hidden), "{hidden}");
     }
-    // The pointer on a row opens its choices to the right of the menu,
-    // the first level with the row, and nothing in the menu moves.
+    // The resolution list opens to the right and shifts up to fit the
+    // window. Nothing in the menu moves.
     let parts = [
         "Entire screen",
         "Window 1",
@@ -411,10 +429,10 @@ fn the_share_menus_settings_are_rows_that_open_their_choices_beside_them() {
     point_at(&mut app, "Resolution");
     assert_eq!(side(&app), Some(Setting::Resolution));
     assert_eq!(places(&app, &parts), closed, "the menu stays as it was");
-    let choices = places(&app, &["720p", "Source", "Resolution"]);
+    let choices = places(&app, &["480p", "Source", "Resolution"]);
     assert!(choices[0].x > right, "beside the menu: {choices:?}");
-    assert!((choices[0].y - choices[2].y).abs() < 3.0, "{choices:?}");
-    assert!(choices[1].y > choices[0].y);
+    assert!(choices[0].y <= choices[2].y + 3.0, "{choices:?}");
+    assert!(choices[1].y > choices[0].y && choices[1].y < 720.0);
     // Another row's take their place: one list at a time.
     point_at(&mut app, "Frame rate");
     assert_eq!(side(&app), Some(Setting::FrameRate));
@@ -1469,6 +1487,52 @@ fn everyone_in_a_call_of_nine_shows_by_name_over_the_controls() {
             assert!(shows(&app, name), "{name} in {width}x{height}");
         }
     }
+}
+
+#[test]
+fn the_own_stream_preview_follows_its_tile_and_the_corner() {
+    use crate::call::stage::{self, OWN_SCREEN};
+    use std::sync::Arc;
+    use yapfast_core::frames::Frames;
+
+    let (mut app, _folder, _) = in_call();
+    super::change(&mut app, |state| {
+        state.voice.sharing = Some(voice::Sharing {
+            phase: voice::SharePhase::Live,
+            frames: Arc::new(Frames::create(16, 16).unwrap()),
+            viewers: vec![],
+        });
+        let template = state.voice.participants[0].clone();
+        state.voice.participants.extend((0..12).map(|index| {
+            let mut person = template.clone();
+            person.id = format!("person-{index}");
+            person.person = person.id.clone();
+            person.local = false;
+            person.video = None;
+            person.streaming = false;
+            person
+        }));
+    });
+
+    app.call.stage_seen.set(Some(Size::new(640.0, 180.0)));
+    let _ = crate::call::update(&mut app, Event::Focus(None));
+    assert!(app.video.looks_at(OWN_SCREEN));
+    let (_, _, tiles, content) = stage::stage(&app);
+    let scroll = content - stage::stage_size(&app).height;
+    assert!(scroll >= tiles[0].y + tiles[0].height);
+    let _ = crate::call::update(&mut app, Event::Scrolled(scroll));
+    assert!(!app.video.looks_at(OWN_SCREEN));
+    let _ = crate::call::update(&mut app, Event::Scrolled(0.0));
+    assert!(app.video.looks_at(OWN_SCREEN));
+
+    let _ = crate::call::update(&mut app, Event::Focus(Some(2)));
+    let _ = crate::call::update(&mut app, Event::Full(true));
+    assert!(!app.video.looks_at(OWN_SCREEN));
+
+    let _ = crate::call::update(&mut app, Event::Full(false));
+    app.client.dispatch(Action::SelectRoom("general".into()));
+    let _ = app.sync();
+    assert!(app.video.looks_at(OWN_SCREEN));
 }
 
 /// Several streams watched at once, as Discord's client allows: one

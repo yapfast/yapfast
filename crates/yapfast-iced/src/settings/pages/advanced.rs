@@ -91,6 +91,12 @@ impl<'a> Page<'a> {
                 Pref::GpuEncoding,
             ),
             self.flip(
+                "Enhanced live preview quality",
+                "Show your own preview at the stream's resolution and frame rate. Uses more resources and applies to the next stream.",
+                self.cx.layout.voice.enhanced_live_preview,
+                Pref::EnhancedLivePreview,
+            ),
+            self.flip(
                 tr!(self.cx.i18n, "Developer Mode"),
                 tr!(self.cx.i18n, "Menus offer Copy ID for servers, channels and people, which helps when you write apps that use the Discord API."),
                 self.cx.layout.developer_mode,

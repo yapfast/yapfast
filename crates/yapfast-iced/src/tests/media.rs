@@ -34,6 +34,7 @@ fn viewing(app: &mut crate::app::App) {
                 gif: None,
                 spoiler: false,
                 video: false,
+                audio: false,
                 url: None,
                 description: None,
             }],
@@ -134,6 +135,7 @@ fn picture_at(name: &str, side: u32, placement: Placement, spoiler: bool) -> Att
         gif: None,
         spoiler,
         video: false,
+        audio: false,
         url: Some(format!("https://example.com/{name}").into()),
         description: None,
     }
@@ -372,6 +374,98 @@ fn a_messages_gif_has_a_star_that_makes_it_a_favourite() {
     );
 }
 
+/// A sound file shows as Discord's audio player: its card with Play under
+/// its name, which plays it as a video without pictures; playing, its bar
+/// shows the time the core says, and why it stopped once it did.
+#[test]
+fn a_sound_file_plays_in_its_card() {
+    use crate::{app::Message, playback::Clip};
+    let (mut app, _folder) = preview();
+    let mut song = picture_at("song.mp3", 0, Placement::Message, false);
+    (song.image, song.dimensions, song.audio) = (false, None, true);
+    song.size = Some(3 << 20);
+    signed_in(&mut app);
+    only(
+        &mut app,
+        ChatMessage {
+            body: "Listen".into(),
+            attachments: vec![song],
+            ..Default::default()
+        },
+    );
+    assert!(shows(&app, "song.mp3") && shows(&app, "0:00"));
+    // Play is left of the start's time.
+    let start = bounds_of(&app, "0:00");
+    let play = iced::Point::new(start.x - 6.0 - 14.0, start.center_y());
+    let pressed = clicked(&app, play, iced::mouse::Button::Left);
+    assert!(
+        pressed.iter().any(
+            |message| matches!(message, Message::Clip(Clip::Play(item, 0, _)) if item == "i0")
+        ),
+        "Play plays it"
+    );
+    let playing = |played_ms, error: Option<&str>| yapfast_core::chat::Video {
+        room: String::new(),
+        item: "i0".into(),
+        index: 0,
+        audio: true,
+        frames: None,
+        played_ms,
+        duration_ms: Some(90_000),
+        size: Some((0, 0)),
+        loading: false,
+        playing: error.is_none(),
+        ended: false,
+        sound: true,
+        muted: false,
+        volume: 0.2,
+        error: error.map(str::to_owned),
+    };
+    change(&mut app, |state| {
+        state.video = Some(playing(Some(12_000), None));
+    });
+    assert!(shows(&app, "0:12 / 1:30"), "its time, as the core says");
+    // The volume's slider rises over Save: a press on it turns the volume
+    // and doesn't save the file.
+    let name = bounds_of(&app, "song.mp3");
+    let saves = |app: &crate::app::App, x: f32| {
+        clicked(
+            app,
+            iced::Point::new(x, name.y + 4.0),
+            iced::mouse::Button::Left,
+        )
+        .iter()
+        .any(|message| matches!(message, Message::Image(_)))
+    };
+    // Save's right edge, 8 px in from the card's; the mute under it, and
+    // the slider over that, are 6 px further in.
+    let save_right = (name.x as u32..app.shell.frame.width as u32)
+        .rev()
+        .map(|x| x as f32)
+        .find(|&x| saves(&app, x))
+        .expect("Save is on the name's row");
+    let on_save = iced::Point::new(save_right - 16.0, name.y + 4.0);
+    app.playback.clip_volume = 1;
+    let pressed = clicked(&app, on_save, iced::mouse::Button::Left);
+    assert!(
+        pressed
+            .iter()
+            .any(|message| matches!(message, Message::Clip(Clip::Volume(_)))),
+        "the slider takes the press"
+    );
+    assert!(
+        !pressed
+            .iter()
+            .any(|message| matches!(message, Message::Image(_))),
+        "Save under it doesn't"
+    );
+    app.playback.clip_volume = 0;
+    change(&mut app, |state| {
+        state.video = Some(playing(None, Some("Yapfast can't play this file.")));
+    });
+    assert!(shows(&app, "Yapfast can't play this file."));
+}
+
 /// Sam's message with a 40 s video, playing full screen, out of the
 /// preview.
 fn a_video_full_screen(app: &mut crate::app::App) {
@@ -391,7 +485,9 @@ fn a_video_full_screen(app: &mut crate::app::App) {
             room: String::new(),
             item: "i0".into(),
             index: 0,
+            audio: false,
             frames: None,
+            played_ms: None,
             duration_ms: Some(40_000),
             size: Some((1280, 720)),
             loading: false,
@@ -485,6 +581,64 @@ fn a_video_full_screen_has_save_and_a_menu_of_the_videos_rows() {
 }
 
 #[test]
+fn clicking_a_full_screen_videos_volume_slider_does_not_pause_it() {
+    use crate::{app::Message, playback::Clip};
+    let (mut app, _folder) = preview();
+    a_video_full_screen(&mut app);
+    app.playback.clip_volume = 1;
+    let window = app.shell.frame;
+    let size = crate::viewer::fitted(window, Some((1280, 720)));
+    let room = crate::viewer::room(window);
+    let top = ((room.height - size.height) / 2.0).max(0.0);
+    let foot_y = crate::viewer::BAR + top + size.height + 8.0;
+    let foot_right = (window.width + size.width.max(360.0)) / 2.0;
+    // The mute button sits left of Exit full screen (6 px right padding,
+    // 28 px button, 6 px gap, 28 px mute button); the slider rises 112 px
+    // above it, overlapping the bottom-right of the video.
+    let slider_x = foot_right - 6.0 - 28.0 - 6.0 - 14.0;
+    // Upper half of the track (away from the initial 0.5 value) so the
+    // slider publishes a new volume while overlapping the video.
+    let on_slider = clicked(
+        &app,
+        iced::Point::new(slider_x, foot_y - 74.0),
+        iced::mouse::Button::Left,
+    );
+    assert!(
+        on_slider
+            .iter()
+            .any(|message| matches!(message, Message::Clip(Clip::Volume(_)))),
+        "changed the volume"
+    );
+    assert!(
+        !on_slider
+            .iter()
+            .any(|message| matches!(message, Message::Clip(Clip::Toggle | Clip::Full(false)))),
+        "did not toggle or close the video"
+    );
+    // Its top padding also overlaps the video and leaves playback alone.
+    let on_padding = clicked(
+        &app,
+        iced::Point::new(slider_x, foot_y - 104.0),
+        iced::mouse::Button::Left,
+    );
+    assert!(
+        !on_padding
+            .iter()
+            .any(|message| matches!(message, Message::Clip(Clip::Toggle | Clip::Full(false)))),
+        "padding did not toggle or close the video"
+    );
+    // Clicking the video itself still toggles playback.
+    let middle = iced::Point::new(window.width / 2.0, window.height / 2.0);
+    let on_video = clicked(&app, middle, iced::mouse::Button::Left);
+    assert!(
+        on_video
+            .iter()
+            .any(|message| matches!(message, Message::Clip(Clip::Toggle))),
+        "toggled the video"
+    );
+}
+
+#[test]
 fn the_wheel_on_a_videos_volume_turns_it_five_percent() {
     use yapfast_core::chat::VideoCommand;
     let (mut app, _folder) = preview();
@@ -555,6 +709,62 @@ fn a_voice_messages_volume_takes_the_arrows_and_page_keys_until_escape() {
         (volume(&app) - 0.35).abs() < 0.001,
         "the keys go on as before"
     );
+}
+
+/// A voice message's volume rises over its message's text: a press on it
+/// turns the volume rather than selecting the text or following a link.
+#[test]
+fn a_voice_messages_volume_takes_presses_over_the_text_above() {
+    use crate::{app::Message, playback::Event};
+    let (mut app, _folder) = preview();
+    // Its speed and mute show without the pointer on it.
+    app.layout.prefs.animate = crate::layout::Animate::Never;
+    let mut recording = picture_at("voice-message.ogg", 0, Placement::Message, false);
+    (recording.image, recording.dimensions) = (false, None);
+    only(
+        &mut app,
+        ChatMessage {
+            body: "Listen to this one".into(),
+            attachments: vec![recording],
+            voice: Some(yapfast_core::chat::VoiceMessage {
+                duration_ms: 5_000,
+                waveform: Arc::from(vec![128; 32]),
+            }),
+            ..Default::default()
+        },
+    );
+    let speed = bounds_of(&app, "1x");
+    let mutes = |app: &crate::app::App, x: f32| {
+        clicked(
+            app,
+            iced::Point::new(x, speed.center_y()),
+            iced::mouse::Button::Left,
+        )
+        .iter()
+        .any(|message| matches!(message, Message::Voice(Event::Mute(_))))
+    };
+    let mute_left = ((speed.x + speed.width) as u32..(speed.x + speed.width + 80.0) as u32)
+        .map(|x| x as f32)
+        .find(|&x| mutes(&app, x))
+        .expect("the mute is after the speed");
+    // The message's text, over the pill, where the slider rises: a press
+    // there is the timeline's, which selects text and follows links.
+    let over = iced::Point::new(mute_left + 14.0, speed.y - 40.0);
+    let timeline = |messages: &[Message]| {
+        messages
+            .iter()
+            .any(|message| matches!(message, Message::Timeline(_)))
+    };
+    assert!(timeline(&clicked(&app, over, iced::mouse::Button::Left)));
+    let _ = crate::playback::voice_event(&mut app, Event::VolumeHover("i0".into(), true));
+    let pressed = clicked(&app, over, iced::mouse::Button::Left);
+    assert!(
+        pressed
+            .iter()
+            .any(|message| matches!(message, Message::Voice(Event::Volume(_)))),
+        "the slider takes the press"
+    );
+    assert!(!timeline(&pressed), "the text under it doesn't");
 }
 
 #[test]

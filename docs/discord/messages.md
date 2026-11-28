@@ -367,6 +367,21 @@ Yapfast is back, rather than showing an error.
   squared, so its middle sounds about half as loud. Turning it to nothing
   mutes, and unmuting brings back the level it had. The next video plays as
   loud, until Yapfast closes.
+- Attached sound files play in their cards, as Discord's audio player has
+  them: a file whose name ends `.mp3`, `.m4a`, `.ogg`, `.opus`, `.wav` or
+  `.flac`, in any case, and that has no picture's width and height, which is
+  Discord's client's own test (`plays_as_audio` in `yapfast-discord`). The
+  card is the file's, with a note for its icon, over the controls of a video
+  without full screen: Play, its time, the track to move through it, and
+  the mute with its volume, which a video's sets too. It plays as a video
+  does, from the file's own `url`: the same download in parts into
+  `discord-videos/`, the same worker, and one at a time, so it stops a
+  video and a video stops it. The worker opens only the file's sound
+  (`Job::Play` with `audio`), plays it on the call's speakers, and reports
+  its clock's time four times a second and after a move
+  (`Report::Played`), as it has no pictures to carry it. It needs the
+  speakers: without them it stops and says so. FFmpeg's MP3, AAC, FLAC,
+  Ogg (Vorbis and Opus) and WAV (PCM, A-law and mu-law) readers play them.
 - A voice message, a message flagged `IS_VOICE_MESSAGE` (`1 << 13`) whose
   only attachment is its Ogg Opus recording, shows as a pill instead of a file
   card, mixing Discord's phone and desktop players: a round button that plays

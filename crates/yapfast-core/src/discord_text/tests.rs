@@ -268,6 +268,7 @@ fn closed_channels_keep_metadata_without_pinning_previews() {
             view_url: None,
             still_url: None,
             video_url: None,
+            audio: false,
             shown: Shown::Message,
             link_url: None,
             animated: false,
@@ -318,6 +319,7 @@ fn changes_render_again_only_the_messages_they_change() {
             view_url: None,
             still_url: None,
             video_url: None,
+            audio: false,
             shown: Shown::Message,
             link_url: None,
             animated: false,
@@ -529,6 +531,7 @@ fn messages_render_again_once_what_they_show_changes() {
         may_pin: false,
         may_forward: false,
         deletes: Deletes::Own,
+        moderates: false,
     };
     let shown = rendering(1, server("general", false));
     assert!(
@@ -571,6 +574,58 @@ fn messages_render_again_once_what_they_show_changes() {
             ..rendering(1, server("general", false))
         }),
         "may delete others' messages"
+    );
+    assert!(
+        !shown.alike(&Rendering {
+            moderates: true,
+            ..rendering(1, server("general", false))
+        }),
+        "may time members out"
+    );
+    // Reordered roles change whom this account outranks.
+    let mut reordered = shown.server.clone().unwrap();
+    let mut positions = (*reordered.server).clone();
+    positions.role_positions = Arc::new([("20".to_owned(), 3)].into_iter().collect());
+    reordered.server = Arc::new(positions);
+    assert!(
+        !shown.alike(&rendering(1, Some(reordered))),
+        "role positions"
+    );
+    // So does handing the server to someone else.
+    let mut handed = shown.server.clone().unwrap();
+    let mut owner = (*handed.server).clone();
+    owner.owner_id = Some("77".into());
+    handed.server = Arc::new(owner);
+    assert!(!shown.alike(&rendering(1, Some(handed))), "the owner");
+}
+
+#[test]
+fn a_moderator_sees_the_timeouts_of_those_it_outranks() {
+    // 1 moderates with the Mods role, above Helpers; 99 owns the server.
+    let server = yapfast_discord::ready::Server {
+        id: "10".into(),
+        owner_id: Some("99".into()),
+        role_positions: Arc::new(
+            [("20".to_owned(), 2), ("30".to_owned(), 1)]
+                .into_iter()
+                .collect(),
+        ),
+        ..Default::default()
+    };
+    let (mods, helpers) = (vec!["20".to_owned()], vec!["30".to_owned()]);
+    let (mods, none): (&[String], &[String]) = (&mods, &[]);
+    let until = 1_900_000_000_000;
+    let me = ("1", mods);
+    let shown = |author: &str, roles: &[String]| shown_timeout(&server, me, (author, roles), until);
+    assert_eq!(shown("2", &helpers), Some(until), "a helper");
+    assert_eq!(shown("2", none), Some(until), "a member without roles");
+    assert_eq!(shown("3", mods), None, "an equal");
+    assert_eq!(shown("99", none), None, "the owner");
+    assert_eq!(shown("1", mods), None, "itself");
+    // The owner outranks everyone else.
+    assert_eq!(
+        shown_timeout(&server, ("99", none), ("1", mods), until),
+        Some(until)
     );
 }
 
@@ -1560,6 +1615,7 @@ fn changing_the_view_drops_old_previews_and_ignores_late_downloads() {
                     view_url: None,
                     still_url: None,
                     video_url: None,
+                    audio: false,
                     shown: Shown::Message,
                     link_url: None,
                     animated: false,
@@ -1629,6 +1685,7 @@ async fn previews_follow_the_view_and_share_cache_across_channels() {
             view_url: None,
             still_url: None,
             video_url: None,
+            audio: false,
             shown: Shown::Message,
             link_url: None,
             animated: false,
