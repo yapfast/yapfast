@@ -711,6 +711,62 @@ fn a_voice_messages_volume_takes_the_arrows_and_page_keys_until_escape() {
     );
 }
 
+/// A voice message's volume rises over its message's text: a press on it
+/// turns the volume rather than selecting the text or following a link.
+#[test]
+fn a_voice_messages_volume_takes_presses_over_the_text_above() {
+    use crate::{app::Message, playback::Event};
+    let (mut app, _folder) = preview();
+    // Its speed and mute show without the pointer on it.
+    app.layout.prefs.animate = crate::layout::Animate::Never;
+    let mut recording = picture_at("voice-message.ogg", 0, Placement::Message, false);
+    (recording.image, recording.dimensions) = (false, None);
+    only(
+        &mut app,
+        ChatMessage {
+            body: "Listen to this one".into(),
+            attachments: vec![recording],
+            voice: Some(yapfast_core::chat::VoiceMessage {
+                duration_ms: 5_000,
+                waveform: Arc::from(vec![128; 32]),
+            }),
+            ..Default::default()
+        },
+    );
+    let speed = bounds_of(&app, "1x");
+    let mutes = |app: &crate::app::App, x: f32| {
+        clicked(
+            app,
+            iced::Point::new(x, speed.center_y()),
+            iced::mouse::Button::Left,
+        )
+        .iter()
+        .any(|message| matches!(message, Message::Voice(Event::Mute(_))))
+    };
+    let mute_left = ((speed.x + speed.width) as u32..(speed.x + speed.width + 80.0) as u32)
+        .map(|x| x as f32)
+        .find(|&x| mutes(&app, x))
+        .expect("the mute is after the speed");
+    // The message's text, over the pill, where the slider rises: a press
+    // there is the timeline's, which selects text and follows links.
+    let over = iced::Point::new(mute_left + 14.0, speed.y - 40.0);
+    let timeline = |messages: &[Message]| {
+        messages
+            .iter()
+            .any(|message| matches!(message, Message::Timeline(_)))
+    };
+    assert!(timeline(&clicked(&app, over, iced::mouse::Button::Left)));
+    let _ = crate::playback::voice_event(&mut app, Event::VolumeHover("i0".into(), true));
+    let pressed = clicked(&app, over, iced::mouse::Button::Left);
+    assert!(
+        pressed
+            .iter()
+            .any(|message| matches!(message, Message::Voice(Event::Volume(_)))),
+        "the slider takes the press"
+    );
+    assert!(!timeline(&pressed), "the text under it doesn't");
+}
+
 #[test]
 fn a_store_button_on_a_bots_message_without_its_app_opens_the_bots_store() {
     use crate::app::Message;

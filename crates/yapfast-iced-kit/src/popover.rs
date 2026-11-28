@@ -2,7 +2,8 @@
 //! dropdown under its button, a menu over the composer's +. The popup is
 //! drawn in iced's overlay layer, over everything else, placed by the
 //! widget's own bounds on screen (above it or below it, as wide as it or at
-//! its own width, its left or right edge level with the widget's), and kept
+//! its own width, its left or right edge level with the widget's or centred
+//! on it), and kept
 //! inside the window. While it's open it takes the pointer over it; a press
 //! outside both says so, for a popup that closes then, and goes no further.
 
@@ -46,6 +47,7 @@ pub struct Popover<'a, M> {
     width: Width,
     gap: f32,
     right: bool,
+    centred: bool,
     outside: Option<M>,
 }
 
@@ -58,6 +60,7 @@ impl<'a, M: Clone> Popover<'a, M> {
             width: Width::Same,
             gap: 8.0,
             right: false,
+            centred: false,
             outside: None,
         }
     }
@@ -75,6 +78,13 @@ impl<'a, M: Clone> Popover<'a, M> {
     /// The popup's right edge level with the widget's.
     pub fn right(mut self) -> Self {
         self.right = true;
+        self
+    }
+
+    /// The popup centred across the widget, as a slider wider than its
+    /// button.
+    pub fn centred(mut self) -> Self {
+        self.centred = true;
         self
     }
 
@@ -215,6 +225,7 @@ impl<M: Clone> Widget<M, Theme, Renderer> for Popover<'_, M> {
                 width: self.width,
                 gap: self.gap,
                 right: self.right,
+                centred: self.centred,
                 outside: self.outside.clone(),
             }))),
             _ => None,
@@ -245,6 +256,7 @@ struct Open<'a, 'b, M> {
     width: Width,
     gap: f32,
     right: bool,
+    centred: bool,
     outside: Option<M>,
 }
 
@@ -268,7 +280,9 @@ impl<M: Clone> overlay::Overlay<M, Theme, Renderer> for Open<'_, '_, M> {
             .as_widget_mut()
             .layout(self.tree, renderer, &limits);
         let size = node.size();
-        let x = if self.right {
+        let x = if self.centred {
+            base.x + (base.width - size.width) / 2.0
+        } else if self.right {
             base.x + base.width - size.width
         } else {
             base.x

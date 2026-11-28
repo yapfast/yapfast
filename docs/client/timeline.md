@@ -168,9 +168,9 @@ slash command, where one may write, is written in the composer
   for its icon over a video's controls, on Discord's black at 40 % with
   rounded corners, without full screen. Until it plays they hold Play and
   "0:00"; Play plays it as a video (`Clip::Play`). A video's and a sound
-  file's volume slider rises from the mute in a `Popover`, in iced's
-  overlay layer, so it takes presses before what it covers, such as the
-  card's Save. Its time is the core's
+  file's volume slider, like a voice message's, rises from the mute in a
+  `Popover`, in iced's overlay layer, so it takes presses before what it
+  covers, such as the card's Save. Its time is the core's
   (`Video::played_ms`), not a frame's, and why it stopped shows in place of
   its time, with Play to try again.
 - A voice message (`playback.rs`) plays and pauses from its button; its
@@ -178,8 +178,9 @@ slash command, where one may write, is written in the composer
   (pausing while held); its time counts down. While the pointer is on it,
   or always with animations off, its speed and mute show; on the mute,
   the volume opens over it, an upright slider 120 px tall that the wheel
-  turns 5 % a step, staying while the pointer is on either (a
-  `widgets::Corner` made `free` to be wider than the button). Pressing
+  turns 5 % a step, staying while the pointer is on either (a `Popover`
+  `centred` on the button, in iced's overlay layer, so a press on it isn't
+  the text's under it). Pressing
   the slider takes the keys from the fields, once a press; while it's open, keys no
   field took turn it (`playback::voice_key`: Up and Down 5 %, Page Up and
   Page Down 20 %) or close it (Escape). The core plays it.

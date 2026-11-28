@@ -561,23 +561,17 @@ pub fn voice_card<'a>(
             Message::Voice(Event::Mute(!tuning.muted)),
         );
         // The pointer on the mute opens the volume over it, upright as
-        // Discord's desktop player has it, centred on the button.
-        let slot = container(mute).center_x(MUTE);
-        let slot: Element<'a, Message> = if volume_open {
-            container(iced::widget::stack![
-                slot,
-                crate::widgets::Corner::new(
-                    voice_volume_slider(ctx, item, tuning),
-                    (MUTE - VOICE_SLOT) / 2.0,
-                    -(VOICE_SLIDER + VOICE_GAP)
-                )
-                .free(),
-            ])
-            .width(MUTE)
-            .into()
-        } else {
-            slot.into()
-        };
+        // Discord's desktop player has it, centred on the button: in iced's
+        // overlay layer, so it takes presses before the message under it.
+        let slider = volume_open.then(|| voice_volume_slider(ctx, item, tuning));
+        let slot = crate::popover::Popover::new(
+            container(mute).center_x(MUTE),
+            slider,
+            crate::popover::Side::Above,
+        )
+        .width(crate::popover::Width::Own(VOICE_SLOT))
+        .centred()
+        .gap(0.0);
         let mute = mouse_area(slot)
             .on_enter(Message::Voice(Event::VolumeHover(item.clone(), true)))
             .on_exit(Message::Voice(Event::VolumeHover(item.clone(), false)));
