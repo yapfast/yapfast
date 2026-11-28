@@ -1843,6 +1843,9 @@ pub struct Attachment {
     /// A video that plays in place of its picture, which is its poster:
     /// [`Command::PlayVideo`].
     pub video: bool,
+    /// A sound file, such as an MP3 or a WAV, that plays in its card as a
+    /// video without pictures: [`Command::PlayVideo`].
+    pub audio: bool,
     /// A GIF that can be a favourite: a linked one, or an attached `.gif`.
     pub gif: Option<Gif>,
     /// Its address on the web, which Copy Link and Open Link give, and from
@@ -1880,8 +1883,14 @@ pub struct Video {
     pub item: String,
     /// Its attachment's index in the item's attachments.
     pub index: usize,
+    /// A sound file, which has no pictures: its time comes as `played_ms`
+    /// rather than with its frames.
+    pub audio: bool,
     /// Its pictures, while it plays.
     pub frames: Option<Arc<crate::frames::Frames>>,
+    /// How far a sound file has played, in milliseconds, as its worker
+    /// says a few times a second.
+    pub played_ms: Option<u64>,
     /// How long it plays, once the file says.
     pub duration_ms: Option<u64>,
     /// Its pictures' full width and height, once its file opens.

@@ -361,6 +361,8 @@
 // the clip. They go to #general, or with ?channel=ID to that channel or thread.
 // POST /_control/voice-message makes Bob send a voice message, the two
 // seconds of testing/fixtures/voice-tone.ogg, to #general or ?channel=ID.
+// POST /_control/sounds makes Bob attach sound files, which play in their
+// cards: an MP3, an Ogg and a three-second WAV, to #general or ?channel=ID.
 // POST /_control/bob-away makes Bob idle with a custom status,
 // /_control/bob-mobile puts him online on his phone alone, and
 // /_control/bob-offline takes him offline.
@@ -1367,6 +1369,9 @@ function contentType(filename: string): string {
     mp4: "video/mp4",
     webm: "video/webm",
     mov: "video/quicktime",
+    mp3: "audio/mpeg",
+    ogg: "audio/ogg",
+    wav: "audio/wav",
     txt: "text/plain; charset=utf-8",
   };
   return types[extension] ?? "application/octet-stream";
@@ -8365,6 +8370,44 @@ function postVoiceMessage(origin: string, channel: string) {
   dispatch("MESSAGE_CREATE", dispatched(post(channel, users.bob, "", now, { files: [recording], flags: 1 << 13 }), origin));
 }
 
+/** Three seconds of a soft 440 Hz tone, as a 16-bit mono WAV at 44.1 kHz. */
+function toneWav(): Uint8Array {
+  const rate = 44_100;
+  const frames = rate * 3;
+  const wav = Buffer.alloc(44 + frames * 2);
+  wav.write("RIFF", 0);
+  wav.writeUInt32LE(36 + frames * 2, 4);
+  wav.write("WAVEfmt ", 8);
+  wav.writeUInt32LE(16, 16);
+  wav.writeUInt16LE(1, 20);
+  wav.writeUInt16LE(1, 22);
+  wav.writeUInt32LE(rate, 24);
+  wav.writeUInt32LE(rate * 2, 28);
+  wav.writeUInt16LE(2, 32);
+  wav.writeUInt16LE(16, 34);
+  wav.write("data", 36);
+  wav.writeUInt32LE(frames * 2, 40);
+  for (let at = 0; at < frames; at++) {
+    // Swells in and fades out over a tenth of a second.
+    const edge = Math.min(1, at / 4410, (frames - at) / 4410);
+    wav.writeInt16LE(Math.round(Math.sin((2 * Math.PI * 440 * at) / rate) * 3000 * edge), 44 + at * 2);
+  }
+  return new Uint8Array(wav);
+}
+
+function postSounds(origin: string, channel: string) {
+  const now = Date.now();
+  const sounds: [string, Uint8Array][] = [
+    ["chime.mp3", new Uint8Array(readFileSync(new URL("soundboard-tone.mp3", fixtures)))],
+    ["tone.ogg", new Uint8Array(readFileSync(new URL("voice-tone.ogg", fixtures)))],
+    ["tone.wav", toneWav()],
+  ];
+  const attached = sounds.map(([filename, data], index) =>
+    addFile({ id: snowflake(now, 1 + index), channel, filename, contentType: contentType(filename), data }),
+  );
+  dispatch("MESSAGE_CREATE", dispatched(post(channel, users.bob, "Some sounds", now, { files: attached }), origin));
+}
+
 function postVideo(origin: string, channel: string) {
   const now = Date.now();
   const video = addFile({
@@ -9631,6 +9674,10 @@ const server = Bun.serve<SocketData>({
     if (req.method === "POST" && path === "/_control/clip") {
       postVideo(origin, url.searchParams.get("channel") ?? GENERAL);
       return new Response("video posted\n");
+    }
+    if (req.method === "POST" && path === "/_control/sounds") {
+      postSounds(origin, url.searchParams.get("channel") ?? GENERAL);
+      return new Response("sounds posted\n");
     }
     if (req.method === "POST" && path === "/_control/voice-message") {
       postVoiceMessage(origin, url.searchParams.get("channel") ?? GENERAL);

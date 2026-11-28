@@ -288,6 +288,7 @@ fn an_empty_edit_of_a_message_with_files_is_saved_not_deleted() {
         gif: None,
         spoiler: false,
         video: false,
+        audio: false,
         url: None,
     });
     app.apply(Event::Timeline {

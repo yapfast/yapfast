@@ -55,7 +55,7 @@ pub const EMBED_PARTS: crate::piece::PartNo = 16384;
 /// A thread's card under its message at its widest.
 const THREAD_WIDTH: f32 = 480.0;
 /// A file's card at its widest, and its icon.
-const FILE_CARD_WIDTH: f32 = 432.0;
+pub(crate) const FILE_CARD_WIDTH: f32 = 432.0;
 const FILE_ICON: u32 = 30;
 /// An embed's padding across, around its text and pictures.
 const EMBED_PADDING: f32 = 4.0 + 12.0 + 16.0;
@@ -255,6 +255,13 @@ pub fn message_content<'a>(
             && let Some(voice) = &message.voice
         {
             content = content.push(crate::playback::voice_card(ctx, message, voice));
+            continue;
+        }
+        if attachment.audio {
+            content = content.push(
+                container(crate::playback::audio_card(ctx, message, index, attachment))
+                    .padding(Padding::ZERO.top(4)),
+            );
             continue;
         }
         content = content.push(

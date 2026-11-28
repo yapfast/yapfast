@@ -117,7 +117,8 @@ pub enum Job {
     },
     /// Plays the video file at `file`, which may still be downloading,
     /// writing pictures that fit `width` by `height` to the frames file at
-    /// `frames`; see [`crate::video_player`].
+    /// `frames`; see [`crate::video_player`]. With `audio`, it's a sound
+    /// file, whose sound alone plays.
     Play {
         file: PathBuf,
         /// Its size, when known before it's downloaded.
@@ -127,6 +128,8 @@ pub enum Job {
         height: u32,
         speakers: Option<String>,
         volume: f32,
+        #[serde(default)]
+        audio: bool,
     },
     /// Takes a picture of each screen and window, by the ids [`shareable`]
     /// listed them with, scaled down to fit `width` by `height`, for the
@@ -378,6 +381,9 @@ pub enum Report {
     Needs { at: u64 },
     /// The video played to its end, and waits there.
     Finished,
+    /// A sound file, which has no pictures to carry its time, has played
+    /// this far, a few times a second and after each move.
+    Played { time_ms: u64 },
     /// A picture of the screen [`shareable`] listed by `id`, for
     /// [`Job::Glance`]: RGBA pixels, `width` by `height`.
     Screen {
@@ -552,6 +558,7 @@ fn serve(mut input: Box<dyn BufRead + Send>, report: &mut dyn FnMut(Report)) {
             height,
             speakers,
             volume,
+            audio,
         } => {
             let writer = Writer::open(&frames)?;
             report(Report::Ready);
@@ -561,6 +568,7 @@ fn serve(mut input: Box<dyn BufRead + Send>, report: &mut dyn FnMut(Report)) {
                 width,
                 height,
                 sound: true,
+                audio,
                 speakers,
                 volume,
             };
@@ -1734,11 +1742,16 @@ impl Worker {
     pub fn play(
         file: PathBuf,
         size: Option<u64>,
-        (width, height): (u32, u32),
+        frame: Option<(u32, u32)>,
         speakers: Option<String>,
         volume: f32,
     ) -> Result<(Self, Frames, mpsc::UnboundedReceiver<Report>)> {
-        let frames = Frames::create(WATCH_WIDTH, WATCH_HEIGHT)?;
+        // A sound file draws nothing, so its frames file holds a pixel.
+        let (width, height) = frame.unwrap_or((1, 1));
+        let frames = match frame {
+            Some(_) => Frames::create(WATCH_WIDTH, WATCH_HEIGHT)?,
+            None => Frames::create(1, 1)?,
+        };
         let job = Job::Play {
             file,
             size,
@@ -1747,6 +1760,7 @@ impl Worker {
             height: height.min(WATCH_HEIGHT),
             speakers,
             volume,
+            audio: frame.is_none(),
         };
         let (worker, reports) = Self::start(&job)?;
         Ok((worker, frames, reports))

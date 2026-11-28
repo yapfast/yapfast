@@ -569,6 +569,7 @@ fn a_link_preview_and_a_file_show_in_their_cards() {
             placement: yapfast_core::chat::Placement::Message,
             spoiler: false,
             video: false,
+            audio: false,
             gif: None,
             url: None,
             description: None,

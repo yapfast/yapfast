@@ -79,6 +79,7 @@ fn picture(value: &Value, shown: Shown, thumbnail: bool) -> Option<Attachment> {
         view_url: scaled_url(value, VIEW_WIDTH, VIEW_HEIGHT, animated),
         still_url: None,
         video_url: None,
+        audio: false,
         link_url: None,
         animated: crate::message::animated(value),
         shown,

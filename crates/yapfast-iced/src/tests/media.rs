@@ -34,6 +34,7 @@ fn viewing(app: &mut crate::app::App) {
                 gif: None,
                 spoiler: false,
                 video: false,
+                audio: false,
                 url: None,
                 description: None,
             }],
@@ -134,6 +135,7 @@ fn picture_at(name: &str, side: u32, placement: Placement, spoiler: bool) -> Att
         gif: None,
         spoiler,
         video: false,
+        audio: false,
         url: Some(format!("https://example.com/{name}").into()),
         description: None,
     }
@@ -372,6 +374,63 @@ fn a_messages_gif_has_a_star_that_makes_it_a_favourite() {
     );
 }
 
+/// A sound file shows as Discord's audio player: its card with Play under
+/// its name, which plays it as a video without pictures; playing, its bar
+/// shows the time the core says, and why it stopped once it did.
+#[test]
+fn a_sound_file_plays_in_its_card() {
+    use crate::{app::Message, playback::Clip};
+    let (mut app, _folder) = preview();
+    let mut song = picture_at("song.mp3", 0, Placement::Message, false);
+    (song.image, song.dimensions, song.audio) = (false, None, true);
+    song.size = Some(3 << 20);
+    signed_in(&mut app);
+    only(
+        &mut app,
+        ChatMessage {
+            body: "Listen".into(),
+            attachments: vec![song],
+            ..Default::default()
+        },
+    );
+    assert!(shows(&app, "song.mp3") && shows(&app, "0:00"));
+    // Play is left of the start's time.
+    let start = bounds_of(&app, "0:00");
+    let play = iced::Point::new(start.x - 6.0 - 14.0, start.center_y());
+    let pressed = clicked(&app, play, iced::mouse::Button::Left);
+    assert!(
+        pressed.iter().any(
+            |message| matches!(message, Message::Clip(Clip::Play(item, 0, _)) if item == "i0")
+        ),
+        "Play plays it"
+    );
+    let playing = |played_ms, error: Option<&str>| yapfast_core::chat::Video {
+        room: String::new(),
+        item: "i0".into(),
+        index: 0,
+        audio: true,
+        frames: None,
+        played_ms,
+        duration_ms: Some(90_000),
+        size: Some((0, 0)),
+        loading: false,
+        playing: error.is_none(),
+        ended: false,
+        sound: true,
+        muted: false,
+        volume: 1.0,
+        error: error.map(str::to_owned),
+    };
+    change(&mut app, |state| {
+        state.video = Some(playing(Some(12_000), None));
+    });
+    assert!(shows(&app, "0:12 / 1:30"), "its time, as the core says");
+    change(&mut app, |state| {
+        state.video = Some(playing(None, Some("Yapfast can't play this file.")));
+    });
+    assert!(shows(&app, "Yapfast can't play this file."));
+}
+
 /// Sam's message with a 40 s video, playing full screen, out of the
 /// preview.
 fn a_video_full_screen(app: &mut crate::app::App) {
@@ -391,7 +450,9 @@ fn a_video_full_screen(app: &mut crate::app::App) {
             room: String::new(),
             item: "i0".into(),
             index: 0,
+            audio: false,
             frames: None,
+            played_ms: None,
             duration_ms: Some(40_000),
             size: Some((1280, 720)),
             loading: false,

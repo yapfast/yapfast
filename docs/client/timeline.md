@@ -164,6 +164,12 @@ slash command, where one may write, is written in the composer
   in: its shares show once this account voted or it closed, and its foot
   says "View original message to interact", or the votes and "Poll
   closed"; a click on it goes to the card.
+- A sound file (`playback::audio_card`) shows as a file's card with a note
+  for its icon over a video's controls, on Discord's black at 40 % with
+  rounded corners, without full screen. Until it plays they hold Play and
+  "0:00"; Play plays it as a video (`Clip::Play`). Its time is the core's
+  (`Video::played_ms`), not a frame's, and why it stopped shows in place of
+  its time, with Play to try again.
 - A voice message (`playback.rs`) plays and pauses from its button; its
   waveform fills as it plays, and a press or a drag on it moves there
   (pausing while held); its time counts down. While the pointer is on it,

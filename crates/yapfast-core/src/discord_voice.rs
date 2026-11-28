@@ -885,6 +885,7 @@ pub(crate) async fn call(
                             | Report::Opened { .. }
                             | Report::Needs { .. }
                             | Report::Finished
+                            | Report::Played { .. }
                             | Report::Screen { .. },
                         ) => {}
                         Some(Report::Ended { error }) => {
@@ -1003,6 +1004,7 @@ pub(crate) async fn call(
                             | Report::Opened { .. }
                             | Report::Needs { .. }
                             | Report::Finished
+                            | Report::Played { .. }
                             | Report::Screen { .. },
                         )) => {}
                         WatchEvent::Report(None) => stop = Some(None),

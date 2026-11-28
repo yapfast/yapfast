@@ -1669,6 +1669,7 @@ impl OpenChannel {
                         url: None,
                         spoiler: file.spoiler,
                         video: false,
+                        audio: false,
                         description: None,
                     })
                     .collect(),
@@ -1752,6 +1753,7 @@ impl OpenChannel {
                     },
                     spoiler: attachment.spoiler,
                     video: attachment.video_url.is_some(),
+                    audio: attachment.audio,
                     gif: super::gifs::favorite_gif(attachment),
                     url: Some(
                         attachment

@@ -187,6 +187,7 @@ fn discord_threads_show_beside_their_channel() {
                 gif: None,
                 spoiler: false,
                 video: false,
+                audio: false,
                 url: None,
                 description: None,
             }],
