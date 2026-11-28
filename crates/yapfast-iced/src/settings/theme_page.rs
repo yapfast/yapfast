@@ -111,8 +111,11 @@ impl<'a> Page<'a> {
             self.s.marketplace.tab
         };
         let tabs = [
-            ("Installed", Tab::Installed),
-            ("Marketplace", Tab::Marketplace),
+            (crate::i18n::tr!(self.cx.i18n, "Installed"), Tab::Installed),
+            (
+                crate::i18n::tr!(self.cx.i18n, "Marketplace"),
+                Tab::Marketplace,
+            ),
             (
                 crate::i18n::tr!(self.cx.i18n, "Add from URL"),
                 Tab::AddFromUrl,
@@ -175,8 +178,8 @@ impl<'a> Page<'a> {
                 self.cx.look,
                 Icon::Brush,
                 theme.muted,
-                "No themes yet",
-                Some("Find one in the Marketplace, add one from its GitHub repository, or make your own in Create.".into()),
+                crate::i18n::tr!(self.cx.i18n, "No themes yet"),
+                Some(crate::i18n::tr!(self.cx.i18n, "Find one in the Marketplace, add one from its GitHub repository, or make your own in Create.").into()),
                 vec![
                     action(
                         theme,
@@ -736,8 +739,8 @@ impl<'a> Page<'a> {
             self.cx.look,
             Icon::Palette,
             theme.accent_text(),
-            "Make a theme of your own",
-            Some("Pick a colour or a picture and Yapfast works out the rest, keeping text readable. Then shape it: message style, corners, fonts, glass. It's saved with your themes, and Export makes it a package you can share.".into()),
+            crate::i18n::tr!(self.cx.i18n, "Make a theme of your own"),
+            Some(crate::i18n::tr!(self.cx.i18n, "Pick a colour or a picture and Yapfast works out the rest, keeping text readable. Then shape it: message style, corners, fonts, glass. It's saved with your themes, and Export makes it a package you can share.").into()),
             vec![self.ring(
                 Spot::NewTheme,
                 action(
@@ -962,17 +965,30 @@ impl<'a> Page<'a> {
         let theme = self.cx.look.theme;
         let performance = self.cx.layout.theme_performance.index() as usize;
         let said = match performance {
-            0 => "Everything an installed theme has: every animation, at the rate it asks for.",
+            0 => crate::i18n::tr!(
+                self.cx.i18n,
+                "Everything an installed theme has: every animation, at the rate it asks for."
+            ),
             1 => {
-                "Heavy animations stay still, the rest run at up to 30 frames a second and pause while Yapfast isn't focused."
+                crate::i18n::tr!(
+                    self.cx.i18n,
+                    "Heavy animations stay still, the rest run at up to 30 frames a second and pause while Yapfast isn't focused."
+                )
             }
-            _ => "Colours, fonts, shapes and spacing only: no theme animation, effect or motion.",
+            _ => crate::i18n::tr!(
+                self.cx.i18n,
+                "Colours, fonts, shapes and spacing only: no theme animation, effect or motion."
+            ),
         };
         column![
             form::rule(theme),
             form::group([
                 form::heading(theme, crate::i18n::tr!(self.cx.i18n, "PERFORMANCE")),
-                controls::choices(theme, &["Full", "Balanced", "Light"], performance, |index| {
+                controls::choices(theme, &[
+crate::i18n::tr!(self.cx.i18n, "Full"),
+crate::i18n::tr!(self.cx.i18n, "Balanced"),
+crate::i18n::tr!(self.cx.i18n, "Light"),
+], performance, |index| {
                     theme_message(Event::Performance(index as i32))
                 }),
                 form::note(theme, said),
@@ -980,25 +996,25 @@ impl<'a> Page<'a> {
             column![
                 form::heading(theme, crate::i18n::tr!(self.cx.i18n, "MOTION")),
                 switch(
-                    "Reduce motion",
+                    crate::i18n::tr!(self.cx.i18n, "Reduce motion"),
                     self.cx.layout.reduced_motion(),
                     Some(theme_message(Event::ReduceMotion(
                         !self.cx.layout.reduced_motion(),
                     ))),
                 )
                 .description(
-                    "Themes' animations, text effects and hover motion stay still, whatever Performance is set to, and GIFs, emoji and stickers stop playing. Accessibility has it too.",
+                    crate::i18n::tr!(self.cx.i18n, "Themes' animations, text effects and hover motion stay still, whatever Performance is set to, and GIFs, emoji and stickers stop playing. Accessibility has it too."),
                 )
                 .view(self.cx.look),
                 switch(
-                    "Transitions between channels",
+                    crate::i18n::tr!(self.cx.i18n, "Transitions between channels"),
                     self.cx.layout.theme_transitions,
                     Some(theme_message(Event::ThemeTransitions(
                         !self.cx.layout.theme_transitions,
                     ))),
                 )
                 .description(
-                    "A theme's fade or dissolve when you change channel or server, at Full. Off, a channel shows at once.",
+                    crate::i18n::tr!(self.cx.i18n, "A theme's fade or dissolve when you change channel or server, at Full. Off, a channel shows at once."),
                 )
                 .view(self.cx.look),
             ]

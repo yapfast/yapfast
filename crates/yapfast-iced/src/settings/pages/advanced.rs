@@ -91,8 +91,8 @@ impl<'a> Page<'a> {
                 Pref::GpuEncoding,
             ),
             self.flip(
-                "Enhanced live preview quality",
-                "Show your own preview at the stream's resolution and frame rate. Uses more resources and applies to the next stream.",
+                crate::i18n::tr!(self.cx.i18n, "Enhanced live preview quality"),
+                crate::i18n::tr!(self.cx.i18n, "Show your own preview at the stream's resolution and frame rate. Uses more resources and applies to the next stream."),
                 self.cx.layout.voice.enhanced_live_preview,
                 Pref::EnhancedLivePreview,
             ),

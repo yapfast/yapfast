@@ -29,7 +29,7 @@ impl<'a> Page<'a> {
         let build = self.cx.build;
         let prefs = &self.cx.layout.prefs;
         let mut channel = row![
-            text(build.channel.as_str())
+            text(self.cx.i18n.text(&build.channel))
                 .size(13)
                 .font(BOLD)
                 .color(build_tint(theme, build.tone))
@@ -57,9 +57,9 @@ impl<'a> Page<'a> {
                 action(
                     theme,
                     if settings.copied {
-                        "Copied"
+                        crate::i18n::tr!(self.cx.i18n, "Copied")
                     } else {
-                        "Copy version"
+                        crate::i18n::tr!(self.cx.i18n, "Copy version")
                     },
                     Kind::Plain,
                     Some(crate::app::settings(Event::CopyVersion)),
@@ -73,30 +73,40 @@ impl<'a> Page<'a> {
         parts.extend(self.updates_part());
         parts.push(
             switch(
-                "Check for updates",
+                crate::i18n::tr!(self.cx.i18n, "Check for updates"),
                 prefs.check_for_updates,
                 Some(pref(Pref::CheckUpdates(!prefs.check_for_updates))),
             )
-            .description("Checks for new versions every 6 hours.")
+            .description(crate::i18n::tr!(
+                self.cx.i18n,
+                "Checks for new versions every 6 hours."
+            ))
             .fresh(self.fresh("check-updates"))
             .view(self.cx.look),
         );
         parts.push(
             switch(
-                "Include nightly builds",
+                crate::i18n::tr!(self.cx.i18n, "Include nightly builds"),
                 prefs.update_nightlies,
                 prefs
                     .check_for_updates
                     .then(|| pref(Pref::Nightlies(!prefs.update_nightlies))),
             )
-            .description("Get the newest features before release. Expect some bugs.")
+            .description(crate::i18n::tr!(
+                self.cx.i18n,
+                "Get the newest features before release. Expect some bugs."
+            ))
             .fresh(self.fresh("update-nightlies"))
             .view(self.cx.look),
         );
         parts.push(
-            switch("Install updates automatically", false, None)
-                .description("Not available yet.")
-                .view(self.cx.look),
+            switch(
+                crate::i18n::tr!(self.cx.i18n, "Install updates automatically"),
+                false,
+                None,
+            )
+            .description(crate::i18n::tr!(self.cx.i18n, "Not available yet."))
+            .view(self.cx.look),
         );
         parts.push(form::heading(
             theme,
@@ -114,7 +124,11 @@ impl<'a> Page<'a> {
             .into()
         };
         parts.push(form::buttons([
-            link("Website", Icon::Logo, WEBSITE),
+            link(
+                crate::i18n::tr!(self.cx.i18n, "Website"),
+                Icon::Logo,
+                WEBSITE,
+            ),
             link("GitHub", Icon::GitHub, GITHUB),
             link("Discord", Icon::Discord, DISCORD),
         ]));

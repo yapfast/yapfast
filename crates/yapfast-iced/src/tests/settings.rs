@@ -83,6 +83,43 @@ fn interface_language_changes_live_and_survives_restart() {
 }
 
 #[test]
+fn russian_settings_render_translations_for_the_reported_pages() {
+    let (mut app, _folder) = preview();
+    app.i18n.select(Some("ru"));
+    change(&mut app, |state| {
+        state.discord_linked = true;
+        state.storage = Some("The Discord token is stored in the OS credential store.");
+    });
+    for (section, label) in [
+        (
+            Section::Account,
+            "Токен Discord хранится в системном хранилище учётных данных.",
+        ),
+        (Section::Sounds, "Настроить громкость каждого звука"),
+        (Section::Appearance, "Использовать системный заголовок окна"),
+        (Section::Discord, "Показывать недоступные каналы"),
+        (Section::Games, "Имя исполняемого файла или полный путь"),
+        (Section::Themes, "Тем пока нет"),
+        (
+            Section::Advanced,
+            "Повышенное качество предпросмотра трансляции",
+        ),
+        (Section::About, "Устанавливать обновления автоматически"),
+    ] {
+        open(&mut app, section);
+        assert!(shows(&app, label), "{section:?}: {label}");
+    }
+    open(&mut app, Section::Sounds);
+    interact(&mut app, |ui| {
+        ui.click("Пользовательский набор звуков")
+            .expect("custom sound switch");
+    });
+    assert!(shows(&app, "Входящий звонок"));
+    assert!(shows(&app, "Участник завершает трансляцию"));
+    assert!(shows(&app, "По умолчанию"));
+}
+
+#[test]
 fn custom_sounds_show_call_tones_and_keep_files_when_turned_off() {
     use yapfast_core::themes::media::SoundSlot;
 

@@ -1389,13 +1389,13 @@ impl<'a> Page<'a> {
         }
         let system = !self.cx.own_title_bar;
         switch(
-            "Use the system title bar",
+            crate::i18n::tr!(self.cx.i18n, "Use the system title bar"),
             system,
             Some(crate::app::settings(SettingsEvent::Pref(
                 super::pages::Pref::SystemTitleBar(!system),
             ))),
         )
-        .description("Your desktop draws the window's title bar and buttons, as on its other windows. Off, Yapfast draws its own.")
+        .description(crate::i18n::tr!(self.cx.i18n, "Your desktop draws the window's title bar and buttons, as on its other windows. Off, Yapfast draws its own."))
         .view(self.cx.look)
     }
 }

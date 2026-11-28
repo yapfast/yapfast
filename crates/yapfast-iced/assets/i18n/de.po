@@ -4029,3 +4029,204 @@ msgstr "Tritt in {name} an"
 
 msgid "with {name}"
 msgstr "Mit {name}"
+
+msgid "Show the application icon in the notification area. Turn this off to choose a separate tray icon."
+msgstr "Zeigt das App-Symbol im Infobereich. Deaktiviere dies, um ein separates Symbol zu wählen."
+
+msgid "Your desktop draws the window's title bar and buttons, as on its other windows. Off, Yapfast draws its own."
+msgstr "Das System zeichnet Titelleiste und Fensterschaltflächen. Ist dies aus, zeichnet Yapfast sie selbst."
+
+msgid "Show channels you can't access"
+msgstr "Kanäle ohne Zugriff anzeigen"
+
+msgid "They appear locked. Server admins hid them on purpose."
+msgstr "Von der Serververwaltung ausgeblendete Kanäle erscheinen mit einem Schloss."
+
+msgid "Mark messages read on Discord"
+msgstr "Nachrichten in Discord als gelesen markieren"
+
+msgid "Channels you read in Yapfast show as read in the Discord apps too."
+msgstr "In Yapfast gelesene Kanäle erscheinen auch in Discord als gelesen."
+
+msgid "Show me as idle when I'm away"
+msgstr "Bei Abwesenheit als inaktiv anzeigen"
+
+msgid "After 10 minutes without using Yapfast, as in Discord. Either way, your phone gets notifications while you're away."
+msgstr "Der Status wechselt nach 10 Minuten Inaktivität wie in Discord. Benachrichtigungen kommen in beiden Fällen auf deinem Telefon an."
+
+msgid "Hide messages from people you blocked"
+msgstr "Nachrichten blockierter Personen ausblenden"
+
+msgid "Leaves them out entirely, rather than showing a line you can open."
+msgstr "Die Nachrichten werden vollständig ausgeblendet."
+
+msgid "Share the game you play"
+msgstr "Anzeigen, welches Spiel du spielst"
+
+msgid "Yapfast looks for games among the programs running, and on Linux takes the Rich Presence games send. Your Discord account keeps this setting, so it's the same in Discord's apps."
+msgstr "Yapfast erkennt laufende Spiele und empfängt unter Linux auch Rich Presence. Die Einstellung wird in deinem Discord-Konto gespeichert und gilt auch in den Discord-Apps."
+
+msgid "Executable name or full path"
+msgstr "Dateiname oder vollständiger Pfad"
+
+msgid "Text after Playing (up to 128 characters)"
+msgstr "Spielname im Status (bis zu 128 Zeichen)"
+
+msgid "Add game"
+msgstr "Spiel hinzufügen"
+
+msgid "Some programs Yapfast takes for games aren't. Name one by its executable, a file name or a full path, or by the name shown after Playing, and it isn't shown as the game you play."
+msgstr "Um ein fälschlich als Spiel erkanntes Programm auszublenden, gib seinen Dateinamen, vollständigen Pfad oder Namen im Spielstatus ein."
+
+msgid "Executable, full path or name shown after Playing"
+msgstr "Dateiname, vollständiger Pfad oder Name im Spielstatus"
+
+msgid "Enhanced live preview quality"
+msgstr "Höhere Qualität der Stream-Vorschau"
+
+msgid "Show your own preview at the stream's resolution and frame rate. Uses more resources and applies to the next stream."
+msgstr "Die lokale Vorschau verwendet Auflösung und Bildrate des Streams. Benötigt mehr Ressourcen und gilt ab dem nächsten Stream."
+
+msgid "Copy version"
+msgstr "Version kopieren"
+
+msgid "Check for updates"
+msgstr "Nach Updates suchen"
+
+msgid "Checks for new versions every 6 hours."
+msgstr "Sucht alle 6 Stunden nach neuen Versionen."
+
+msgid "Include nightly builds"
+msgstr "Nightly-Builds einbeziehen"
+
+msgid "Get the newest features before release. Expect some bugs."
+msgstr "Neue Funktionen vor der Veröffentlichung ausprobieren. Fehler sind möglich."
+
+msgid "Install updates automatically"
+msgstr "Updates automatisch installieren"
+
+msgid "Not available yet."
+msgstr "Noch nicht verfügbar."
+
+msgid "Website"
+msgstr "Website"
+
+msgid "Keybinds mute, deafen or talk from any app. Add one, choose what it does, and record its keys."
+msgstr "Mit Tastenkürzeln kannst du Mikrofon und Ton aus jeder App steuern. Füge ein Kürzel hinzu, wähle eine Aktion und drücke die gewünschten Tasten."
+
+msgid "The Discord token is stored in the OS credential store."
+msgstr "Das Discord-Token wird im Anmeldedatenspeicher des Betriebssystems gespeichert."
+
+msgid "Use the system title bar"
+msgstr "Systemtitelleiste verwenden"
+
+msgid "Development build"
+msgstr "Entwicklungsbuild"
+
+msgid "Someone joins the call"
+msgstr "Jemand tritt dem Anruf bei"
+
+msgid "Someone leaves the call"
+msgstr "Jemand verlässt den Anruf"
+
+msgid "Muting"
+msgstr "Mikrofon stummschalten"
+
+msgid "Unmuting"
+msgstr "Mikrofon einschalten"
+
+msgid "Deafening"
+msgstr "Ton ausschalten"
+
+msgid "Undeafening"
+msgstr "Ton einschalten"
+
+msgid "A message"
+msgstr "Neue Nachricht"
+
+msgid "A mention"
+msgstr "Erwähnung"
+
+msgid "Someone starts watching a stream"
+msgstr "Jemand beginnt, einen Stream anzusehen"
+
+msgid "Someone stops watching a stream"
+msgstr "Jemand hört auf, einen Stream anzusehen"
+
+msgid "Someone starts streaming"
+msgstr "Jemand startet einen Stream"
+
+msgid "Someone stops streaming"
+msgstr "Jemand beendet einen Stream"
+
+msgid "Incoming call"
+msgstr "Eingehender Anruf"
+
+msgid "Outgoing call"
+msgstr "Ausgehender Anruf"
+
+msgid "Custom"
+msgstr "Eigene Datei"
+
+msgid "Uploaded file"
+msgstr "Hochgeladene Datei"
+
+msgid "Adjust each sound"
+msgstr "Lautstärke jedes Tons einstellen"
+
+msgid "Set how loud each one is, as a share of the volume above. 0% turns a sound off."
+msgstr "Die Lautstärke jedes Tons wird als Anteil der obigen Lautstärke eingestellt. Bei 0 % ist er ausgeschaltet."
+
+msgid "Play sound files of your own. Choose Custom in a sound's menu to pick its file."
+msgstr "Verwende eigene Audiodateien. Wähle dazu im Tonmenü „Eigene Datei“."
+
+msgid "Event volume"
+msgstr "Lautstärke der Ereignistöne"
+
+msgid "Play"
+msgstr "Abspielen"
+
+msgid "Remove uploaded file"
+msgstr "Hochgeladene Datei entfernen"
+
+msgid "Installed"
+msgstr "Installiert"
+
+msgid "Marketplace"
+msgstr "Marktplatz"
+
+msgid "No themes yet"
+msgstr "Noch keine Designs"
+
+msgid "Find one in the Marketplace, add one from its GitHub repository, or make your own in Create."
+msgstr "Finde ein Design im Marktplatz, füge es aus einem GitHub-Repository hinzu oder erstelle ein eigenes unter „Erstellen“."
+
+msgid "Make a theme of your own"
+msgstr "Erstelle dein eigenes Design"
+
+msgid "Pick a colour or a picture and Yapfast works out the rest, keeping text readable. Then shape it: message style, corners, fonts, glass. It's saved with your themes, and Export makes it a package you can share."
+msgstr "Wähle eine Farbe oder ein Bild. Yapfast erstellt daraus ein Design mit gut lesbarem Text. Passe dann Nachrichtenstil, Ecken, Schriften und Transparenz an. Das Design wird gespeichert und lässt sich als Paket exportieren."
+
+msgid "Everything an installed theme has: every animation, at the rate it asks for."
+msgstr "Alle Designeffekte sind aktiv. Animationen laufen mit der vorgesehenen Bildrate."
+
+msgid "Heavy animations stay still, the rest run at up to 30 frames a second and pause while Yapfast isn't focused."
+msgstr "Aufwendige Animationen bleiben statisch. Die übrigen laufen mit bis zu 30 Bildern pro Sekunde und pausieren, wenn Yapfast nicht aktiv ist."
+
+msgid "Colours, fonts, shapes and spacing only: no theme animation, effect or motion."
+msgstr "Nur Farben, Schriften, Formen und Abstände. Animationen und Effekte des Designs sind deaktiviert."
+
+msgid "Themes' animations, text effects and hover motion stay still, whatever Performance is set to, and GIFs, emoji and stickers stop playing. Accessibility has it too."
+msgstr "Deaktiviert Designanimationen, Texteffekte, Bewegungen beim Zeigen sowie animierte GIFs, Emojis und Sticker in jedem Leistungsmodus. Die Einstellung ist auch unter Barrierefreiheit verfügbar."
+
+msgid "Transitions between channels"
+msgstr "Übergänge zwischen Kanälen"
+
+msgid "A theme's fade or dissolve when you change channel or server, at Full. Off, a channel shows at once."
+msgstr "Im vollen Modus kann das Design beim Wechsel von Kanal oder Server überblenden. Ist dies aus, erscheint der Kanal sofort."
+
+msgid "Balanced"
+msgstr "Ausgewogen"
+
+msgid "Reduce motion"
+msgstr "Bewegung reduzieren"

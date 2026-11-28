@@ -220,7 +220,7 @@ impl<'a> Page<'a> {
                 follows,
                 enabled.then(|| message(Event::FollowApplication(!follows))),
             )
-            .description("Show the application icon in the notification area. Turn this off to choose a separate tray icon.")
+            .description(crate::i18n::tr!(self.cx.i18n, "Show the application icon in the notification area. Turn this off to choose a separate tray icon."))
             .view(self.cx.look),
         ];
         if let Some(grid) = &icons.tray {

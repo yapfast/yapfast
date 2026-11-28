@@ -34,18 +34,18 @@ pub(super) const SOUND_SETS: [&str; 6] = [
 
 /// Each of Yapfast's sounds, in `Sound::ALL`'s order.
 pub(super) const SOUND_NAMES: [&str; 12] = [
-    "Someone joins the call",
-    "Someone leaves the call",
-    "Muting",
-    "Unmuting",
-    "Deafening",
-    "Undeafening",
-    "A message",
-    "A mention",
-    "Someone starts watching a stream",
-    "Someone stops watching a stream",
-    "Someone starts streaming",
-    "Someone stops streaming",
+    crate::i18n::tr_mark!("Someone joins the call"),
+    crate::i18n::tr_mark!("Someone leaves the call"),
+    crate::i18n::tr_mark!("Muting"),
+    crate::i18n::tr_mark!("Unmuting"),
+    crate::i18n::tr_mark!("Deafening"),
+    crate::i18n::tr_mark!("Undeafening"),
+    crate::i18n::tr_mark!("A message"),
+    crate::i18n::tr_mark!("A mention"),
+    crate::i18n::tr_mark!("Someone starts watching a stream"),
+    crate::i18n::tr_mark!("Someone stops watching a stream"),
+    crate::i18n::tr_mark!("Someone starts streaming"),
+    crate::i18n::tr_mark!("Someone stops streaming"),
 ];
 
 #[derive(Default)]
@@ -249,14 +249,14 @@ impl<'a> Page<'a> {
                     pref(Pref::SoundSet(index))
                 }),
             ]),
-            slider("Event volume", volume, 200, |value| {
+            slider(crate::i18n::tr!(self.cx.i18n, "Event volume"), volume, 200, |value| {
                 pref(Pref::SoundVolume(value, false))
             })
             .on_release(pref(Pref::SoundVolume(volume, true)))
             .view(theme),
             self.flip(
-                "Adjust each sound",
-                "Set how loud each one is, as a share of the volume above. 0% turns a sound off.",
+                crate::i18n::tr!(self.cx.i18n, "Adjust each sound"),
+                crate::i18n::tr!(self.cx.i18n, "Set how loud each one is, as a share of the volume above. 0% turns a sound off."),
                 voice.adjust_each_sound,
                 Pref::AdjustEach,
             ),
@@ -266,7 +266,7 @@ impl<'a> Page<'a> {
                 Some(message(Event::Enable(!custom))),
             )
             .description(
-                "Play sound files of your own. Choose Custom in a sound's menu to pick its file.",
+                crate::i18n::tr!(self.cx.i18n, "Play sound files of your own. Choose Custom in a sound's menu to pick its file."),
             )
             .view(self.cx.look),
         ];
@@ -280,14 +280,22 @@ impl<'a> Page<'a> {
                 crate::i18n::tr!(self.cx.i18n, "WAV, Ogg, Opus and MP3 files can be up to 1 MiB, with a 4-second limit for events and a 6-second limit for call tones."),
             ));
             for (slot, name) in [
-                (SoundSlot::Ring, "Incoming call"),
-                (SoundSlot::Ringback, "Outgoing call"),
+                (SoundSlot::Ring, crate::i18n::tr_mark!("Incoming call")),
+                (SoundSlot::Ringback, crate::i18n::tr_mark!("Outgoing call")),
             ] {
-                each =
-                    each.push(self.sound_row(slot, text(name).size(14).color(theme.text).into()));
+                each = each.push(
+                    self.sound_row(
+                        slot,
+                        text(self.cx.i18n.text(name))
+                            .size(14)
+                            .color(theme.text)
+                            .into(),
+                    ),
+                );
             }
         }
         for (index, (&name, sound)) in SOUND_NAMES.iter().zip(Sound::ALL).enumerate() {
+            let name = self.cx.i18n.text(name);
             let label: Element<'_, Message> = if voice.adjust_each_sound {
                 let value = u32::from(voice.each_sound.get(&sound).copied().unwrap_or(100));
                 slider(name, value, 100, move |value| {
@@ -309,7 +317,11 @@ impl<'a> Page<'a> {
         let voice = &self.cx.layout.voice;
         let files = &self.s.sound_editor;
         let play = look
-            .icon_button(Icon::Play, "Play", message(Event::Preview(slot)))
+            .icon_button(
+                Icon::Play,
+                crate::i18n::tr!(self.cx.i18n, "Play"),
+                message(Event::Preview(slot)),
+            )
             .size(32.0, 18);
         if !voice.uses_custom_sounds() {
             return form::beside(label, play);
@@ -318,14 +330,20 @@ impl<'a> Page<'a> {
         let has_file = voice.custom_sounds.contains_key(&slot);
         let can_change = files.picking.is_none();
         let open = files.menu == Some(slot);
-        let mut options = vec![("Default", Some(Choice::Default)), ("Custom", None)];
+        let mut options = vec![
+            (crate::i18n::tr_mark!("Default"), Some(Choice::Default)),
+            (crate::i18n::tr_mark!("Custom"), None),
+        ];
         if has_file {
-            options.push(("Uploaded file", Some(Choice::File)));
+            options.push((crate::i18n::tr_mark!("Uploaded file"), Some(Choice::File)));
         }
         let selected = Some(voice.sound_choice(slot));
         let current = options.iter().position(|(_, choice)| *choice == selected);
         let source = form::dropdown(
-            options.iter().map(|(name, _)| (*name).to_owned()).collect(),
+            options
+                .iter()
+                .map(|(name, _)| self.cx.i18n.text(name).to_owned())
+                .collect(),
             current,
             open,
             message(Event::Menu((!open).then_some(slot))),
@@ -344,7 +362,7 @@ impl<'a> Page<'a> {
             actions = actions.push(
                 look.icon_button(
                     Icon::X,
-                    "Remove uploaded file",
+                    crate::i18n::tr!(self.cx.i18n, "Remove uploaded file"),
                     can_change.then(|| message(Event::Remove(slot))),
                 )
                 .size(32.0, 18),

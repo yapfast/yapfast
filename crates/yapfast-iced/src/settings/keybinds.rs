@@ -175,7 +175,7 @@ impl<'a> Page<'a> {
         // Discord's page: Custom Keybinds with Add a Keybind beside its
         // title, then Default Keybinds, the list's own shortcut first.
         let note = self.cx.keybinds.page_note().unwrap_or_else(|| {
-            "Keybinds mute, deafen or talk from any app. Add one, choose what it does, and record its keys.".to_owned()
+            crate::i18n::tr!(self.cx.i18n, "Keybinds mute, deafen or talk from any app. Add one, choose what it does, and record its keys.").to_owned()
         });
         let mut custom = column![
             form::beside(

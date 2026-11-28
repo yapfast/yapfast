@@ -4029,3 +4029,204 @@ msgstr "Соревнуется в {name}"
 
 msgid "with {name}"
 msgstr "В {name}"
+
+msgid "Show the application icon in the notification area. Turn this off to choose a separate tray icon."
+msgstr "Показывает значок приложения в области уведомлений. Отключите, чтобы выбрать отдельный значок для трея."
+
+msgid "Your desktop draws the window's title bar and buttons, as on its other windows. Off, Yapfast draws its own."
+msgstr "Система оформляет заголовок и кнопки окна. При отключении Yapfast рисует их сам."
+
+msgid "Show channels you can't access"
+msgstr "Показывать недоступные каналы"
+
+msgid "They appear locked. Server admins hid them on purpose."
+msgstr "Каналы, скрытые администраторами сервера, отображаются с замком."
+
+msgid "Mark messages read on Discord"
+msgstr "Отмечать сообщения прочитанными в Discord"
+
+msgid "Channels you read in Yapfast show as read in the Discord apps too."
+msgstr "Каналы, прочитанные в Yapfast, отмечаются прочитанными и в Discord."
+
+msgid "Show me as idle when I'm away"
+msgstr "Показывать статус «Не активен», когда меня нет"
+
+msgid "After 10 minutes without using Yapfast, as in Discord. Either way, your phone gets notifications while you're away."
+msgstr "Статус меняется через 10 минут бездействия, как в Discord. Уведомления на телефоне приходят в любом случае."
+
+msgid "Hide messages from people you blocked"
+msgstr "Скрывать сообщения заблокированных пользователей"
+
+msgid "Leaves them out entirely, rather than showing a line you can open."
+msgstr "Сообщения полностью скрываются из переписки."
+
+msgid "Share the game you play"
+msgstr "Показывать, во что вы играете"
+
+msgid "Yapfast looks for games among the programs running, and on Linux takes the Rich Presence games send. Your Discord account keeps this setting, so it's the same in Discord's apps."
+msgstr "Yapfast ищет игры среди запущенных программ, а на Linux также принимает статусы Rich Presence. Настройка хранится в аккаунте Discord и действует в его приложениях."
+
+msgid "Executable name or full path"
+msgstr "Имя исполняемого файла или полный путь"
+
+msgid "Text after Playing (up to 128 characters)"
+msgstr "Название игры в статусе (до 128 символов)"
+
+msgid "Add game"
+msgstr "Добавить игру"
+
+msgid "Some programs Yapfast takes for games aren't. Name one by its executable, a file name or a full path, or by the name shown after Playing, and it isn't shown as the game you play."
+msgstr "Чтобы скрыть программу, которую Yapfast принимает за игру, укажите имя или полный путь к файлу либо название из игрового статуса."
+
+msgid "Executable, full path or name shown after Playing"
+msgstr "Имя файла, полный путь или название из статуса"
+
+msgid "Enhanced live preview quality"
+msgstr "Повышенное качество предпросмотра трансляции"
+
+msgid "Show your own preview at the stream's resolution and frame rate. Uses more resources and applies to the next stream."
+msgstr "Локальный предпросмотр использует разрешение и частоту кадров трансляции. Требует больше ресурсов и применяется со следующей трансляции."
+
+msgid "Copy version"
+msgstr "Скопировать версию"
+
+msgid "Check for updates"
+msgstr "Проверять обновления"
+
+msgid "Checks for new versions every 6 hours."
+msgstr "Проверяет наличие новых версий каждые 6 часов."
+
+msgid "Include nightly builds"
+msgstr "Учитывать ночные сборки"
+
+msgid "Get the newest features before release. Expect some bugs."
+msgstr "Новые функции до официального выпуска. Возможны ошибки."
+
+msgid "Install updates automatically"
+msgstr "Устанавливать обновления автоматически"
+
+msgid "Not available yet."
+msgstr "Пока недоступно."
+
+msgid "Website"
+msgstr "Сайт"
+
+msgid "Keybinds mute, deafen or talk from any app. Add one, choose what it does, and record its keys."
+msgstr "Сочетания клавиш позволяют управлять микрофоном и звуком из любого приложения. Добавьте сочетание, выберите действие и нажмите нужные клавиши."
+
+msgid "The Discord token is stored in the OS credential store."
+msgstr "Токен Discord хранится в системном хранилище учётных данных."
+
+msgid "Use the system title bar"
+msgstr "Использовать системный заголовок окна"
+
+msgid "Development build"
+msgstr "Сборка для разработки"
+
+msgid "Someone joins the call"
+msgstr "Участник подключается к звонку"
+
+msgid "Someone leaves the call"
+msgstr "Участник выходит из звонка"
+
+msgid "Muting"
+msgstr "Выключение микрофона"
+
+msgid "Unmuting"
+msgstr "Включение микрофона"
+
+msgid "Deafening"
+msgstr "Выключение звука"
+
+msgid "Undeafening"
+msgstr "Включение звука"
+
+msgid "A message"
+msgstr "Новое сообщение"
+
+msgid "A mention"
+msgstr "Упоминание"
+
+msgid "Someone starts watching a stream"
+msgstr "Участник начинает смотреть трансляцию"
+
+msgid "Someone stops watching a stream"
+msgstr "Участник перестаёт смотреть трансляцию"
+
+msgid "Someone starts streaming"
+msgstr "Участник начинает трансляцию"
+
+msgid "Someone stops streaming"
+msgstr "Участник завершает трансляцию"
+
+msgid "Incoming call"
+msgstr "Входящий звонок"
+
+msgid "Outgoing call"
+msgstr "Исходящий звонок"
+
+msgid "Custom"
+msgstr "Свой файл"
+
+msgid "Uploaded file"
+msgstr "Загруженный файл"
+
+msgid "Adjust each sound"
+msgstr "Настроить громкость каждого звука"
+
+msgid "Set how loud each one is, as a share of the volume above. 0% turns a sound off."
+msgstr "Громкость каждого звука задаётся в процентах от общей громкости выше. 0% отключает звук."
+
+msgid "Play sound files of your own. Choose Custom in a sound's menu to pick its file."
+msgstr "Используйте свои звуковые файлы. Чтобы выбрать файл, откройте меню звука и выберите «Свой файл»."
+
+msgid "Event volume"
+msgstr "Громкость событий"
+
+msgid "Play"
+msgstr "Воспроизвести"
+
+msgid "Remove uploaded file"
+msgstr "Удалить загруженный файл"
+
+msgid "Installed"
+msgstr "Установленные"
+
+msgid "Marketplace"
+msgstr "Каталог тем"
+
+msgid "No themes yet"
+msgstr "Тем пока нет"
+
+msgid "Find one in the Marketplace, add one from its GitHub repository, or make your own in Create."
+msgstr "Найдите тему в каталоге, добавьте её из репозитория GitHub или создайте свою на вкладке «Создать»."
+
+msgid "Make a theme of your own"
+msgstr "Создайте свою тему"
+
+msgid "Pick a colour or a picture and Yapfast works out the rest, keeping text readable. Then shape it: message style, corners, fonts, glass. It's saved with your themes, and Export makes it a package you can share."
+msgstr "Выберите цвет или изображение, и Yapfast подберёт оформление с читаемым текстом. Затем настройте стиль сообщений, углы, шрифты и прозрачность. Тема сохранится в вашем списке, и её можно будет экспортировать для обмена."
+
+msgid "Everything an installed theme has: every animation, at the rate it asks for."
+msgstr "Все эффекты темы включены. Анимации воспроизводятся с заданной частотой кадров."
+
+msgid "Heavy animations stay still, the rest run at up to 30 frames a second and pause while Yapfast isn't focused."
+msgstr "Тяжёлые анимации отключены. Остальные работают с частотой до 30 кадров в секунду и приостанавливаются, когда окно Yapfast неактивно."
+
+msgid "Colours, fonts, shapes and spacing only: no theme animation, effect or motion."
+msgstr "Только цвета, шрифты, формы и отступы. Анимации и эффекты темы отключены."
+
+msgid "Themes' animations, text effects and hover motion stay still, whatever Performance is set to, and GIFs, emoji and stickers stop playing. Accessibility has it too."
+msgstr "Отключает анимации темы, эффекты текста, движение при наведении, а также анимации GIF, эмодзи и стикеров при любом режиме производительности. Настройка также доступна в разделе специальных возможностей."
+
+msgid "Transitions between channels"
+msgstr "Переходы между каналами"
+
+msgid "A theme's fade or dissolve when you change channel or server, at Full. Off, a channel shows at once."
+msgstr "В полном режиме при смене канала или сервера тема может плавно сменить изображение. При отключении канал открывается сразу."
+
+msgid "Balanced"
+msgstr "Сбалансированный"
+
+msgid "Reduce motion"
+msgstr "Уменьшить движение"

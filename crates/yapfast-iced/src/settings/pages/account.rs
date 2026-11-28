@@ -89,7 +89,7 @@ impl<'a> Page<'a> {
             card,
         ];
         if let Some(storage) = state.storage {
-            parts.push(form::note(theme, storage));
+            parts.push(form::note(theme, self.cx.i18n.text(storage)));
         }
         let mut buttons = vec![];
         let ink = crate::theme::rgb(theme.text);
@@ -120,9 +120,9 @@ impl<'a> Page<'a> {
                 action(
                     theme,
                     if state.custom_status.is_some() {
-                        "Change custom status"
+                        crate::i18n::tr!(self.cx.i18n, "Change custom status")
                     } else {
-                        "Set a custom status"
+                        crate::i18n::tr!(self.cx.i18n, "Set a custom status")
                     },
                     Kind::Plain,
                     Some(account_message(AccountEvent::CustomStatus)),

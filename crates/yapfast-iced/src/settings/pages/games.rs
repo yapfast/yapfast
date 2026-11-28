@@ -224,11 +224,11 @@ impl<'a> Page<'a> {
         let mut parts = vec![
             form::title(theme, crate::i18n::tr!(self.cx.i18n, "Game activity")),
             switch(
-                "Share the game you play",
+                crate::i18n::tr!(self.cx.i18n, "Share the game you play"),
                 shown,
                 linked.then(|| crate::app::settings(Event::Game(GameEvent::Show(!shown)))),
             )
-            .description("Yapfast looks for games among the programs running, and on Linux takes the Rich Presence games send. Your Discord account keeps this setting, so it's the same in Discord's apps.")
+            .description(crate::i18n::tr!(self.cx.i18n, "Yapfast looks for games among the programs running, and on Linux takes the Rich Presence games send. Your Discord account keeps this setting, so it's the same in Discord's apps."))
             .locked("Link a Discord account first.")
             .view(self.cx.look),
             form::heading(theme, crate::i18n::tr!(self.cx.i18n, "CUSTOM GAMES")),
@@ -274,7 +274,7 @@ impl<'a> Page<'a> {
             form::field(
                 theme,
                 "settings-game-executable",
-                "Executable name or full path",
+                crate::i18n::tr!(self.cx.i18n, "Executable name or full path"),
                 &draft.executable,
             )
             .on_input(|text| game_message(GameEvent::Executable(text)))
@@ -284,7 +284,7 @@ impl<'a> Page<'a> {
             form::field(
                 theme,
                 "settings-game-name",
-                "Text after Playing (up to 128 characters)",
+                crate::i18n::tr!(self.cx.i18n, "Text after Playing (up to 128 characters)"),
                 &draft.name,
             )
             .on_input(|text| game_message(GameEvent::Name(text)))
@@ -306,7 +306,7 @@ impl<'a> Page<'a> {
                 if draft.editing.is_some() {
                     "Save game"
                 } else {
-                    "Add game"
+                    crate::i18n::tr!(self.cx.i18n, "Add game")
                 },
                 Kind::Plain,
                 ready.then(|| game_message(GameEvent::Save)),
@@ -331,7 +331,7 @@ impl<'a> Page<'a> {
         ));
         parts.push(form::note(
             theme,
-            "Some programs Yapfast takes for games aren't. Name one by its executable, a file name or a full path, or by the name shown after Playing, and it isn't shown as the game you play.",
+            crate::i18n::tr!(self.cx.i18n, "Some programs Yapfast takes for games aren't. Name one by its executable, a file name or a full path, or by the name shown after Playing, and it isn't shown as the game you play."),
         ));
         for (index, entry) in self.cx.layout.prefs.blocked_games.iter().enumerate() {
             // On, it's hidden; off, it's allowed to show as a game again,
@@ -375,7 +375,10 @@ impl<'a> Page<'a> {
             form::field(
                 theme,
                 "settings-game-blocked",
-                "Executable, full path or name shown after Playing",
+                crate::i18n::tr!(
+                    self.cx.i18n,
+                    "Executable, full path or name shown after Playing"
+                ),
                 &draft.blocked,
             )
             .on_input(|text| game_message(GameEvent::Blocked(text)))

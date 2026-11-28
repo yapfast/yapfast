@@ -58,26 +58,35 @@ impl<'a> Page<'a> {
             ));
         }
         parts.push(self.flip(
-            "Show channels you can't access",
-            "They appear locked. Server admins hid them on purpose.",
+            crate::i18n::tr!(self.cx.i18n, "Show channels you can't access"),
+            crate::i18n::tr!(
+                self.cx.i18n,
+                "They appear locked. Server admins hid them on purpose."
+            ),
             prefs.show_hidden_channels,
             Pref::ShowHiddenChannels,
         ));
         parts.push(self.flip(
-            "Mark messages read on Discord",
-            "Channels you read in Yapfast show as read in the Discord apps too.",
+            crate::i18n::tr!(self.cx.i18n, "Mark messages read on Discord"),
+            crate::i18n::tr!(
+                self.cx.i18n,
+                "Channels you read in Yapfast show as read in the Discord apps too."
+            ),
             prefs.sync_discord_reads.unwrap_or(true),
             Pref::SyncReads,
         ));
         parts.push(self.flip(
-            "Show me as idle when I'm away",
-            "After 10 minutes without using Yapfast, as in Discord. Either way, your phone gets notifications while you're away.",
+            crate::i18n::tr!(self.cx.i18n, "Show me as idle when I'm away"),
+            crate::i18n::tr!(self.cx.i18n, "After 10 minutes without using Yapfast, as in Discord. Either way, your phone gets notifications while you're away."),
             prefs.show_idle.unwrap_or(true),
             Pref::ShowIdle,
         ));
         parts.push(self.flip(
-            "Hide messages from people you blocked",
-            "Leaves them out entirely, rather than showing a line you can open.",
+            crate::i18n::tr!(self.cx.i18n, "Hide messages from people you blocked"),
+            crate::i18n::tr!(
+                self.cx.i18n,
+                "Leaves them out entirely, rather than showing a line you can open."
+            ),
             self.cx.layout.hide_blocked,
             Pref::HideBlocked,
         ));
