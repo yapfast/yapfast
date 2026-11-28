@@ -113,6 +113,9 @@ pub const CLIP_SHADE: Color = Color::from_rgba8(0, 0, 0, 0.8);
 /// room above it.
 const AUDIO_BAR: Color = Color::from_rgba8(0, 0, 0, 0.4);
 const AUDIO_GAP: f32 = 8.0;
+/// A sound file's volume slider across: wide enough over its mute to cover
+/// Save above it.
+const AUDIO_SLIDER: f32 = 40.0;
 /// What a sound file's card adds to a file's: its controls.
 pub const AUDIO_CONTROLS: f32 = AUDIO_GAP + CLIP_BAR;
 const TRACK_REST: Color = Color::from_rgba8(255, 255, 255, 0.3);
@@ -928,8 +931,14 @@ fn media_bar<'a>(
         // Over the button in iced's overlay layer, so the slider takes its
         // presses before what it covers: a sound file's Save, a video's
         // picture, the message above.
-        let slider = (ctx.playback.clip_volume > 0).then(|| volume_slider(video));
-        let mute = crate::popover::Popover::new(mute, slider, crate::popover::Side::Above).gap(0.0);
+        // In a sound file's card it's wider than the button, centred on
+        // it, to cover all of Save, which is wider and further right.
+        let wide = if audio { AUDIO_SLIDER } else { CLIP_BUTTON };
+        let slider = (ctx.playback.clip_volume > 0).then(|| volume_slider(video, wide));
+        let mute = crate::popover::Popover::new(mute, slider, crate::popover::Side::Above)
+            .width(crate::popover::Width::Own(wide))
+            .centred()
+            .gap(0.0);
         bar = bar.push(
             mouse_area(container(mute).width(CLIP_BUTTON))
                 .on_enter(Message::Clip(Clip::VolumeHover(true)))
@@ -970,13 +979,13 @@ fn media_bar<'a>(
 
 /// How loud the video plays, a slider over its mute: a 4 px track
 /// filled in white to a 12 px knob, on dark glass.
-fn volume_slider<'a>(video: &'a yapfast_core::chat::Video) -> Element<'a, Message> {
+fn volume_slider<'a>(video: &'a yapfast_core::chat::Video, wide: f32) -> Element<'a, Message> {
     let shown = if video.muted { 0.0 } else { video.volume };
     let slider = iced::widget::vertical_slider(0.0..=1.0, shown, |volume| {
         Message::Clip(Clip::Volume(volume))
     })
     .step(0.01)
-    .width(CLIP_BUTTON)
+    .width(wide)
     .style(|_, _| iced::widget::slider::Style {
         rail: iced::widget::slider::Rail {
             backgrounds: (Color::WHITE.into(), TRACK_REST.into()),
@@ -992,7 +1001,7 @@ fn volume_slider<'a>(video: &'a yapfast_core::chat::Video) -> Element<'a, Messag
     });
     let boxed = container(slider)
         .padding([14, 0])
-        .width(CLIP_BUTTON)
+        .width(wide)
         .height(VOLUME_RISE - VOLUME_GAP)
         .style(|_| rounded(CLIP_SHADE, 6));
     // Down to the button, so the pointer stays on it on the way.
