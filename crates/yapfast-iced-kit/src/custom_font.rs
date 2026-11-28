@@ -4,12 +4,12 @@
 //! The window draws its text in the family [`fonts::FAMILY`] names, DM Sans,
 //! and every text asks for it by that name. The files' faces are put in the
 //! font system under that name, not the names the files carry (the weights of
-//! one typeface often have a family name each), and DM Sans's own faces go
-//! out while they're in, so no text changes its request and every one of them
-//! is drawn in the person's font. cosmic-text asks fontdb's query for the
-//! face of a bold or italic request, which goes by the weight and style each
-//! file declares in its own tables, so one file per weight and a variable
-//! font both work. Resetting puts DM Sans back.
+//! one typeface often have a family name each), and DM Sans keeps a separate
+//! fallback name while they're in. The text keeps its family request and
+//! uses the person's font where it has glyphs. cosmic-text asks fontdb
+//! for the face of a bold or italic request, using each file's weight and
+//! style. One file per weight and a variable font both work. Resetting
+//! puts DM Sans back.
 //!
 //! TrueType, OpenType and collection files are mapped by fontdb, not read,
 //! so loading costs no heap and the operating system pages in the glyphs
@@ -138,9 +138,6 @@ struct Loaded {
     entries: Vec<Entry>,
     /// The faces the files gave, as the database knows them.
     registered: Vec<fontdb::ID>,
-    /// DM Sans's faces, which are out of the database while the files'
-    /// stand in.
-    bundled: Vec<fontdb::FaceInfo>,
 }
 
 impl Loaded {
@@ -148,7 +145,6 @@ impl Loaded {
         Self {
             entries: Vec::new(),
             registered: Vec::new(),
-            bundled: Vec::new(),
         }
     }
 }
@@ -230,19 +226,15 @@ pub fn note() -> String {
     }
 }
 
-/// [`set`] on any font database: takes out what `previous` put there and
-/// puts DM Sans back, then loads `paths`.
+/// [`set`] on any font database: replaces the previous custom faces and
+/// adjusts the bundled DM Sans family if custom fonts became active or idle.
 fn load_into(db: &mut fontdb::Database, previous: Loaded, paths: &[String]) -> Loaded {
+    let had_custom = !previous.registered.is_empty();
     for id in &previous.registered {
         db.remove_face(*id);
     }
-    for info in previous.bundled {
-        db.push_face_info(info);
-    }
-    drop(previous.entries);
+    drop(previous);
 
-    // DM Sans makes way for the files' faces, if any of them loads.
-    let bundled = take_family(db);
     let mut loaded = Loaded::none();
     for path in paths {
         if loaded.entries.iter().any(|entry| entry.path == *path) {
@@ -258,32 +250,36 @@ fn load_into(db: &mut fontdb::Database, previous: Loaded, paths: &[String]) -> L
             outcome,
         });
     }
-    if loaded.registered.is_empty() {
-        for info in bundled {
-            db.push_face_info(info);
+    let has_custom = !loaded.registered.is_empty();
+    match (had_custom, has_custom) {
+        (false, true) => {
+            rename_family(db, fonts::FAMILY, fonts::LATIN_FALLBACK, &loaded.registered);
         }
-    } else {
-        loaded.bundled = bundled;
+        (true, false) => rename_family(db, fonts::LATIN_FALLBACK, fonts::FAMILY, &[]),
+        _ => {}
     }
     loaded
 }
 
-/// Takes the faces of the window's family out of the database, and returns
-/// them.
-fn take_family(db: &mut fontdb::Database) -> Vec<fontdb::FaceInfo> {
-    let ids: Vec<fontdb::ID> = db
+/// Moves the stock faces between their primary and fallback names while
+/// keeping the same font bytes. The faces just loaded keep the primary name.
+fn rename_family(db: &mut fontdb::Database, from: &str, to: &str, custom: &[fontdb::ID]) {
+    let faces: Vec<_> = db
         .faces()
-        .filter(|face| face.families.iter().any(|(name, _)| name == fonts::FAMILY))
-        .map(|face| face.id)
+        .filter(|face| {
+            !custom.contains(&face.id) && face.families.iter().any(|(name, _)| name == from)
+        })
+        .cloned()
         .collect();
-    let mut taken = Vec::with_capacity(ids.len());
-    for id in ids {
-        if let Some(info) = db.face(id).cloned() {
-            db.remove_face(id);
-            taken.push(info);
+    for mut face in faces {
+        for (name, _) in &mut face.families {
+            if name == from {
+                to.clone_into(name);
+            }
         }
+        db.remove_face(face.id);
+        db.push_face_info(face);
     }
-    taken
 }
 
 /// Adds the faces of the font file at `path` to the database under the
@@ -562,19 +558,22 @@ mod tests {
     }
 
     #[test]
-    fn the_files_take_the_window_s_family_and_dm_sans_goes_while_they_are_in() {
+    fn custom_fonts_take_the_primary_family_and_dm_sans_remains_a_fallback() {
         let directory = tempfile::tempdir().unwrap();
         let path = file(&directory, "Journal.ttf", JOURNAL);
         let mut db = window_db();
         let before = db.len();
         assert_eq!(before, 2);
         let loaded = load_into(&mut db, Loaded::none(), &[path]);
-        assert_eq!(db.len(), 1, "one face, DM Sans's two gone");
+        assert_eq!(db.len(), 3, "one custom face and two bundled faces");
         let id = pick(&db, fonts::FAMILY, fontdb::Style::Normal, 400).expect("a face");
         assert!(
             db.with_face_data(id, |data, _| data == JOURNAL).unwrap(),
             "the window's family is the file's face"
         );
+        let id =
+            pick(&db, fonts::LATIN_FALLBACK, fontdb::Style::Normal, 400).expect("DM Sans fallback");
+        assert!(db.with_face_data(id, |data, _| data == DM_SANS).unwrap());
         // Resetting takes the file's faces out and puts DM Sans back.
         let reset = load_into(&mut db, loaded, &[]);
         assert!(reset.entries.is_empty());
@@ -582,6 +581,74 @@ mod tests {
         assert_eq!(db.len(), before);
         let id = pick(&db, fonts::FAMILY, fontdb::Style::Italic, 400).expect("DM Sans italic");
         assert_eq!(db.face(id).unwrap().style, fontdb::Style::Italic);
+    }
+
+    #[test]
+    fn shaping_keeps_supported_custom_glyphs_and_falls_back_by_script() {
+        use iced::advanced::graphics::text::cosmic_text::{self, Attrs, Buffer, Metrics, Shaping};
+
+        fn families(db: fontdb::Database, style: fontdb::Style, text: &str) -> Vec<(char, String)> {
+            let mut system = cosmic_text::FontSystem::new_with_locale_and_db_and_fallback(
+                "en-US".into(),
+                db,
+                fonts::Fallback,
+            );
+            let mut buffer = Buffer::new(&mut system, Metrics::new(16.0, 20.0));
+            let attrs = Attrs::new()
+                .family(fontdb::Family::Name(fonts::FAMILY))
+                .weight(fontdb::Weight::BOLD)
+                .style(style);
+            buffer.set_text(&mut system, text, &attrs, Shaping::Advanced, None);
+            buffer
+                .layout_runs()
+                .flat_map(|run| run.glyphs)
+                .map(|glyph| {
+                    let character = text[glyph.start..].chars().next().unwrap();
+                    assert_ne!(glyph.glyph_id, 0, "missing {character}");
+                    let face = system.db().face(glyph.font_id).unwrap();
+                    (character, face.families[0].0.clone())
+                })
+                .collect()
+        }
+
+        for style in [fontdb::Style::Normal, fontdb::Style::Italic] {
+            let rendered = families(fonts::bundled_text_fonts(), style, "AБЁЇҐ");
+            assert_eq!(
+                rendered,
+                [
+                    ('A', fonts::FAMILY.into()),
+                    ('Б', "Manrope".into()),
+                    ('Ё', "Manrope".into()),
+                    ('Ї', "Manrope".into()),
+                    ('Ґ', "Manrope".into()),
+                ]
+            );
+        }
+
+        let folder = tempfile::tempdir().unwrap();
+        let path = file(&folder, "Journal.ttf", JOURNAL);
+        let mut db = fonts::bundled_text_fonts();
+        let loaded = load_into(&mut db, Loaded::none(), &[path]);
+        let custom = db.face(loaded.registered[0]).unwrap().families[0].0.clone();
+        assert_eq!(
+            families(db, fontdb::Style::Normal, "AБ"),
+            [('A', custom), ('Б', "Manrope".into())]
+        );
+
+        let path = file(
+            &folder,
+            "Manrope.ttf",
+            include_bytes!("../fonts/Manrope-Cyrillic[wght].ttf"),
+        );
+        let mut db = fonts::bundled_text_fonts();
+        load_into(&mut db, Loaded::none(), &[path]);
+        assert_eq!(
+            families(db, fontdb::Style::Normal, "AБ"),
+            [
+                ('A', fonts::LATIN_FALLBACK.into()),
+                ('Б', fonts::FAMILY.into())
+            ]
+        );
     }
 
     #[test]
@@ -606,6 +673,7 @@ mod tests {
         // One family, though each file is named by its own tables otherwise.
         let names: std::collections::BTreeSet<_> = db
             .faces()
+            .filter(|face| loaded.registered.contains(&face.id))
             .flat_map(|face| face.families.iter().map(|(name, _)| name.clone()))
             .collect();
         assert_eq!(names.len(), 1);
@@ -640,9 +708,9 @@ mod tests {
         let second = file(&directory, "two.otf", MEDIEVAL);
         let mut db = window_db();
         let loaded = load_into(&mut db, Loaded::none(), &[first]);
-        assert_eq!(db.len(), 1);
+        assert_eq!(db.len(), 3);
         let loaded = load_into(&mut db, loaded, &[second]);
-        assert_eq!(db.len(), 1, "the first file's face is gone");
+        assert_eq!(db.len(), 3, "the first file's face is gone");
         let id = pick(&db, fonts::FAMILY, fontdb::Style::Normal, 400).expect("a face");
         assert!(db.with_face_data(id, |data, _| data == MEDIEVAL).unwrap());
         let none = load_into(&mut db, loaded, &[]);
@@ -657,7 +725,7 @@ mod tests {
         let mut db = window_db();
         let loaded = load_into(&mut db, Loaded::none(), &[path.clone(), path]);
         assert_eq!(loaded.entries.len(), 1);
-        assert_eq!(db.len(), 1);
+        assert_eq!(db.len(), 3);
     }
 
     #[test]

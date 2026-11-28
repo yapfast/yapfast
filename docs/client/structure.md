@@ -93,10 +93,12 @@ what costs is kept out of the view:
   activity's time, an invite's countdown) `LiveText`s that read their
   text so, each drawn again on a timer of its own while it shows; neither
   sends a message, so no view is built for them.
-- Fonts (`fonts.rs`): DM Sans and its italic, the packed Twemoji (the
+- Fonts (`fonts.rs`): DM Sans and its italic, Manrope, the packed Twemoji (the
   app's `build.rs` makes it), the system's monospace face for
-  code, and the display-name fonts on first use. DM Sans then Twemoji are
-  the fallbacks every text tries. A script DM Sans lacks loads the system's
+  code, and the display-name fonts on first use. DM Sans covers Latin,
+  Manrope fills missing Cyrillic glyphs, and Twemoji covers emoji.
+  This applies to the translated settings as soon as they are shown.
+  Other uncovered scripts load the system's
   font for its language (fontconfig's `:lang=`, on Windows a table of the
   fonts it ships) the first time a script is shaped; Han goes by the
   locale's language, from `LC_ALL`, `LC_CTYPE` or `LANG`, else the
@@ -118,13 +120,13 @@ what costs is kept out of the view:
   again. Fallback faces are mapped from their files and kept upright and
   italic at any weight: the
   shaper takes a family's face at the weight nearest the text's (patch 2),
-  so semibold names take DM Sans and Twemoji as regular text does.
+  so semibold names use the same fallbacks as regular text.
   The person's own font files (`custom_font.rs`, `woff.rs`; Settings'
   Appearance chooses them, see [Fonts](../themes.md#fonts)) are put in the
-  same font system under the name DM Sans, and DM Sans's faces leave it
-  while they're in: every text asks for that family by name, so each is
-  drawn in the chosen font with no change to a view, and resetting puts
-  DM Sans back. `fonts::shape_again` then has iced shape its text again.
+  same font system under the name DM Sans. The bundled DM Sans remains
+  available under a fallback name, and Manrope still supplies missing
+  Cyrillic glyphs. Resetting restores the original family name.
+  `fonts::shape_again` then has iced shape its text again.
   Elided text (`elide.rs`) clips across only, so marks above and below the
   line show.
 - Video (`video.rs`, `call/`): cameras' frames are made in the client's
