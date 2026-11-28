@@ -415,7 +415,7 @@ impl<'a> View<'a> {
         .spacing(12)
         .padding(16);
         if let Some(error) = &page.open_error {
-            body = body.push(form::error(theme, error.as_str()));
+            body = body.push(form::error(theme, self.cx.i18n.text(error)));
         }
         if self.cx.app.may(&core.server, Permission::Ban) {
             body = body.push(

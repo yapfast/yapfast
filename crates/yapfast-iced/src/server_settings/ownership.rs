@@ -150,7 +150,7 @@ impl<'a> View<'a> {
             body.push(name.into());
         }
         if let Some(error) = &ask.error {
-            body.push(form::error(theme, error.as_str()).into());
+            body.push(form::error(theme, self.cx.i18n.text(error)).into());
         }
         body.push(answers(
             theme,
@@ -194,7 +194,7 @@ impl<'a> View<'a> {
             ]
             .spacing(6);
             if let Some(error) = &ask.error {
-                part = part.push(text(error.as_str()).size(12).color(theme.danger));
+                part = part.push(text(self.cx.i18n.text(error)).size(12).color(theme.danger));
             }
             let resend: Element<'a, Message> = if ask.resent {
                 text(crate::i18n::tr!(self.cx.i18n, "Verification code sent."))
@@ -298,7 +298,7 @@ impl<'a> View<'a> {
                     .into(),
             );
             if let Some(error) = &ask.error {
-                body.push(form::error(theme, error.as_str()).into());
+                body.push(form::error(theme, self.cx.i18n.text(error)).into());
             }
         }
         body.push(answers(

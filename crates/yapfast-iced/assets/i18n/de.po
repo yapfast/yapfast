@@ -2805,3 +2805,255 @@ msgstr "Standard"
 
 msgid "Browse themes"
 msgstr "Designs durchsuchen"
+
+msgid "Choose an icon"
+msgstr "Symbol auswählen"
+
+msgid "Choose a custom sound"
+msgstr "Eigenen Sound auswählen"
+
+msgid "Export the theme as a package"
+msgstr "Design als Paket exportieren"
+
+msgid "Choose a file"
+msgstr "Datei auswählen"
+
+msgid "Save attachment"
+msgstr "Anhang speichern"
+
+msgid "Choose font files"
+msgstr "Schriftdateien auswählen"
+
+msgid "Export theme"
+msgstr "Design exportieren"
+
+msgid "Import theme"
+msgstr "Design importieren"
+
+msgid "Choose a picture for your theme"
+msgstr "Bild für dein Design auswählen"
+
+msgid "Import a font for your theme"
+msgstr "Schrift für dein Design importieren"
+
+msgid "Change Avatar"
+msgstr "Avatar ändern"
+
+msgid "Change Banner"
+msgstr "Banner ändern"
+
+msgid "Upload Server Banner"
+msgstr "Serverbanner hochladen"
+
+msgid "Upload Invite Background"
+msgstr "Einladungshintergrund hochladen"
+
+msgid "Choose Role Icon"
+msgstr "Rollensymbol auswählen"
+
+msgid "Pictures"
+msgstr "Bilder"
+
+msgid "Images"
+msgstr "Bilder"
+
+msgid "Fonts"
+msgstr "Schriften"
+
+msgid "Audio"
+msgstr "Audio"
+
+msgid "Yapfast theme"
+msgstr "Yapfast-Design"
+
+msgid "Streaming to {channel} · {count} watching"
+msgstr "Stream in {channel} · Zuschauer: {count}"
+
+msgid "Streaming to {channel}"
+msgstr "Stream in {channel}"
+
+msgid "Sent {name} a friend request."
+msgstr "Freundschaftsanfrage an {name} gesendet."
+
+msgid "No themes match “{query}”"
+msgstr "Keine Designs für „{query}“ gefunden"
+
+msgid "1 new message"
+msgstr "1 neue Nachricht"
+
+msgid "{count} new messages"
+msgstr "{count} neue Nachrichten"
+
+msgid "1 new message since {time}"
+msgstr "1 neue Nachricht seit {time}"
+
+msgid "{count} new messages since {time}"
+msgstr "{count} neue Nachrichten seit {time}"
+
+msgid "1 new message since {time} on {day}"
+msgstr "1 neue Nachricht seit {time} am {day}"
+
+msgid "{count} new messages since {time} on {day}"
+msgstr "{count} neue Nachrichten seit {time} am {day}"
+
+msgid "This is the beginning of your messages with {name}."
+msgstr "Hier beginnt deine Unterhaltung mit {name}."
+
+msgid "This is the start of the {name} thread."
+msgstr "Hier beginnt der Thread „{name}“."
+
+msgid "This is the start of #{name}."
+msgstr "Hier beginnt #{name}."
+
+msgid "Welcome to #{name}!"
+msgstr "Willkommen in #{name}!"
+
+msgid "Welcome to #{name}"
+msgstr "Willkommen in #{name}"
+
+msgid "This is the start of the #{name} channel."
+msgstr "Hier beginnt der Kanal #{name}."
+
+msgid "This is the start of #{name}. No messages here yet."
+msgstr "Hier beginnt #{name}. Es gibt noch keine Nachrichten."
+
+msgid "This is the start of the {name} thread. No messages here yet."
+msgstr "Hier beginnt der Thread „{name}“. Es gibt noch keine Nachrichten."
+
+msgid "Loading newer messages..."
+msgstr "Neuere Nachrichten werden geladen …"
+
+msgid "Loading earlier messages..."
+msgstr "Ältere Nachrichten werden geladen …"
+
+msgid "Couldn't load newer messages. Retry"
+msgstr "Neuere Nachrichten konnten nicht geladen werden. Erneut versuchen"
+
+msgid "Couldn't load earlier messages. Retry"
+msgstr "Ältere Nachrichten konnten nicht geladen werden. Erneut versuchen"
+
+msgid "Would you like to sync {channel} permissions with {category}?"
+msgstr "Möchtest du die Berechtigungen von {channel} mit {category} synchronisieren?"
+
+msgid "Searching…"
+msgstr "Suche läuft …"
+
+msgid "No Results"
+msgstr "Keine Ergebnisse"
+
+msgid "1 Result"
+msgstr "1 Ergebnis"
+
+msgid "{count} Results"
+msgstr "{count} Ergebnisse"
+
+msgid "Indexing"
+msgstr "Indizierung"
+
+msgid "{count} results indexed so far. We’re still indexing older messages."
+msgstr "Bisher indizierte Ergebnisse: {count}. Ältere Nachrichten werden noch indiziert."
+
+msgid "Sort"
+msgstr "Sortieren"
+
+msgid "Filters ({count})"
+msgstr "Filter ({count})"
+
+msgid "You installed Yapfast with {manager}, so update it there."
+msgstr "Yapfast wurde über {manager} installiert. Aktualisiere es dort."
+
+msgid "Yapfast {version} is available."
+msgstr "Yapfast {version} ist verfügbar."
+
+msgid "You skipped {version}. We'll tell you about the next one."
+msgstr "Du hast Version {version} übersprungen. Bei der nächsten Version benachrichtigen wir dich."
+
+msgid "Couldn't check for updates: {error}"
+msgstr "Updates konnten nicht geprüft werden: {error}"
+
+msgid "Couldn't update: {error}"
+msgstr "Yapfast konnte nicht aktualisiert werden: {error}"
+
+msgid "WHAT'S NEW IN {version}"
+msgstr "NEU IN {version}"
+
+msgid "Checking for updates…"
+msgstr "Suche nach Updates …"
+
+msgid "You're up to date."
+msgstr "Du verwendest die aktuelle Version."
+
+msgid "You're running a build from source, so there's nothing to update."
+msgstr "Du verwendest einen Build aus dem Quellcode. Automatische Updates sind nicht verfügbar."
+
+msgid "Update checks are turned off."
+msgstr "Die Suche nach Updates ist deaktiviert."
+
+msgid "Update and restart"
+msgstr "Aktualisieren und neu starten"
+
+msgid "View release"
+msgstr "Version ansehen"
+
+msgid "Skip this version"
+msgstr "Diese Version überspringen"
+
+msgid "Check now"
+msgstr "Jetzt prüfen"
+
+msgid "Choose what to share"
+msgstr "Wähle aus, was du teilen möchtest"
+
+msgid "Starting your stream..."
+msgstr "Stream wird gestartet …"
+
+msgid "Live"
+msgstr "Live"
+
+msgid "This server does not have any open emoji slots!"
+msgstr "Auf diesem Server sind keine Emoji-Slots frei."
+
+msgid "An animated icon unlocks at boost level 1."
+msgstr "Ein animiertes Symbol ist ab Boost-Stufe 1 verfügbar."
+
+msgid "A role icon can't be animated."
+msgstr "Ein Rollensymbol darf nicht animiert sein."
+
+msgid "Role icons must be under 256 KB."
+msgstr "Rollensymbole müssen kleiner als 256 KB sein."
+
+msgid "To change this setting, first enable 2FA on your account."
+msgstr "Aktiviere zuerst die Zwei-Faktor-Authentifizierung, um diese Einstellung zu ändern."
+
+msgid "Hide 1 message from blocked users"
+msgstr "1 Nachricht blockierter Personen ausblenden"
+
+msgid "Hide 1 message from ignored users"
+msgstr "1 Nachricht ignorierter Personen ausblenden"
+
+msgid "Hide {count} messages from blocked users"
+msgstr "{count} Nachrichten blockierter Personen ausblenden"
+
+msgid "Hide {count} messages from ignored users"
+msgstr "{count} Nachrichten ignorierter Personen ausblenden"
+
+msgid "Hide {count} messages from blocked and ignored users"
+msgstr "{count} Nachrichten blockierter und ignorierter Personen ausblenden"
+
+msgid "We've hidden 1 result from users you've blocked."
+msgstr "1 Ergebnis blockierter Personen wurde ausgeblendet."
+
+msgid "We’ve hidden 1 result from users you’ve ignored."
+msgstr "1 Ergebnis ignorierter Personen wurde ausgeblendet."
+
+msgid "We've hidden {count} results from users you've blocked."
+msgstr "{count} Ergebnisse blockierter Personen wurden ausgeblendet."
+
+msgid "We’ve hidden {count} results from users you’ve ignored."
+msgstr "{count} Ergebnisse ignorierter Personen wurden ausgeblendet."
+
+msgid "We’ve hidden {count} messages from users you’ve blocked and ignored."
+msgstr "{count} Nachrichten blockierter und ignorierter Personen wurden ausgeblendet."
+
+msgid "No game detected right now"
+msgstr "Derzeit wurde kein Spiel erkannt"

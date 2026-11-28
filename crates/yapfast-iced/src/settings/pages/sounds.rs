@@ -103,11 +103,13 @@ impl Settings {
                 }
                 let pick = widget::Id::unique();
                 let id = pick.clone();
+                let title = crate::i18n::tr!(cx.i18n, "Choose a custom sound").to_owned();
+                let filter = crate::i18n::tr!(cx.i18n, "Audio").to_owned();
                 let (task, handle) = Task::perform(
                     async move {
                         let picked = rfd::AsyncFileDialog::new()
-                            .set_title("Choose a custom sound")
-                            .add_filter("Audio", &SOUND_EXTENSIONS)
+                            .set_title(title)
+                            .add_filter(filter, &SOUND_EXTENSIONS)
                             .pick_file()
                             .await?;
                         Some(

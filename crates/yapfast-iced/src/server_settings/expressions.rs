@@ -547,7 +547,7 @@ impl<'a> View<'a> {
         .spacing(14)
         .padding(16);
         if let Some(error) = &upload.error {
-            body = body.push(error_text(theme, error));
+            body = body.push(error_text(theme, self.cx.i18n.text(error)));
         }
         body = body.push(answers(
             theme,
@@ -913,7 +913,7 @@ impl<'a> View<'a> {
                 ),
             );
         if let Some(error) = &draft.error {
-            body = body.push(error_text(theme, error));
+            body = body.push(error_text(theme, self.cx.i18n.text(error)));
         }
         body = body.push(answers(
             theme,

@@ -28,27 +28,34 @@ use super::{
 
 /// What the unread bar says: how many new messages (more when the window
 /// is older ones), since when.
-pub fn unread_label(unread: &[Arc<ChatMessage>], more: bool) -> String {
+fn unread_label(i18n: &crate::i18n::I18n, unread: &[Arc<ChatMessage>], more: bool) -> String {
     let count = unread.iter().filter(|message| !message.own).count();
-    let messages = if count == 1 && !more {
-        "message"
-    } else {
-        "messages"
-    };
+    let one = count == 1 && !more;
     let count = if more {
         format!("{count}+")
     } else {
         count.to_string()
     };
     let Some(first) = unread.first().filter(|first| first.time.contains(':')) else {
-        return format!("{count} new {messages}");
+        return if one {
+            crate::i18n::tr!(i18n, "1 new message").to_owned()
+        } else {
+            crate::i18n::tr!(i18n, "{count} new messages").replace("{count}", &count)
+        };
     };
     let on = yapfast_core::clock::day(first.timestamp);
-    if on.is_empty() || on == yapfast_core::clock::day(yapfast_core::clock::now_ms() / 1000) {
-        format!("{count} new {messages} since {}", first.time)
-    } else {
-        format!("{count} new {messages} since {} on {on}", first.time)
-    }
+    let today =
+        on.is_empty() || on == yapfast_core::clock::day(yapfast_core::clock::now_ms() / 1000);
+    let source = match (one, today) {
+        (true, true) => crate::i18n::tr!(i18n, "1 new message since {time}"),
+        (false, true) => crate::i18n::tr!(i18n, "{count} new messages since {time}"),
+        (true, false) => crate::i18n::tr!(i18n, "1 new message since {time} on {day}"),
+        (false, false) => crate::i18n::tr!(i18n, "{count} new messages since {time} on {day}"),
+    };
+    yapfast_core::themes::chrome::fill(
+        source,
+        &[("count", &count), ("time", &first.time), ("day", &on)],
+    )
 }
 
 pub(crate) fn timeline<'a>(ctx: crate::ctx::Ctx<'a>) -> Element<'a, Message> {
@@ -498,15 +505,21 @@ pub fn edge_line<'a>(
     let theme = ctx.look.theme;
     let shown: Element<'a, Message> = if edge.start {
         let words = if edge.direct {
-            format!("This is the beginning of your messages with {}.", edge.name)
+            crate::i18n::tr!(
+                ctx.i18n,
+                "This is the beginning of your messages with {name}."
+            )
+            .replace("{name}", &edge.name)
         } else if edge.thread {
-            format!("This is the start of the {} thread.", edge.name)
+            crate::i18n::tr!(ctx.i18n, "This is the start of the {name} thread.")
+                .replace("{name}", &edge.name)
         } else {
             // A theme's own words for a channel's start, as Slint's.
             ctx.themes.label(
                 &theme.id,
                 yapfast_core::themes::chrome::Label::Start,
-                format!("This is the start of #{}.", edge.name),
+                crate::i18n::tr!(ctx.i18n, "This is the start of #{name}.")
+                    .replace("{name}", &edge.name),
                 &[("channel", edge.name.as_str())],
             )
         };
@@ -541,18 +554,27 @@ pub(super) fn edge_button<'a>(
     load: Message,
 ) -> Element<'a, Message> {
     let theme = ctx.look.theme;
-    let which = if newer { "newer" } else { "earlier" };
     let (icon, ink, words) = if loading {
         (
             Icon::History,
             theme.secondary,
-            format!("Loading {which} messages..."),
+            if newer {
+                crate::i18n::tr!(ctx.i18n, "Loading newer messages...")
+            } else {
+                crate::i18n::tr!(ctx.i18n, "Loading earlier messages...")
+            }
+            .to_owned(),
         )
     } else if failed {
         (
             Icon::TriangleAlert,
             theme.danger,
-            format!("Couldn't load {which} messages. Retry"),
+            if newer {
+                crate::i18n::tr!(ctx.i18n, "Couldn't load newer messages. Retry")
+            } else {
+                crate::i18n::tr!(ctx.i18n, "Couldn't load earlier messages. Retry")
+            }
+            .to_owned(),
         )
     } else if newer {
         (
@@ -646,17 +668,21 @@ pub(super) fn welcome<'a>(ctx: crate::ctx::Ctx<'a>) -> Element<'a, Message> {
                     ctx.themes.label(
                         &theme.id,
                         yapfast_core::themes::chrome::Label::Welcome,
-                        format!("Welcome to #{}!", edge.name),
+                        crate::i18n::tr!(ctx.i18n, "Welcome to #{name}!")
+                            .replace("{name}", &edge.name),
                         &[("channel", edge.name.as_str())],
                     ),
                     BOLD,
                 ));
-            text(ctx.themes.label(
-                &theme.id,
-                yapfast_core::themes::chrome::Label::Start,
-                format!("This is the start of the #{} channel.", edge.name),
-                &[("channel", edge.name.as_str())],
-            ))
+            text(
+                ctx.themes.label(
+                    &theme.id,
+                    yapfast_core::themes::chrome::Label::Start,
+                    crate::i18n::tr!(ctx.i18n, "This is the start of the #{name} channel.")
+                        .replace("{name}", &edge.name),
+                    &[("channel", edge.name.as_str())],
+                ),
+            )
             .size(theme.type_size("body", 16.0))
             .font(theme.font("body", crate::fonts::REGULAR))
         }
@@ -917,7 +943,10 @@ pub(super) fn conversation_start<'a>(ctx: crate::ctx::Ctx<'a>) -> Element<'a, Me
     } else if edge.direct || edge.thread {
         (edge.name.clone(), 28)
     } else {
-        (format!("Welcome to #{}", edge.name), 28)
+        (
+            crate::i18n::tr!(ctx.i18n, "Welcome to #{name}").replace("{name}", &edge.name),
+            28,
+        )
     };
     start = start.push(
         text(theme.heading(&title).into_owned())
@@ -927,14 +956,23 @@ pub(super) fn conversation_start<'a>(ctx: crate::ctx::Ctx<'a>) -> Element<'a, Me
     );
     if edge.ready {
         let words = if edge.direct {
-            format!("This is the beginning of your messages with {}.", edge.name)
-        } else if edge.thread {
-            format!(
-                "This is the start of the {} thread. No messages here yet.",
-                edge.name
+            crate::i18n::tr!(
+                ctx.i18n,
+                "This is the beginning of your messages with {name}."
             )
+            .replace("{name}", &edge.name)
+        } else if edge.thread {
+            crate::i18n::tr!(
+                ctx.i18n,
+                "This is the start of the {name} thread. No messages here yet."
+            )
+            .replace("{name}", &edge.name)
         } else {
-            format!("This is the start of #{}. No messages here yet.", edge.name)
+            crate::i18n::tr!(
+                ctx.i18n,
+                "This is the start of #{name}. No messages here yet."
+            )
+            .replace("{name}", &edge.name)
         };
         start = start.push(
             text(words)
@@ -976,11 +1014,11 @@ pub(super) fn unread_bar<'a>(ctx: crate::ctx::Ctx<'a>) -> Option<Element<'a, Mes
     }
     let messages = &ctx.lanes.timeline.messages;
     let label = match ctx.lanes.timeline.unread_index(ctx.state) {
-        Some(index) => unread_label(&messages[index..], state.detached),
+        Some(index) => unread_label(ctx.i18n, &messages[index..], state.detached),
         // Sending from a window of older messages shows the newest, which
         // can leave the divider above what's loaded: the banner back to it
         // stays until the conversation is left, as the divider would.
-        None if unread_earlier(state, messages) => unread_label(messages, true),
+        None if unread_earlier(state, messages) => unread_label(ctx.i18n, messages, true),
         None => return None,
     };
     let theme = ctx.look.theme;

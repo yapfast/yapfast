@@ -39,7 +39,7 @@ fn font_message(event: FontEvent) -> Message {
 impl Settings {
     pub(super) fn font_event(&mut self, event: FontEvent, cx: &mut Cx<'_>) -> Task<Message> {
         match event {
-            FontEvent::Choose => return choose_files(),
+            FontEvent::Choose => return choose_files(cx.i18n),
             FontEvent::Chosen(files) => self.add_fonts(&files, cx),
             FontEvent::Remove(index) => {
                 let mut paths = custom_font::paths();
@@ -87,12 +87,14 @@ impl Settings {
 
 /// The system's file dialog for font files: `FontEvent::Chosen` with the
 /// files, or nothing if it's closed.
-fn choose_files() -> Task<Message> {
+fn choose_files(i18n: &crate::i18n::I18n) -> Task<Message> {
+    let title = crate::i18n::tr!(i18n, "Choose font files").to_owned();
+    let filter = crate::i18n::tr!(i18n, "Fonts").to_owned();
     Task::perform(
-        async {
+        async move {
             rfd::AsyncFileDialog::new()
-                .set_title("Choose font files")
-                .add_filter("Fonts", &["ttf", "otf", "ttc", "woff"])
+                .set_title(title)
+                .add_filter(filter, &["ttf", "otf", "ttc", "woff"])
                 .pick_files()
                 .await
                 .map(|files| {

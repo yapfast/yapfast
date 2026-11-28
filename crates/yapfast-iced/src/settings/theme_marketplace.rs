@@ -600,7 +600,8 @@ impl Marketplace {
                     look,
                     Icon::Search,
                     theme.muted,
-                    format!("No themes match \u{201c}{}\u{201d}", self.query.trim()),
+                    crate::i18n::tr!(i18n, "No themes match “{query}”")
+                        .replace("{query}", self.query.trim()),
                     Some(crate::i18n::tr!(i18n, "Try another word, or a theme's author.").into()),
                     vec![
                         controls::action(

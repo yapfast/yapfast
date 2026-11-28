@@ -86,10 +86,11 @@ impl Shown {
             }
             Event::OpenSelect(index) => cx.dispatch(Action::OpenModalSelect(index)),
             Event::ChooseFiles(index) => {
+                let title = crate::i18n::tr!(cx.i18n, "Choose files").to_owned();
                 return Task::perform(
-                    async {
+                    async move {
                         rfd::AsyncFileDialog::new()
-                            .set_title("Choose files")
+                            .set_title(title)
                             .pick_files()
                             .await
                             .map(|files| {

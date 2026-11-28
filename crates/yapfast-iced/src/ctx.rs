@@ -221,6 +221,7 @@ pub struct Cx<'a> {
     pub client: &'a mut Client,
     pub layout: &'a mut Layout,
     pub themes: &'a mut Themes,
+    pub i18n: &'a crate::i18n::I18n,
     /// The theme shown, to read.
     pub theme: &'a Theme,
     /// The window's pixels to the display's.
@@ -270,6 +271,7 @@ macro_rules! cx {
             client: &mut $app.client,
             layout: &mut $app.layout,
             themes: &mut $app.themes,
+            i18n: &$app.i18n,
             theme: &$app.theme,
             scale,
             window: $app.window,

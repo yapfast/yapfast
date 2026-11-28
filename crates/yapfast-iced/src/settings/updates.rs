@@ -46,26 +46,42 @@ impl<'a> Page<'a> {
         if !shown.manager.is_empty() {
             parts.push(form::note(
                 theme,
-                format!(
-                    "You installed Yapfast with {}, so update it there.",
-                    shown.manager
-                ),
+                crate::i18n::tr!(
+                    self.cx.i18n,
+                    "You installed Yapfast with {manager}, so update it there."
+                )
+                .replace("{manager}", &shown.manager),
             ));
         }
         let status = match shown.status {
-            UpdateStatus::Checking => "Checking for updates…".to_owned(),
-            UpdateStatus::Current => "You're up to date.".to_owned(),
-            UpdateStatus::Available => format!("Yapfast {} is available.", shown.latest),
-            UpdateStatus::Skipped => format!(
-                "You skipped {}. We'll tell you about the next one.",
-                shown.latest
-            ),
-            UpdateStatus::Failed => format!("Couldn't check for updates: {}", shown.error),
-            UpdateStatus::Source => {
-                "You're running a build from source, so there's nothing to update.".to_owned()
+            UpdateStatus::Checking => {
+                crate::i18n::tr!(self.cx.i18n, "Checking for updates…").to_owned()
             }
+            UpdateStatus::Current => {
+                crate::i18n::tr!(self.cx.i18n, "You're up to date.").to_owned()
+            }
+            UpdateStatus::Available => {
+                crate::i18n::tr!(self.cx.i18n, "Yapfast {version} is available.")
+                    .replace("{version}", &shown.latest)
+            }
+            UpdateStatus::Skipped => crate::i18n::tr!(
+                self.cx.i18n,
+                "You skipped {version}. We'll tell you about the next one."
+            )
+            .replace("{version}", &shown.latest),
+            UpdateStatus::Failed => {
+                crate::i18n::tr!(self.cx.i18n, "Couldn't check for updates: {error}")
+                    .replace("{error}", &shown.error)
+            }
+            UpdateStatus::Source => crate::i18n::tr!(
+                self.cx.i18n,
+                "You're running a build from source, so there's nothing to update."
+            )
+            .to_owned(),
             UpdateStatus::Idle if prefs.check_for_updates => String::new(),
-            UpdateStatus::Idle => "Update checks are turned off.".to_owned(),
+            UpdateStatus::Idle => {
+                crate::i18n::tr!(self.cx.i18n, "Update checks are turned off.").to_owned()
+            }
         };
         if !status.is_empty() {
             let ink = match shown.status {
@@ -100,7 +116,7 @@ impl<'a> Page<'a> {
             if shown.can_cancel {
                 install = install.push(action(
                     theme,
-                    "Cancel",
+                    crate::i18n::tr!(self.cx.i18n, "Cancel"),
                     Kind::Plain,
                     Some(update_message(Event::Cancel)),
                 ));
@@ -109,10 +125,13 @@ impl<'a> Page<'a> {
         } else {
             if !shown.install_error.is_empty() {
                 parts.push(
-                    text(format!("Couldn't update: {}", shown.install_error))
-                        .size(14)
-                        .color(theme.danger_text)
-                        .into(),
+                    text(
+                        crate::i18n::tr!(self.cx.i18n, "Couldn't update: {error}")
+                            .replace("{error}", &shown.install_error),
+                    )
+                    .size(14)
+                    .color(theme.danger_text)
+                    .into(),
                 );
             }
             if shown.status == UpdateStatus::Available && !shown.install_note.is_empty() {
@@ -129,7 +148,8 @@ impl<'a> Page<'a> {
                 column![
                     form::heading(
                         theme,
-                        format!("WHAT'S NEW IN {}", shown.latest.to_uppercase())
+                        crate::i18n::tr!(self.cx.i18n, "WHAT'S NEW IN {version}")
+                            .replace("{version}", &shown.latest.to_uppercase())
                     ),
                     container(
                         scroll_view(
@@ -155,7 +175,7 @@ impl<'a> Page<'a> {
                 buttons.push(
                     action(
                         theme,
-                        "Update and restart",
+                        crate::i18n::tr!(self.cx.i18n, "Update and restart"),
                         Kind::Primary,
                         Some(update_message(Event::Install)),
                     )
@@ -168,7 +188,7 @@ impl<'a> Page<'a> {
                 buttons.push(
                     action(
                         theme,
-                        "View release",
+                        crate::i18n::tr!(self.cx.i18n, "View release"),
                         if primary { Kind::Primary } else { Kind::Plain },
                         Some(update_message(Event::View)),
                     )
@@ -184,7 +204,7 @@ impl<'a> Page<'a> {
                 buttons.push(
                     action(
                         theme,
-                        "Skip this version",
+                        crate::i18n::tr!(self.cx.i18n, "Skip this version"),
                         Kind::Plain,
                         Some(update_message(Event::Skip)),
                     )
@@ -194,7 +214,7 @@ impl<'a> Page<'a> {
             buttons.push(
                 action(
                     theme,
-                    "Check now",
+                    crate::i18n::tr!(self.cx.i18n, "Check now"),
                     Kind::Plain,
                     (shown.status != UpdateStatus::Checking)
                         .then(|| update_message(Event::CheckNow)),

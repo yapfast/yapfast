@@ -765,7 +765,7 @@ fn stage_tile(
         Slot::OwnScreen => {
             let sharing = voice.sharing.as_ref();
             let live = sharing.is_some_and(|sharing| sharing.phase == SharePhase::Live);
-            let status = share_status(voice);
+            let status = share_status(voice, &app.i18n);
             let framed = frame(app, OWN_SCREEN, corners);
             let note = (!live && framed.is_some()).then_some(status);
             viewers = sharing.and_then(|sharing| stream_viewers(app, &sharing.viewers, None));

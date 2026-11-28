@@ -274,14 +274,17 @@ pub struct MenuRow {
 impl MenuRow {
     // Borrowed labels are interface strings. Owned labels can contain
     // server names, app commands, or other data from outside the UI.
-    fn words<'a>(
-        label: &'a std::borrow::Cow<'static, str>,
-        i18n: &'a crate::i18n::I18n,
-    ) -> &'a str {
-        match label {
-            std::borrow::Cow::Borrowed(source) => i18n.text(source),
-            std::borrow::Cow::Owned(label) => label,
-        }
+    fn words<'a>(&'a self, i18n: &'a crate::i18n::I18n) -> (&'a str, Option<&'a str>) {
+        use std::borrow::Cow;
+
+        let translate = |label: &'a _| match label {
+            Cow::Borrowed(source) => i18n.text(source),
+            Cow::Owned(label) => label.as_str(),
+        };
+        (
+            translate(&self.label),
+            self.subtitle.as_ref().map(translate),
+        )
     }
 
     fn opens_roles(&self) -> bool {
@@ -1420,16 +1423,14 @@ impl<'a> View<'a> {
     /// A menu row as [`App::menu_item`] draws it, with its submenu's
     /// chevron.
     fn menu_entry(self, entry: &'a MenuRow, slot: bool) -> Item<'a> {
+        let (label, subtitle) = entry.words(self.cx.i18n);
         Item {
-            label: MenuRow::words(&entry.label, self.cx.i18n).into(),
+            label: label.into(),
             icon: entry.icon,
             danger: entry.danger,
             slot,
             disabled: entry.disabled,
-            subtitle: entry
-                .subtitle
-                .as_ref()
-                .map(|label| MenuRow::words(label, self.cx.i18n).into()),
+            subtitle: subtitle.map(Into::into),
             check: if entry.submenu.is_empty() {
                 entry.check
             } else {
@@ -1631,10 +1632,10 @@ fn fit(rows: &[MenuRow], slot: bool, i18n: &crate::i18n::I18n) -> f32 {
             } else {
                 crate::fonts::MEDIUM
             };
-            let label = words(MenuRow::words(&row.label, i18n), 14.0, font);
-            let subtitle = row.subtitle.as_ref().map_or(0.0, |subtitle| {
-                words(MenuRow::words(subtitle, i18n), 12.0, crate::fonts::REGULAR)
-            });
+            let (label, subtitle) = row.words(i18n);
+            let label = words(label, 14.0, font);
+            let subtitle =
+                subtitle.map_or(0.0, |subtitle| words(subtitle, 12.0, crate::fonts::REGULAR));
             let icon = if slot || row.icon.is_some() || current {
                 ITEM_ICON as f32 + ROW_GAP
             } else {

@@ -171,7 +171,9 @@ impl App {
     pub fn image_event(&mut self, event: crate::image_viewer::Event) -> Task<Message> {
         use crate::image_viewer::Event;
         match event {
-            Event::Save(item, index) => crate::image_viewer::save(item, index, self.client.state()),
+            Event::Save(item, index) => {
+                crate::image_viewer::save(item, index, self.client.state(), &self.i18n)
+            }
             Event::Menu(item, index, video) => {
                 crate::image_viewer::media_menu(self, item, index, video)
             }

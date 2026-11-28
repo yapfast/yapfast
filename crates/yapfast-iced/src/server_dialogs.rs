@@ -811,9 +811,12 @@ impl<'a> View<'a> {
             ),
             form::note(
                 theme,
-                format!(
-                    "Would you like to sync {} permissions with {}?",
-                    asked.channel, asked.category
+                yapfast_core::themes::chrome::fill(
+                    crate::i18n::tr!(
+                        self.cx.i18n,
+                        "Would you like to sync {channel} permissions with {category}?"
+                    ),
+                    &[("channel", &asked.channel), ("category", &asked.category)],
                 ),
             ),
             buttons([

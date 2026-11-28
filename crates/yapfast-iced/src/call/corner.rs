@@ -194,7 +194,7 @@ pub fn corner_view(app: &App) -> Option<Element<'_, Message>> {
             let sharing = voice.sharing.as_ref()?;
             (
                 "Your screen".to_owned(),
-                share_status(voice).to_owned(),
+                share_status(voice, &app.i18n).to_owned(),
                 OWN_SCREEN.to_owned(),
                 sharing.phase == SharePhase::Live,
                 Some((Icon::ScreenShareOff, "Stop sharing", Event::StopSharing)),

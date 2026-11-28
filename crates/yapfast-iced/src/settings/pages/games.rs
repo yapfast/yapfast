@@ -184,7 +184,10 @@ pub fn open_detected_games_menu(app: &mut App, at: iced::Point) -> iced::Task<Me
     let rows = if names.is_empty() {
         vec![MenuRow {
             disabled: true,
-            ..MenuRow::plain(MenuAct::BlockGame, "No game detected right now")
+            ..MenuRow::plain(
+                MenuAct::BlockGame,
+                crate::i18n::tr_mark!("No game detected right now"),
+            )
         }]
     } else {
         names

@@ -225,7 +225,7 @@ impl Screen {
                 self.open = (self.open != Some(drop)).then_some(drop);
                 return Task::none();
             }
-            Event::Pick(kind) => return pick(kind),
+            Event::Pick(kind) => return pick(kind, cx.i18n),
             Event::Picked(kind, path) => Action::PickServerPicture { kind, path },
             Event::Remove(kind) => Action::RemoveServerPicture(kind),
             Event::Undo => Action::UndoServerSettings,
@@ -387,7 +387,7 @@ impl<'a> View<'a> {
             page = page.push(form::error(theme, self.cx.i18n.text(&problem).to_owned()));
         }
         if let Some(error) = &core.error {
-            page = page.push(form::error(theme, error.as_str()));
+            page = page.push(form::error(theme, self.cx.i18n.text(error)));
         }
         let bar = ((core.changed() || core.saving) && !core.immediate()).then(|| {
             form::Unsaved {
@@ -531,20 +531,23 @@ fn section_look(section: SettingsSection) -> (&'static str, Icon) {
 }
 
 /// The system's file dialog for one of the server's pictures.
-fn pick(kind: ServerPicture) -> Task<Message> {
+fn pick(kind: ServerPicture, i18n: &crate::i18n::I18n) -> Task<Message> {
+    let title = match kind {
+        ServerPicture::Icon => crate::i18n::tr!(i18n, "Change Server Icon"),
+        ServerPicture::Banner => crate::i18n::tr!(i18n, "Upload Server Banner"),
+        ServerPicture::Splash => crate::i18n::tr!(i18n, "Upload Invite Background"),
+        ServerPicture::RoleIcon => crate::i18n::tr!(i18n, "Choose Role Icon"),
+        ServerPicture::Emoji => crate::i18n::tr!(i18n, "Upload Emoji"),
+        ServerPicture::Sticker => crate::i18n::tr!(i18n, "Upload Sticker"),
+    }
+    .to_owned();
+    let pictures = crate::i18n::tr!(i18n, "Pictures").to_owned();
     Task::perform(
         async move {
             rfd::AsyncFileDialog::new()
-                .set_title(match kind {
-                    ServerPicture::Icon => "Change Server Icon",
-                    ServerPicture::Banner => "Upload Server Banner",
-                    ServerPicture::Splash => "Upload Invite Background",
-                    ServerPicture::RoleIcon => "Choose Role Icon",
-                    ServerPicture::Emoji => "Upload Emoji",
-                    ServerPicture::Sticker => "Upload Sticker",
-                })
+                .set_title(title)
                 .add_filter(
-                    "Pictures",
+                    pictures,
                     // Discord's stickers are PNG, APNG, JPEG or GIF.
                     if kind == ServerPicture::Sticker {
                         &["png", "apng", "jpg", "jpeg", "gif"][..]

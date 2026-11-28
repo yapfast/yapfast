@@ -661,7 +661,10 @@ fn add_friend_page<'a>(ctx: crate::ctx::Ctx<'a>) -> Element<'a, Message> {
         AddFriend {
             outcome: Some(Ok(name)),
             ..
-        } => (format!("Sent {name} a friend request."), theme.live),
+        } => (
+            crate::i18n::tr!(ctx.i18n, "Sent {name} a friend request.").replace("{name}", name),
+            theme.live,
+        ),
         AddFriend {
             outcome: Some(Err(error)),
             ..
@@ -856,7 +859,10 @@ pub fn add_friend_view<'a>(ctx: crate::ctx::Ctx<'a>) -> Option<Element<'a, Messa
         AddFriend {
             outcome: Some(Ok(name)),
             ..
-        } => (format!("Sent {name} a friend request."), theme.live),
+        } => (
+            crate::i18n::tr!(ctx.i18n, "Sent {name} a friend request.").replace("{name}", name),
+            theme.live,
+        ),
         AddFriend {
             outcome: Some(Err(error)),
             ..

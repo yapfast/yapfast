@@ -2805,3 +2805,255 @@ msgstr "По умолчанию"
 
 msgid "Browse themes"
 msgstr "Обзор тем"
+
+msgid "Choose an icon"
+msgstr "Выбрать значок"
+
+msgid "Choose a custom sound"
+msgstr "Выбрать пользовательский звук"
+
+msgid "Export the theme as a package"
+msgstr "Экспортировать тему как пакет"
+
+msgid "Choose a file"
+msgstr "Выбрать файл"
+
+msgid "Save attachment"
+msgstr "Сохранить вложение"
+
+msgid "Choose font files"
+msgstr "Выбрать файлы шрифтов"
+
+msgid "Export theme"
+msgstr "Экспортировать тему"
+
+msgid "Import theme"
+msgstr "Импортировать тему"
+
+msgid "Choose a picture for your theme"
+msgstr "Выбрать изображение для темы"
+
+msgid "Import a font for your theme"
+msgstr "Импортировать шрифт для темы"
+
+msgid "Change Avatar"
+msgstr "Изменить аватар"
+
+msgid "Change Banner"
+msgstr "Изменить баннер"
+
+msgid "Upload Server Banner"
+msgstr "Загрузить баннер сервера"
+
+msgid "Upload Invite Background"
+msgstr "Загрузить фон приглашения"
+
+msgid "Choose Role Icon"
+msgstr "Выбрать значок роли"
+
+msgid "Pictures"
+msgstr "Изображения"
+
+msgid "Images"
+msgstr "Изображения"
+
+msgid "Fonts"
+msgstr "Шрифты"
+
+msgid "Audio"
+msgstr "Аудио"
+
+msgid "Yapfast theme"
+msgstr "Тема Yapfast"
+
+msgid "Streaming to {channel} · {count} watching"
+msgstr "Трансляция в {channel} · Зрителей: {count}"
+
+msgid "Streaming to {channel}"
+msgstr "Трансляция в {channel}"
+
+msgid "Sent {name} a friend request."
+msgstr "Запрос в друзья отправлен пользователю {name}."
+
+msgid "No themes match “{query}”"
+msgstr "По запросу «{query}» тем не найдено"
+
+msgid "1 new message"
+msgstr "1 новое сообщение"
+
+msgid "{count} new messages"
+msgstr "Новых сообщений: {count}"
+
+msgid "1 new message since {time}"
+msgstr "1 новое сообщение с {time}"
+
+msgid "{count} new messages since {time}"
+msgstr "Новых сообщений с {time}: {count}"
+
+msgid "1 new message since {time} on {day}"
+msgstr "1 новое сообщение с {time}, {day}"
+
+msgid "{count} new messages since {time} on {day}"
+msgstr "Новых сообщений с {time}, {day}: {count}"
+
+msgid "This is the beginning of your messages with {name}."
+msgstr "Это начало вашей переписки с {name}."
+
+msgid "This is the start of the {name} thread."
+msgstr "Это начало ветки «{name}»."
+
+msgid "This is the start of #{name}."
+msgstr "Это начало канала #{name}."
+
+msgid "Welcome to #{name}!"
+msgstr "Добро пожаловать в #{name}!"
+
+msgid "Welcome to #{name}"
+msgstr "Добро пожаловать в #{name}"
+
+msgid "This is the start of the #{name} channel."
+msgstr "Это начало канала #{name}."
+
+msgid "This is the start of #{name}. No messages here yet."
+msgstr "Это начало канала #{name}. Сообщений пока нет."
+
+msgid "This is the start of the {name} thread. No messages here yet."
+msgstr "Это начало ветки «{name}». Сообщений пока нет."
+
+msgid "Loading newer messages..."
+msgstr "Загрузка более новых сообщений…"
+
+msgid "Loading earlier messages..."
+msgstr "Загрузка более ранних сообщений…"
+
+msgid "Couldn't load newer messages. Retry"
+msgstr "Не удалось загрузить более новые сообщения. Повторить"
+
+msgid "Couldn't load earlier messages. Retry"
+msgstr "Не удалось загрузить более ранние сообщения. Повторить"
+
+msgid "Would you like to sync {channel} permissions with {category}?"
+msgstr "Синхронизировать права канала {channel} с категорией {category}?"
+
+msgid "Searching…"
+msgstr "Поиск…"
+
+msgid "No Results"
+msgstr "Нет результатов"
+
+msgid "1 Result"
+msgstr "1 результат"
+
+msgid "{count} Results"
+msgstr "Найдено: {count}"
+
+msgid "Indexing"
+msgstr "Индексация"
+
+msgid "{count} results indexed so far. We’re still indexing older messages."
+msgstr "Проиндексировано результатов: {count}. Индексация более ранних сообщений продолжается."
+
+msgid "Sort"
+msgstr "Сортировка"
+
+msgid "Filters ({count})"
+msgstr "Фильтры ({count})"
+
+msgid "You installed Yapfast with {manager}, so update it there."
+msgstr "Yapfast установлен через {manager}. Обновите его там же."
+
+msgid "Yapfast {version} is available."
+msgstr "Доступна версия Yapfast {version}."
+
+msgid "You skipped {version}. We'll tell you about the next one."
+msgstr "Вы пропустили версию {version}. Мы сообщим о следующей."
+
+msgid "Couldn't check for updates: {error}"
+msgstr "Не удалось проверить обновления: {error}"
+
+msgid "Couldn't update: {error}"
+msgstr "Не удалось обновить Yapfast: {error}"
+
+msgid "WHAT'S NEW IN {version}"
+msgstr "ЧТО НОВОГО В {version}"
+
+msgid "Checking for updates…"
+msgstr "Проверка обновлений…"
+
+msgid "You're up to date."
+msgstr "Установлена актуальная версия."
+
+msgid "You're running a build from source, so there's nothing to update."
+msgstr "Вы используете сборку из исходного кода. Автоматическое обновление недоступно."
+
+msgid "Update checks are turned off."
+msgstr "Проверка обновлений отключена."
+
+msgid "Update and restart"
+msgstr "Обновить и перезапустить"
+
+msgid "View release"
+msgstr "Открыть страницу выпуска"
+
+msgid "Skip this version"
+msgstr "Пропустить эту версию"
+
+msgid "Check now"
+msgstr "Проверить сейчас"
+
+msgid "Choose what to share"
+msgstr "Выберите, чем поделиться"
+
+msgid "Starting your stream..."
+msgstr "Запуск трансляции…"
+
+msgid "Live"
+msgstr "В эфире"
+
+msgid "This server does not have any open emoji slots!"
+msgstr "На сервере нет свободных мест для эмодзи."
+
+msgid "An animated icon unlocks at boost level 1."
+msgstr "Анимированный значок доступен с первого уровня бустов."
+
+msgid "A role icon can't be animated."
+msgstr "Значок роли не может быть анимированным."
+
+msgid "Role icons must be under 256 KB."
+msgstr "Размер значка роли должен быть меньше 256 КБ."
+
+msgid "To change this setting, first enable 2FA on your account."
+msgstr "Чтобы изменить эту настройку, включите двухфакторную аутентификацию."
+
+msgid "Hide 1 message from blocked users"
+msgstr "Скрыть 1 сообщение от заблокированных пользователей"
+
+msgid "Hide 1 message from ignored users"
+msgstr "Скрыть 1 сообщение от игнорируемых пользователей"
+
+msgid "Hide {count} messages from blocked users"
+msgstr "Скрыть сообщения от заблокированных пользователей ({count})"
+
+msgid "Hide {count} messages from ignored users"
+msgstr "Скрыть сообщения от игнорируемых пользователей ({count})"
+
+msgid "Hide {count} messages from blocked and ignored users"
+msgstr "Скрыть сообщения от заблокированных и игнорируемых пользователей ({count})"
+
+msgid "We've hidden 1 result from users you've blocked."
+msgstr "Скрыт 1 результат от заблокированных пользователей."
+
+msgid "We’ve hidden 1 result from users you’ve ignored."
+msgstr "Скрыт 1 результат от игнорируемых пользователей."
+
+msgid "We've hidden {count} results from users you've blocked."
+msgstr "Скрыто результатов от заблокированных пользователей: {count}."
+
+msgid "We’ve hidden {count} results from users you’ve ignored."
+msgstr "Скрыто результатов от игнорируемых пользователей: {count}."
+
+msgid "We’ve hidden {count} messages from users you’ve blocked and ignored."
+msgstr "Скрыто сообщений от заблокированных и игнорируемых пользователей: {count}."
+
+msgid "No game detected right now"
+msgstr "Сейчас игры не обнаружены"

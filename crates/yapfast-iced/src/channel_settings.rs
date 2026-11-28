@@ -311,7 +311,7 @@ impl<'a> View<'a> {
             page = page.push(form::error(theme, self.cx.i18n.text(&problem).to_owned()));
         }
         if let Some(error) = &core.error {
-            page = page.push(form::error(theme, error.as_str()));
+            page = page.push(form::error(theme, self.cx.i18n.text(error)));
         }
         let bar = (core.changed() || core.saving).then(|| {
             form::Unsaved {
@@ -727,7 +727,13 @@ impl<'a> View<'a> {
             }
             OverwriteConfirm::Sync => (
                 crate::i18n::tr!(self.cx.i18n, "Sync permissions?"),
-                format!("Would you like to sync {channel} permissions with {category}?"),
+                yapfast_core::themes::chrome::fill(
+                    crate::i18n::tr!(
+                        self.cx.i18n,
+                        "Would you like to sync {channel} permissions with {category}?"
+                    ),
+                    &[("channel", &channel), ("category", &category)],
+                ),
             ),
             OverwriteConfirm::DenySelf(name) => (
                 crate::i18n::tr!(self.cx.i18n, "Pretty sure you don't want to do this"),

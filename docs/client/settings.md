@@ -123,6 +123,8 @@ recording. Each change is kept at once in
   including Settings navigation, labels and hints in the conversation
   sidebar and header, the voice dock, message history controls, the
   friend requests screen, context menus, and role and channel permissions.
+  File dialogs use the selected language for Yapfast's titles and file
+  type filters. The operating system provides the other dialog text.
   Settings search
   matches translated section names. Text outside the catalogs uses its
   English source string.

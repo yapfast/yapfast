@@ -79,10 +79,10 @@ impl<'a> View<'a> {
                 parts = parts.push(form::note(
                     theme,
                     crate::i18n::tr!(self.cx.i18n, "Loading..."),
-                ))
+                ));
             }
             Some(Err(error)) => {
-                parts = parts.push(form::error(theme, error.as_str()));
+                parts = parts.push(form::error(theme, self.cx.i18n.text(error)));
             }
             Some(Ok(_)) if shown.is_empty() => {
                 parts = parts.push(form::note(

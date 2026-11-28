@@ -754,12 +754,16 @@ pub fn page_buttons(selected: u32, count: u32, visible: u32) -> Vec<PageButton> 
 
 /// The heading over the results: how many, while searching or indexing
 /// what it says instead.
-fn count(search: &Search) -> String {
+fn count(search: &Search, i18n: &crate::i18n::I18n) -> String {
     match search {
-        search if search.loading && search.total == 0 => "Searching…".to_owned(),
-        search if search.total == 0 => "No Results".to_owned(),
-        search if search.total == 1 => "1 Result".to_owned(),
-        search => format!("{} Results", search.total),
+        search if search.loading && search.total == 0 => {
+            crate::i18n::tr!(i18n, "Searching…").to_owned()
+        }
+        search if search.total == 0 => crate::i18n::tr!(i18n, "No Results").to_owned(),
+        search if search.total == 1 => crate::i18n::tr!(i18n, "1 Result").to_owned(),
+        search => {
+            crate::i18n::tr!(i18n, "{count} Results").replace("{count}", &search.total.to_string())
+        }
     }
 }
 
@@ -785,7 +789,7 @@ pub fn view<'a>(searching: &'a Searching, cx: Ctx<'a>) -> Option<Element<'a, Mes
     let theme = cx.look.theme;
     let server = discord::parse_server(&search.place).is_some();
     let mut title = row![
-        elide(theme.heading(&count(search)).into_owned())
+        elide(theme.heading(&count(search, cx.i18n)).into_owned())
             .size(theme.header_size(15.0))
             .font(theme.header_font(BOLD))
             .color(theme.text)
@@ -794,16 +798,19 @@ pub fn view<'a>(searching: &'a Searching, cx: Ctx<'a>) -> Option<Element<'a, Mes
     .align_y(Alignment::Center);
     if search.indexing_older && !search.loading {
         // Discord links its help on indexing; this says what it says.
-        let indexing = elide("Indexing").size(13).color(theme.link);
+        let indexing = elide(crate::i18n::tr!(cx.i18n, "Indexing"))
+            .size(13)
+            .color(theme.link);
         title = title.push(
             iced::widget::tooltip(
                 indexing,
                 controls::tip(
                     theme,
-                    format!(
-                        "{} results indexed so far. We’re still indexing older messages.",
-                        search.total
-                    ),
+                    crate::i18n::tr!(
+                        cx.i18n,
+                        "{count} results indexed so far. We’re still indexing older messages."
+                    )
+                    .replace("{count}", &search.total.to_string()),
                 ),
                 iced::widget::tooltip::Position::Bottom,
             )
@@ -812,16 +819,20 @@ pub fn view<'a>(searching: &'a Searching, cx: Ctx<'a>) -> Option<Element<'a, Mes
     }
     let sort = cx
         .look
-        .icon_button(Icon::ArrowsUpDown, "Sort", Message::Search(Event::SortMenu))
+        .icon_button(
+            Icon::ArrowsUpDown,
+            crate::i18n::tr!(cx.i18n, "Sort"),
+            Message::Search(Event::SortMenu),
+        )
         .below();
     // Discord's Filters button, with how many the search has.
     let set = parse(&search.query, cx.state).filters();
     let filters = controls::action(
         theme,
         if set == 0 {
-            "Filters".to_owned()
+            crate::i18n::tr!(cx.i18n, "Filters").to_owned()
         } else {
-            format!("Filters ({set})")
+            crate::i18n::tr!(cx.i18n, "Filters ({count})").replace("{count}", &set.to_string())
         },
         Kind::Ghost,
         Some(Message::Search(Event::Filters(
@@ -918,27 +929,43 @@ pub fn view<'a>(searching: &'a Searching, cx: Ctx<'a>) -> Option<Element<'a, Mes
     }
     if blocked + ignored > 0 {
         let hidden = blocked + ignored;
-        // Discord's words, plurals and all; its sentence about the blocked
-        // has straight apostrophes.
-        let (results, messages) = if hidden == 1 {
-            ("1 result".to_owned(), "1 message".to_owned())
-        } else {
-            (format!("{hidden} results"), format!("{hidden} messages"))
-        };
-        let label = match (search.show_hidden, blocked, ignored) {
-            (true, _, 0) => format!("Hide {messages} from blocked users"),
-            (true, 0, _) => format!("Hide {messages} from ignored users"),
-            (true, ..) => format!("Hide {hidden} messages from blocked and ignored users"),
-            (false, _, 0) => format!("We've hidden {results} from users you've blocked."),
-            (false, 0, _) => format!("We’ve hidden {results} from users you’ve ignored."),
-            (false, ..) => {
-                format!("We’ve hidden {hidden} messages from users you’ve blocked and ignored.")
+        let one = hidden == 1;
+        let label = match (search.show_hidden, blocked, ignored, one) {
+            (true, _, 0, true) => crate::i18n::tr!(cx.i18n, "Hide 1 message from blocked users"),
+            (true, 0, _, true) => crate::i18n::tr!(cx.i18n, "Hide 1 message from ignored users"),
+            (true, _, 0, false) => {
+                crate::i18n::tr!(cx.i18n, "Hide {count} messages from blocked users")
             }
+            (true, 0, _, false) => {
+                crate::i18n::tr!(cx.i18n, "Hide {count} messages from ignored users")
+            }
+            (true, ..) => crate::i18n::tr!(
+                cx.i18n,
+                "Hide {count} messages from blocked and ignored users"
+            ),
+            (false, _, 0, true) => {
+                crate::i18n::tr!(cx.i18n, "We've hidden 1 result from users you've blocked.")
+            }
+            (false, 0, _, true) => {
+                crate::i18n::tr!(cx.i18n, "We’ve hidden 1 result from users you’ve ignored.")
+            }
+            (false, _, 0, false) => crate::i18n::tr!(
+                cx.i18n,
+                "We've hidden {count} results from users you've blocked."
+            ),
+            (false, 0, _, false) => crate::i18n::tr!(
+                cx.i18n,
+                "We’ve hidden {count} results from users you’ve ignored."
+            ),
+            (false, ..) => crate::i18n::tr!(
+                cx.i18n,
+                "We’ve hidden {count} messages from users you’ve blocked and ignored."
+            ),
         };
         list = list.push(
             container(link(
                 cx,
-                label,
+                label.replace("{count}", &hidden.to_string()),
                 Message::Search(Event::ShowHidden(!search.show_hidden)),
             ))
             .center_x(Length::Fill),

@@ -876,7 +876,7 @@ impl<'a> View<'a> {
         .spacing(14)
         .padding(16);
         if let Some(error) = &draft.error {
-            body = body.push(form::error(theme, error.as_str()));
+            body = body.push(form::error(theme, self.cx.i18n.text(error)));
         }
         body = body.push(
             row![

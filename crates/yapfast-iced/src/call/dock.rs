@@ -380,11 +380,13 @@ fn sharing_line<'a>(
     };
     let watchers = sharing.viewers.len();
     let words = if !live {
-        super::stage::share_status(voice).to_owned()
+        super::stage::share_status(voice, ctx.i18n).to_owned()
     } else if watchers > 0 {
-        format!("Streaming to {} · {watchers} watching", voice.name)
+        crate::i18n::tr!(ctx.i18n, "Streaming to {channel} · {count} watching")
+            .replace("{count}", &watchers.to_string())
+            .replace("{channel}", &voice.name)
     } else {
-        format!("Streaming to {}", voice.name)
+        crate::i18n::tr!(ctx.i18n, "Streaming to {channel}").replace("{channel}", &voice.name)
     };
     row![
         container(lead).width(LEAD).align_y(Alignment::Center),

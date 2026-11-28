@@ -166,7 +166,12 @@ impl Viewed {
 }
 
 /// Asks where to save a message's attachment, suggesting its own name.
-pub fn save(item: String, index: usize, state: &AppState) -> Task<Message> {
+pub fn save(
+    item: String,
+    index: usize,
+    state: &AppState,
+    i18n: &crate::i18n::I18n,
+) -> Task<Message> {
     if state.preview {
         return Task::none();
     }
@@ -175,10 +180,11 @@ pub fn save(item: String, index: usize, state: &AppState) -> Task<Message> {
         .and_then(|message| message.attachments.get(index))
         .map(|attachment| suggested_name(&attachment.name))
         .unwrap_or_else(|| "attachment".into());
+    let title = crate::i18n::tr!(i18n, "Save attachment").to_owned();
     Task::perform(
         async move {
             rfd::AsyncFileDialog::new()
-                .set_title("Save attachment")
+                .set_title(title)
                 .set_file_name(name)
                 .save_file()
                 .await
@@ -421,7 +427,9 @@ pub fn media_act(app: &mut App, act: MenuAct, item: String, index: usize) -> Tas
     let focus = crate::composer::refocus(app);
     match act {
         MenuAct::CopyImage => Task::batch([focus, app.image_event(Event::Copy(item, index))]),
-        MenuAct::SaveMedia => Task::batch([focus, save(item, index, app.client.state())]),
+        MenuAct::SaveMedia => {
+            Task::batch([focus, save(item, index, app.client.state(), &app.i18n)])
+        }
         MenuAct::CopyMediaLink => Task::batch([focus, iced::clipboard::write(link.to_string())]),
         MenuAct::OpenMediaLink => {
             crate::browser::open(&link);

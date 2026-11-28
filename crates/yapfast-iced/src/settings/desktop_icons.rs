@@ -134,11 +134,13 @@ impl Settings {
             Event::Pick(target) => {
                 let picker = widget::Id::unique();
                 icons.picker = Some(picker.clone());
+                let title = crate::i18n::tr!(cx.i18n, "Choose an icon").to_owned();
+                let filter = crate::i18n::tr!(cx.i18n, "Images").to_owned();
                 return Task::perform(
-                    async {
+                    async move {
                         let file = rfd::AsyncFileDialog::new()
-                            .set_title("Choose an icon")
-                            .add_filter("Images", &["png", "ico", "jpg", "jpeg", "webp"])
+                            .set_title(title)
+                            .add_filter(filter, &["png", "ico", "jpg", "jpeg", "webp"])
                             .pick_file()
                             .await?;
                         Some(

@@ -235,7 +235,7 @@ pub fn update(app: &mut App, event: Event) -> Task<Message> {
         Event::CommandOption(index) => {
             Task::batch([crate::commands::focus_option(app, index), refocus(app)])
         }
-        Event::CommandFile(index) => crate::commands::command_file(index),
+        Event::CommandFile(index) => crate::commands::command_file(index, &app.i18n),
         Event::CommandFileChosen(index, value) => {
             app.client
                 .dispatch(Action::SetCommandOption { index, value });
