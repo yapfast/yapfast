@@ -20,6 +20,7 @@ use crate::{
     style::rounded,
     widgets::Pic,
 };
+use yapfast_core::i18n::tr;
 
 /// The picture and the small one at its corner: 60 and 24 on a card, 100
 /// and 32 on the full profile, as Discord's `size-60` and `size-100`.
@@ -127,7 +128,7 @@ fn card_view<'a>(
         head = head.push(ctx.look.face_button(
             face,
             20.0,
-            "More",
+            tr("More"),
             Message::Profile(super::Event::ActivityMenu(own && activity.game)),
         ));
     }
@@ -259,7 +260,7 @@ fn card_view<'a>(
         card = card.push(
             action(
                 ctx.look.theme,
-                "Watch",
+                tr("Watch"),
                 Kind::Plain,
                 Some(Message::Link(url.clone(), Point::ORIGIN)),
             )

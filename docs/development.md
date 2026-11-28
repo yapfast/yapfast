@@ -66,6 +66,12 @@ private display ([seeing the app](building.md#seeing-the-app)). On Windows,
 start the fake with Bun and run Cargo with the PowerShell environment setup in
 [Contributing](../CONTRIBUTING.md#build-and-test).
 
+## Languages
+
+The window reads in English, German and French. A new text is written in
+English inside `tr("...")`; `scripts/i18n update` then `scripts/i18n check`
+keep the translations in step ([languages](i18n.md)).
+
 ## Renderer
 
 Yapfast draws on the CPU, with tiny-skia, unless Settings → Advanced → "Render

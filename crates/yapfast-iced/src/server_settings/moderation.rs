@@ -17,6 +17,7 @@ use yapfast_core::{
     },
     chat::{Permission, RoleMember},
     clock,
+    i18n::{self, later, tr},
 };
 
 use super::View;
@@ -39,36 +40,36 @@ const ORANGE: u32 = 0xf57731;
 const RED: u32 = 0xf23f43;
 
 /// Discord's words for a choice a Community server can't make.
-const NOT_FOR_COMMUNITY: &str = "This option is not available for Community Servers.";
+const NOT_FOR_COMMUNITY: &str = later("This option is not available for Community Servers.");
 
 /// A choice of Safety Setup's: its value, title, meaning and colour.
 type Level = (u8, &'static str, &'static str, Option<u32>);
 
 /// The verification levels.
 const LEVELS: [Level; 5] = [
-    (0, "None", "Unrestricted", None),
+    (0, later("None"), later("Unrestricted"), None),
     (
         1,
-        "Low",
-        "Must have a verified email on their Discord account.",
+        later("Low"),
+        later("Must have a verified email on their Discord account."),
         Some(GREEN),
     ),
     (
         2,
-        "Medium",
-        "Must also be registered on Discord for longer than 5 minutes.",
+        later("Medium"),
+        later("Must also be registered on Discord for longer than 5 minutes."),
         Some(YELLOW),
     ),
     (
         3,
-        "High",
-        "Must also be a member of this server for longer than 10 minutes.",
+        later("High"),
+        later("Must also be a member of this server for longer than 10 minutes."),
         Some(ORANGE),
     ),
     (
         4,
-        "Highest",
-        "Must have a verified phone on their Discord account.",
+        later("Highest"),
+        later("Must have a verified phone on their Discord account."),
         Some(RED),
     ),
 ];
@@ -77,25 +78,29 @@ const LEVELS: [Level; 5] = [
 const FILTERS: [Level; 3] = [
     (
         2,
-        "Filter messages from all members",
-        "All messages will be filtered for sensitive image-based media.",
+        later("Filter messages from all members"),
+        later("All messages will be filtered for sensitive image-based media."),
         Some(RED),
     ),
     (
         1,
-        "Filter messages from server members without roles",
-        "Messages from server members without a role will be filtered for sensitive image-based media.",
+        later("Filter messages from server members without roles"),
+        later(
+            "Messages from server members without a role will be filtered for sensitive image-based media.",
+        ),
         Some(YELLOW),
     ),
     (
         0,
-        "Do not filter",
-        "Messages will not be filtered for sensitive image-based media.",
+        later("Do not filter"),
+        later("Messages will not be filtered for sensitive image-based media."),
         None,
     ),
 ];
 
-const MODERATORS: &str = "Moderators must have two-factor authentication enabled to ban, kick, or timeout members and delete messages.";
+const MODERATORS: &str = later(
+    "Moderators must have two-factor authentication enabled to ban, kick, or timeout members and delete messages.",
+);
 
 /// A ban's and an audit row's avatar, a ban's row, a filter's width.
 const AVATAR: f32 = 40.0;
@@ -156,12 +161,12 @@ fn choices(list: &[Level], offered: impl Fn(u8) -> bool) -> Vec<form::Choice<'st
         .map(|&(value, title, description, colour)| {
             let offered = offered(value);
             form::Choice {
-                title: title.into(),
-                description: if offered {
+                title: tr(title).into(),
+                description: tr(if offered {
                     description
                 } else {
                     NOT_FOR_COMMUNITY
-                }
+                })
                 .into(),
                 colour: colour.map(hex),
                 offered,
@@ -199,17 +204,22 @@ impl<'a> View<'a> {
             ready,
             |index| safety(SafetyChoice::ContentFilter(FILTERS[index].0)),
         );
-        let only_owner = format!(
-            "{MODERATORS} Only the server owner can change this setting if they have 2FA enabled."
+        let moderators = tr(MODERATORS);
+        let only_owner = i18n::fill(
+            tr("{} Only the server owner can change this setting if they have 2FA enabled."),
+            &[&moderators],
         );
         let (mfa_text, mfa_note) = match (community, rule) {
             (false, MfaRule::OwnerWithoutMfa) => (
                 only_owner,
-                "In order to change this setting, you must have 2FA enabled on your account.",
+                tr("In order to change this setting, you must have 2FA enabled on your account."),
             ),
-            (true, MfaRule::May) => (MODERATORS.to_owned(), ""),
+            (true, MfaRule::May) => (moderators.to_owned(), ""),
             (true, MfaRule::OwnerWithoutMfa) => (
-                format!("{MODERATORS} To change this setting, first enable 2FA on your account."),
+                i18n::fill(
+                    tr("{} To change this setting, first enable 2FA on your account."),
+                    &[&moderators],
+                ),
                 "",
             ),
             (_, _) => (only_owner, ""),
@@ -217,7 +227,7 @@ impl<'a> View<'a> {
         let lock = page.mfa_lock(rule);
         let on = page.requires_mfa();
         let mut switch = form::switch(
-            "Require 2FA for moderator actions",
+            tr("Require 2FA for moderator actions"),
             on,
             (ready && lock.is_none()).then(|| safety(SafetyChoice::RequireMfa(!on))),
         )
@@ -237,25 +247,31 @@ impl<'a> View<'a> {
             );
         }
         form::page([
-            form::title(theme, "Safety Setup"),
+            form::title(theme, tr("Safety Setup")),
             form::group([
-                form::heading(theme, "VERIFICATION LEVEL"),
+                form::heading(theme, tr("VERIFICATION LEVEL")),
                 form::note(
                     theme,
                     if community {
-                        "Members of the server must meet the following criteria before they can send messages. If a member has an assigned role and server onboarding is not enabled, this does not apply."
+                        tr(
+                            "Members of the server must meet the following criteria before they can send messages. If a member has an assigned role and server onboarding is not enabled, this does not apply.",
+                        )
                     } else {
-                        "Members of the server must meet the following criteria before they can send messages in text channels or initiate a direct message conversation. If a member has an assigned role and server onboarding is not enabled, this does not apply. We recommend setting a verification level for a Community Server."
+                        tr(
+                            "Members of the server must meet the following criteria before they can send messages in text channels or initiate a direct message conversation. If a member has an assigned role and server onboarding is not enabled, this does not apply. We recommend setting a verification level for a Community Server.",
+                        )
                     },
                 ),
                 levels,
             ]),
             form::group(mfa),
             form::group([
-                form::heading(theme, "SENSITIVE CONTENT FILTERS"),
+                form::heading(theme, tr("SENSITIVE CONTENT FILTERS")),
                 form::note(
                     theme,
-                    "Choose if server members can share image-based media detected by Discord's sensitive content filters. This setting will apply to channels that are not age-restricted.",
+                    tr(
+                        "Choose if server members can share image-based media detected by Discord's sensitive content filters. This setting will apply to channels that are not age-restricted.",
+                    ),
                 ),
                 filters,
             ]),
@@ -273,7 +289,7 @@ impl<'a> View<'a> {
         let field = crate::controls::field(
             theme,
             "bans-search",
-            "Search Bans by User Id or Username",
+            tr("Search Bans by User Id or Username"),
             &page.query,
             false,
             true,
@@ -286,7 +302,7 @@ impl<'a> View<'a> {
             field,
             action(
                 theme,
-                "Search",
+                tr("Search"),
                 Kind::Primary,
                 (!page.fetching).then(|| ban(BanInput::Search)),
             )
@@ -295,14 +311,14 @@ impl<'a> View<'a> {
         .align_y(Alignment::Center);
         let shown = page.on_page();
         let list: Element<'a, Message> = if shown.is_empty() && page.fetching {
-            container(form::note(theme, "Loading..."))
+            container(form::note(theme, tr("Loading...")))
                 .height(Length::Fill)
                 .into()
         } else if shown.is_empty() {
             empty(
                 theme,
-                "No Bans",
-                "You haven't banned anybody...\nbut if and when you must, do not hesitate!",
+                tr("No Bans"),
+                tr("You haven't banned anybody...\nbut if and when you must, do not hesitate!"),
             )
         } else {
             let mut rows = column![].width(Length::Fill);
@@ -315,10 +331,10 @@ impl<'a> View<'a> {
                 .into()
         };
         let mut parts = column![
-            form::title(theme, "Server Ban List"),
+            form::title(theme, tr("Server Ban List")),
             form::note(
                 theme,
-                "Bans by default are by account and IP.\nA user can circumvent an IP ban by using a proxy.\nBan circumvention can be made very hard by enabling phone verification in Safety Setup.",
+                tr("Bans by default are by account and IP.\nA user can circumvent an IP ban by using a proxy.\nBan circumvention can be made very hard by enabling phone verification in Safety Setup."),
             ),
             search,
             list,
@@ -396,8 +412,11 @@ impl<'a> View<'a> {
                 .color(theme.text)
                 .wrapping(text::Wrapping::None),
             column![
-                text("Ban Reason").size(15).font(MEDIUM).color(theme.text),
-                text(ban_.reason.as_deref().unwrap_or("No reason provided"))
+                text(tr("Ban Reason"))
+                    .size(15)
+                    .font(MEDIUM)
+                    .color(theme.text),
+                text(ban_.reason.as_deref().unwrap_or(tr("No reason provided")))
                     .size(13)
                     .color(theme.muted),
             ]
@@ -415,14 +434,14 @@ impl<'a> View<'a> {
                     action(
                         theme,
                         if page.unbanning {
-                            "Revoking..."
+                            tr("Revoking...")
                         } else {
-                            "Revoke Ban"
+                            tr("Revoke Ban")
                         },
                         Kind::Danger,
                         (!page.unbanning).then(|| ban(BanInput::Unban)),
                     ),
-                    action(theme, "Done", Kind::Primary, Some(ban(BanInput::Close))),
+                    action(theme, tr("Done"), Kind::Primary, Some(ban(BanInput::Close))),
                 ]
                 .spacing(form::TIGHT),
             );
@@ -447,7 +466,7 @@ impl<'a> View<'a> {
         let theme = self.cx.look.theme;
         // Discord's client ignores a filter while it's fetching.
         let fetching = page.fetching();
-        let users: Vec<String> = std::iter::once("All Users".to_owned())
+        let users: Vec<String> = std::iter::once(tr("All Users").to_owned())
             .chain(page.actors.iter().map(|(_, user)| user.name.clone()))
             .collect();
         let user = page
@@ -469,7 +488,7 @@ impl<'a> View<'a> {
         )
         .enabled(!fetching)
         .view(self.cx.look);
-        let actions: Vec<String> = std::iter::once("All Actions".to_owned())
+        let actions: Vec<String> = std::iter::once(tr("All Actions").to_owned())
             .chain(AUDIT_ACTIONS.iter().map(|(_, name)| (*name).to_owned()))
             .collect();
         let chosen = page
@@ -506,27 +525,27 @@ impl<'a> View<'a> {
             .into()
         };
         let head = row![
-            container(form::title(theme, "Audit Log")).width(Length::Fill),
-            filter("Filter by User", by_user),
-            filter("Filter by Action", by_action),
+            container(form::title(theme, tr("Audit Log"))).width(Length::Fill),
+            filter(tr("Filter by User"), by_user),
+            filter(tr("Filter by Action"), by_action),
         ]
         .spacing(form::GAP)
         .align_y(Alignment::Center);
         let body: Element<'a, Message> = if page.rows.is_empty() && fetching {
-            container(form::note(theme, "Loading..."))
+            container(form::note(theme, tr("Loading...")))
                 .height(Length::Fill)
                 .into()
         } else if page.rows.is_empty() && page.failed {
             empty(
                 theme,
-                "This is Awkward",
-                "We broke something. Come back later.",
+                tr("This is Awkward"),
+                tr("We broke something. Come back later."),
             )
         } else if page.rows.is_empty() {
             empty(
                 theme,
-                "No Logs Yet",
-                "Once moderators begin moderating, you can moderate the moderation here.",
+                tr("No Logs Yet"),
+                tr("Once moderators begin moderating, you can moderate the moderation here."),
             )
         } else {
             let mut rows = column![].spacing(8).width(Length::Fill);
@@ -537,7 +556,11 @@ impl<'a> View<'a> {
                 rows = rows.push(
                     container(action(
                         theme,
-                        if fetching { "Loading..." } else { "Load More" },
+                        if fetching {
+                            tr("Loading...")
+                        } else {
+                            tr("Load More")
+                        },
                         Kind::Plain,
                         (!fetching).then(|| audit(AuditInput::More)),
                     ))
@@ -733,21 +756,21 @@ pub(super) fn pager<'a>(
     go: impl Fn(usize) -> Message,
 ) -> Element<'a, Message> {
     let at = if bare {
-        format!("{} of {pages}", page + 1)
+        i18n::fill(tr("{0} of {1}"), &[&(page + 1), &pages])
     } else {
-        format!("Page {} of {pages}", page + 1)
+        i18n::fill(tr("Page {0} of {1}"), &[&(page + 1), &pages])
     };
     row![
         action(
             theme,
-            "Previous",
+            tr("Previous"),
             Kind::Ghost,
             (page > 0).then(|| go(page - 1)),
         ),
         text(at).size(14).color(theme.secondary),
         action(
             theme,
-            "Next",
+            tr("Next"),
             Kind::Ghost,
             (more && page + 1 < pages).then(|| go(page + 1)),
         ),

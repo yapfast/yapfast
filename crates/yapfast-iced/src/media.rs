@@ -15,6 +15,7 @@ use iced::{
 use yapfast_core::chat::{self, Attachment, Picture, Placement};
 
 use crate::{app::Message, fonts::BOLD, style::rounded, widgets::Pic};
+use yapfast_core::i18n::tr;
 
 /// A gallery's square tiles and the gap between them, as Discord's client
 /// lays out several pictures.
@@ -305,7 +306,7 @@ impl<'a> crate::ctx::Ctx<'a> {
     /// pill.
     pub fn spoiler_cover(self, radius: f32) -> Element<'a, Message> {
         container(
-            container(text("SPOILER").size(13).font(BOLD).color(Color::WHITE))
+            container(text(tr("SPOILER")).size(13).font(BOLD).color(Color::WHITE))
                 .padding([0, 12])
                 .height(28)
                 .align_y(Alignment::Center)

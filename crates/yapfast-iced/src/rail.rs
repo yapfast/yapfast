@@ -20,6 +20,7 @@ use yapfast_core::{
     application::{Action, AppState, Navigation},
     chat::{ChatRoom, ChatServer, MarkKind, VoicePerson},
     discord,
+    i18n::{self, tr},
     themes::lists::{LabelPlace, PillMode, RailShape, RailTiles},
 };
 
@@ -1603,8 +1604,8 @@ impl<'a> View<'a> {
         container(self.tile_cell(
             String::new(),
             (
-                "Direct messages".into(),
-                controls::tip(self.cx.look.theme, "Direct messages"),
+                tr("Direct messages").into(),
+                controls::tip(self.cx.look.theme, tr("Direct messages")),
             ),
             face,
             (width, height, 0.0),
@@ -2237,7 +2238,10 @@ impl<'a> View<'a> {
         // A server out of reach in a Discord outage says so, besides
         // fading.
         let name = if item.unavailable {
-            Cow::Owned(format!("{} (unavailable in a Discord outage)", item.name))
+            Cow::Owned(i18n::fill(
+                tr("{} (unavailable in a Discord outage)"),
+                &[&item.name],
+            ))
         } else {
             Cow::Borrowed(item.name.as_str())
         };

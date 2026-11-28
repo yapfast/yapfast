@@ -14,6 +14,7 @@ use crate::{
     form::{self},
     pictures::Icon,
 };
+use yapfast_core::i18n::{self, tr};
 
 impl<'a> Page<'a> {
     pub(in crate::settings) fn discord_page(self) -> Element<'a, Message> {
@@ -24,7 +25,9 @@ impl<'a> Page<'a> {
                 form::title(theme, "Discord"),
                 form::note(
                     theme,
-                    "Link your Discord account to see its servers and DMs in Yapfast, and join its calls. The login stays on this computer, in the system's credential store.",
+                    tr(
+                        "Link your Discord account to see its servers and DMs in Yapfast, and join its calls. The login stays on this computer, in the system's credential store.",
+                    ),
                 ),
                 crate::signin::link_panel(self.cx),
             ]);
@@ -36,11 +39,11 @@ impl<'a> Page<'a> {
             parts.push(form::beside(
                 form::note(
                     theme,
-                    "Unlinking signs Yapfast out of Discord on this computer.",
+                    tr("Unlinking signs Yapfast out of Discord on this computer."),
                 ),
                 action(
                     theme,
-                    "Unlink Discord",
+                    tr("Unlink Discord"),
                     Kind::Danger,
                     Some(account_message(AccountEvent::Unlink)),
                 )
@@ -52,26 +55,26 @@ impl<'a> Page<'a> {
             ));
         }
         parts.push(self.flip(
-            "Show channels you can't access",
-            "They appear locked. Server admins hid them on purpose.",
+            tr("Show channels you can't access"),
+            tr("They appear locked. Server admins hid them on purpose."),
             prefs.show_hidden_channels,
             Pref::ShowHiddenChannels,
         ));
         parts.push(self.flip(
-            "Mark messages read on Discord",
-            "Channels you read in Yapfast show as read in the Discord apps too.",
+            tr("Mark messages read on Discord"),
+            tr("Channels you read in Yapfast show as read in the Discord apps too."),
             prefs.sync_discord_reads.unwrap_or(true),
             Pref::SyncReads,
         ));
         parts.push(self.flip(
-            "Show me as idle when I'm away",
-            "After 10 minutes without using Yapfast, as in Discord. Either way, your phone gets notifications while you're away.",
+            tr("Show me as idle when I'm away"),
+            tr("After 10 minutes without using Yapfast, as in Discord. Either way, your phone gets notifications while you're away."),
             prefs.show_idle.unwrap_or(true),
             Pref::ShowIdle,
         ));
         parts.push(self.flip(
-            "Hide messages from people you blocked",
-            "Leaves them out entirely, rather than showing a line you can open.",
+            tr("Hide messages from people you blocked"),
+            tr("Leaves them out entirely, rather than showing a line you can open."),
             self.cx.layout.hide_blocked,
             Pref::HideBlocked,
         ));
@@ -87,16 +90,13 @@ impl<'a> Page<'a> {
                         .boxed(40)
                         .style(move |_| crate::style::rounded(raised, 20)),
                     column![
-                        text("Blocked accounts")
+                        text(tr("Blocked accounts"))
                             .size(16)
                             .font(crate::fonts::SEMIBOLD)
                             .color(theme.text),
-                        text(format!(
-                            "{count} {}",
-                            if count == 1 { "account" } else { "accounts" }
-                        ))
-                        .size(14)
-                        .color(theme.secondary)
+                        text(i18n::trn("{n} account", "{n} accounts", count))
+                            .size(14)
+                            .color(theme.secondary)
                     ]
                     .spacing(2)
                 ]
@@ -133,7 +133,7 @@ impl<'a> Page<'a> {
                         container(names).width(Length::Fill).clip(true),
                         action(
                             theme,
-                            "Unblock",
+                            tr("Unblock"),
                             Kind::Plain,
                             Some(account_message(AccountEvent::Unblock(person.id.clone()))),
                         )
@@ -146,7 +146,7 @@ impl<'a> Page<'a> {
             }
             list = list.push(people);
             if count > settings.blocked_shown {
-                let more = format!("See {} more", count - settings.blocked_shown);
+                let more = i18n::fill(tr("See {} more"), &[&(count - settings.blocked_shown)]);
                 list = list.push(Element::from(
                     action(
                         theme,

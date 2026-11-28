@@ -12,7 +12,11 @@ use std::{
 
 use iced::{Point, Settings, mouse, widget::Id};
 use iced_test::{Simulator, selector::Candidate};
-use yapfast_core::{application::Action, runtime::BackgroundRuntime};
+use yapfast_core::{
+    application::Action,
+    i18n::{Language, pin_language},
+    runtime::BackgroundRuntime,
+};
 
 use crate::{
     app::{App, Message},
@@ -30,12 +34,17 @@ fn preview() -> (App, tempfile::TempDir) {
 /// of a Yapfast that has no account yet.
 fn start(folder: &tempfile::TempDir, preview: bool) -> App {
     install_fonts();
+    // The texts read in English whatever the machine's language is, and a
+    // test's language change stays on its thread. The window follows the
+    // system's language as it opens, so this is set again after.
+    pin_language(Some(Language::ENGLISH));
     let runtime = Arc::new(BackgroundRuntime::new().expect("runtime"));
     let mut client = Client::new(runtime, folder.path().into());
     if preview {
         client.dispatch(Action::Preview);
     }
     let mut app = App::new(client, (1120, 760)).0;
+    pin_language(Some(Language::ENGLISH));
     // As the window opens, in front.
     app.shell.window = Some(iced::window::Id::unique());
     app.shell.focused = true;

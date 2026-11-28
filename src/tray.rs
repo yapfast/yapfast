@@ -140,6 +140,7 @@ mod linux {
     };
 
     use ksni::{MenuItem, menu::StandardItem};
+    use yapfast_core::i18n::tr;
 
     use super::{Artwork, Choice, Shown};
 
@@ -281,7 +282,7 @@ mod linux {
             ksni::ToolTip {
                 title: "Yapfast".into(),
                 description: if self.shown.unread {
-                    "Unread messages".into()
+                    tr("Unread messages").into()
                 } else {
                     String::new()
                 },
@@ -302,15 +303,15 @@ mod linux {
                 }
                 .into()
             };
-            let mut menu = vec![item("Open Yapfast", Choice::Open)];
+            let mut menu = vec![item(tr("Open Yapfast"), Choice::Open)];
             if self.shown.call {
-                menu.push(item("Disconnect", Choice::Disconnect));
+                menu.push(item(tr("Disconnect"), Choice::Disconnect));
             }
             menu.push(MenuItem::Separator);
-            menu.push(item("Check for updates", Choice::CheckForUpdates));
-            menu.push(item("Restart Yapfast", Choice::Restart));
+            menu.push(item(tr("Check for updates"), Choice::CheckForUpdates));
+            menu.push(item(tr("Restart Yapfast"), Choice::Restart));
             menu.push(MenuItem::Separator);
-            menu.push(item("Quit", Choice::Quit));
+            menu.push(item(tr("Quit"), Choice::Quit));
             menu
         }
 
@@ -357,8 +358,15 @@ mod windows {
         w,
     };
 
+    use yapfast_core::i18n::tr;
+
     use super::{Artwork, Choice, Shown};
     use crate::icon::NativeIcon;
+
+    /// A menu text as the null-terminated UTF-16 the menu API takes.
+    fn wide(text: &str) -> Vec<u16> {
+        text.encode_utf16().chain(std::iter::once(0)).collect()
+    }
 
     /// The message the icon sends the hidden window with what happened to it.
     const ICON_MESSAGE: u32 = WM_APP + 1;
@@ -412,7 +420,7 @@ mod windows {
                 let window = CreateWindowExW(
                     0,
                     w!("YapfastTray"),
-                    w!("Open Yapfast"),
+                    wide(tr("Open Yapfast")).as_ptr(),
                     WS_OVERLAPPED,
                     0,
                     0,
@@ -572,15 +580,15 @@ mod windows {
                     ..std::mem::zeroed()
                 },
             );
-            AppendMenuW(menu, MF_STRING, OPEN, w!("Open Yapfast"));
+            AppendMenuW(menu, MF_STRING, OPEN, wide(tr("Open Yapfast")).as_ptr());
             if call {
-                AppendMenuW(menu, MF_STRING, DISCONNECT, w!("Disconnect"));
+                AppendMenuW(menu, MF_STRING, DISCONNECT, wide(tr("Disconnect")).as_ptr());
             }
             AppendMenuW(menu, MF_SEPARATOR, 0, std::ptr::null());
-            AppendMenuW(menu, MF_STRING, CHECK_FOR_UPDATES, w!("Check for updates"));
-            AppendMenuW(menu, MF_STRING, RESTART, w!("Restart Yapfast"));
+            AppendMenuW(menu, MF_STRING, CHECK_FOR_UPDATES, wide(tr("Check for updates")).as_ptr());
+            AppendMenuW(menu, MF_STRING, RESTART, wide(tr("Restart Yapfast")).as_ptr());
             AppendMenuW(menu, MF_SEPARATOR, 0, std::ptr::null());
-            AppendMenuW(menu, MF_STRING, QUIT, w!("Quit"));
+            AppendMenuW(menu, MF_STRING, QUIT, wide(tr("Quit")).as_ptr());
             SetMenuDefaultItem(menu, OPEN as u32, 0);
             let mut at = POINT { x: 0, y: 0 };
             GetCursorPos(&mut at);

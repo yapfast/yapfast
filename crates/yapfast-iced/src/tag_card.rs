@@ -16,6 +16,7 @@ use iced::{
 use yapfast_core::{
     application::{Action, AppState, Navigation},
     chat::ServerTag,
+    i18n::{self, tr},
 };
 
 use crate::{
@@ -106,8 +107,8 @@ pub fn card(shown: &Shown, state: &AppState) -> Card {
     let known = joined.map(|server| server.name.as_str());
     let name = match (profile, limited, failed) {
         (Some(profile), ..) => profile.name.as_str(),
-        (None, true, _) => known.unwrap_or("Private Server"),
-        (None, _, true) => known.unwrap_or("Unknown Server"),
+        (None, true, _) => known.unwrap_or(tr("Private Server")),
+        (None, _, true) => known.unwrap_or(tr("Unknown Server")),
         _ => known.unwrap_or_default(),
     };
     let icon = profile
@@ -134,22 +135,22 @@ pub fn card(shown: &Shown, state: &AppState) -> Card {
         icon,
         online: count(
             profile.and_then(|profile| profile.online),
-            "Online",
-            "Online",
+            tr("Online"),
+            tr("Online"),
         ),
         members: count(
             profile.and_then(|profile| profile.members),
-            "Member",
-            "Members",
+            tr("Member"),
+            tr("Members"),
         ),
         established: profile
             .map(|profile| yapfast_core::clock::month(profile.created_ms / 1000))
             .filter(|month| !month.is_empty())
-            .map(|month| format!("Est. {month}")),
+            .map(|month| i18n::fill(tr("Est. {}"), &[&month])),
         description: profile.map_or_else(String::new, |profile| profile.description.clone()),
         note: match (limited, failed) {
-            (true, _) => "The server has limited who can see this profile.",
-            (_, true) => "Unable to load server profile",
+            (true, _) => tr("The server has limited who can see this profile."),
+            (_, true) => tr("Unable to load server profile"),
             _ => "",
         },
         loading: answer.is_none(),
@@ -370,7 +371,7 @@ fn view<'a>(shown: &'a Shown, cx: Ctx<'a>) -> Element<'a, Message> {
         body = body.push(
             controls::action(
                 theme,
-                "Go to Server",
+                tr("Go to Server"),
                 Kind::Primary,
                 Some(Message::TagCard(Event::Go)),
             )

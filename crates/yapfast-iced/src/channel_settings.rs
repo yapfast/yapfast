@@ -24,6 +24,7 @@ use yapfast_core::{
         OverwriteState, Overwrites, SLOWMODES, channel_groups, channel_permission,
     },
     chat::{ChannelKind, ChannelOverwrite, RoleMember, ServerRole},
+    i18n::{self, later, tr},
 };
 
 use crate::{
@@ -45,10 +46,24 @@ const TOPIC: &str = "channel-topic";
 const ADD_SEARCH: &str = "channel-add-search";
 /// Slowmode's steps as Overview names them, as [`SLOWMODES`] lists them.
 const SLOWMODE_NAMES: [&str; 14] = [
-    "Off", "5s", "10s", "15s", "30s", "1m", "2m", "5m", "10m", "15m", "30m", "1h", "2h", "6h",
+    later("Off"),
+    "5s",
+    "10s",
+    "15s",
+    "30s",
+    "1m",
+    "2m",
+    "5m",
+    "10m",
+    "15m",
+    "30m",
+    "1h",
+    "2h",
+    "6h",
 ];
 /// Discord's words for a permission this account can't change.
-const NOT_HELD: &str = "You cannot modify this permission because none of your roles have it.";
+const NOT_HELD: &str =
+    later("You cannot modify this permission because none of your roles have it.");
 /// Overview's groups are further apart than a form's.
 const OVERVIEW_GAP: f32 = 20.0;
 const STEP: f32 = 32.0;
@@ -261,8 +276,8 @@ impl<'a> View<'a> {
         let mut nav = vec![Nav::Heading(label.to_uppercase().into())];
         for &section in &screen.sections {
             let (words, icon) = match section {
-                ChannelSection::Overview => ("Overview", Icon::Pencil),
-                ChannelSection::Permissions => ("Permissions", Icon::Shield),
+                ChannelSection::Overview => (tr("Overview"), Icon::Pencil),
+                ChannelSection::Permissions => (tr("Permissions"), Icon::Shield),
             };
             nav.push(Nav::Page {
                 label: words.into(),
@@ -277,9 +292,9 @@ impl<'a> View<'a> {
             nav.push(Nav::Line);
             nav.push(Nav::Page {
                 label: if core.kind == ChannelKind::Category {
-                    "Delete Category"
+                    tr("Delete Category")
                 } else {
-                    "Delete Channel"
+                    tr("Delete Channel")
                 }
                 .into(),
                 icon: Icon::Trash,
@@ -294,7 +309,7 @@ impl<'a> View<'a> {
         let permissions = !loading && core.section == ChannelSection::Permissions;
         let mut page = column![].spacing(form::GAP).width(Length::Fill);
         if loading {
-            page = page.push(form::note(theme, "Loading..."));
+            page = page.push(form::note(theme, tr("Loading...")));
         } else if permissions {
             page = page.push(self.channel_permissions(core));
         } else {
@@ -319,10 +334,15 @@ impl<'a> View<'a> {
             }
             .view(theme)
         });
-        let frame = sheet(nav, page, input(ChannelInput::Close), "Channel settings")
-            .bar(bar)
-            .fill(permissions)
-            .view(self.cx.look);
+        let frame = sheet(
+            nav,
+            page,
+            input(ChannelInput::Close),
+            tr("Channel settings"),
+        )
+        .bar(bar)
+        .fill(permissions)
+        .view(self.cx.look);
         let mut layers = iced::widget::stack![frame];
         if let Some(confirm) = &core.permissions.confirm {
             layers = layers.push(self.overwrite_confirm(core, confirm, label));
@@ -343,14 +363,14 @@ impl<'a> View<'a> {
         let ready = !core.saving;
         let category = core.kind == ChannelKind::Category;
         let mut parts = vec![
-            form::title(theme, "Overview"),
+            form::title(theme, tr("Overview")),
             form::group([
                 form::heading(
                     theme,
                     if category {
-                        "CATEGORY NAME"
+                        tr("CATEGORY NAME")
                     } else {
-                        "CHANNEL NAME"
+                        tr("CHANNEL NAME")
                     },
                 ),
                 form::entry(theme, NAME, "", &draft.name)
@@ -366,43 +386,43 @@ impl<'a> View<'a> {
             let to = |index: usize| input(ChannelInput::Slowmode(SLOWMODES[index]));
             parts.extend([
                 form::group([
-                    form::heading(theme, "CHANNEL TOPIC"),
+                    form::heading(theme, tr("CHANNEL TOPIC")),
                     form::entry(
                         theme,
                         TOPIC,
-                        "Let everyone know how to use this channel!",
+                        tr("Let everyone know how to use this channel!"),
                         &draft.topic,
                     )
                     .on_input_maybe(ready.then_some(|text| input(ChannelInput::Topic(text))))
                     .into(),
                 ]),
                 form::group([
-                    form::heading(theme, "SLOWMODE"),
+                    form::heading(theme, tr("SLOWMODE")),
                     row![
-                        self.cx.look.icon_button(Icon::ChevronLeft, "Shorter slowmode", Some(to(step.saturating_sub(1)))).size(STEP, STEP_GLYPH).fill(iced::Color::TRANSPARENT),
+                        self.cx.look.icon_button(Icon::ChevronLeft, tr("Shorter slowmode"), Some(to(step.saturating_sub(1)))).size(STEP, STEP_GLYPH).fill(iced::Color::TRANSPARENT),
                         container(
-                            text(SLOWMODE_NAMES[step.min(SLOWMODE_NAMES.len() - 1)])
+                            text(tr(SLOWMODE_NAMES[step.min(SLOWMODE_NAMES.len() - 1)]))
                                 .size(15)
                                 .color(theme.text)
                         )
                         .center_x(SLOWMODE_SHOWN),
-                        self.cx.look.icon_button(Icon::ChevronRight, "Longer slowmode", Some(to((step + 1).min(SLOWMODES.len() - 1)))).size(STEP, STEP_GLYPH).fill(iced::Color::TRANSPARENT),
+                        self.cx.look.icon_button(Icon::ChevronRight, tr("Longer slowmode"), Some(to((step + 1).min(SLOWMODES.len() - 1)))).size(STEP, STEP_GLYPH).fill(iced::Color::TRANSPARENT),
                     ]
                     .spacing(form::TIGHT)
                     .align_y(Alignment::Center)
                     .into(),
                     form::note(
                         theme,
-                        "Members will be restricted to sending one message and creating one thread per this interval, unless they have Bypass Slowmode, Manage Channel or Manage Messages permissions.",
+                        tr("Members will be restricted to sending one message and creating one thread per this interval, unless they have Bypass Slowmode, Manage Channel or Manage Messages permissions."),
                     ),
                 ]),
                 form::switch(
-                    "Age-Restricted Channel",
+                    tr("Age-Restricted Channel"),
                     draft.nsfw,
                     ready.then(|| input(ChannelInput::Nsfw(!draft.nsfw))),
                 )
                 .description(
-                    "Users will need to confirm they are of over legal age to view the content in this channel. Age-restricted channels are exempt from the explicit content filter.",
+                    tr("Users will need to confirm they are of over legal age to view the content in this channel. Age-restricted channels are exempt from the explicit content filter."),
                 )
                 .view(self.cx.look),
             ]);
@@ -431,17 +451,17 @@ impl<'a> View<'a> {
             form::title(
                 theme,
                 if category {
-                    "Category Settings"
+                    tr("Category Settings")
                 } else {
-                    "Channel Permissions"
+                    tr("Channel Permissions")
                 }
             ),
             form::note(
                 theme,
                 if category {
-                    "Use permissions to customize who can do what in this category."
+                    tr("Use permissions to customize who can do what in this category.")
                 } else {
-                    "Use permissions to customize who can do what in this channel."
+                    tr("Use permissions to customize who can do what in this channel.")
                 }
             ),
         ]
@@ -453,9 +473,9 @@ impl<'a> View<'a> {
                 text(format!(
                     "{}{name}",
                     if synced {
-                        "Permissions synced with category: "
+                        tr("Permissions synced with category: ")
                     } else {
-                        "Permissions not synced with category: "
+                        tr("Permissions not synced with category: ")
                     }
                 ))
                 .size(14)
@@ -467,7 +487,7 @@ impl<'a> View<'a> {
             if !synced {
                 notice = notice.push(action(
                     theme,
-                    "Sync Now",
+                    tr("Sync Now"),
                     Kind::Primary,
                     ready.then(|| input(ChannelInput::Sync)),
                 ));
@@ -495,22 +515,22 @@ impl<'a> View<'a> {
         let locked = (0..64).any(|bit| access & (1u64 << bit) != 0 && rules.locked(bit));
         let mut switch = form::switch(
             if category {
-                "Private Category"
+                tr("Private Category")
             } else {
-                "Private Channel"
+                tr("Private Channel")
             },
             private,
             (ready && !locked).then(|| input(ChannelInput::Private(!private))),
         )
         .description(if category {
-            "By making a category private, only select members and roles will be able to view this category. Linked channels in this category will automatically match to this setting."
+            tr("By making a category private, only select members and roles will be able to view this category. Linked channels in this category will automatically match to this setting.")
         } else if voice {
-            "By making a channel private, only select members and roles will have access to view or connect to this channel."
+            tr("By making a channel private, only select members and roles will have access to view or connect to this channel.")
         } else {
-            "By making a channel private, only select members and roles will be able to view this channel."
+            tr("By making a channel private, only select members and roles will be able to view this channel.")
         });
         if locked {
-            switch = switch.locked(NOT_HELD);
+            switch = switch.locked(tr(NOT_HELD));
         }
         let raised = theme.raised;
         parts = parts
@@ -520,7 +540,7 @@ impl<'a> View<'a> {
                     .width(Length::Fill)
                     .style(move |_| rounded(raised, 8)),
             )
-            .push(form::heading(theme, "ADVANCED PERMISSIONS"));
+            .push(form::heading(theme, tr("ADVANCED PERMISSIONS")));
         let shown = page.shown();
         let everyone = page.is_everyone(&shown);
         let set = move |bit: u32| {
@@ -544,7 +564,7 @@ impl<'a> View<'a> {
                         title,
                         description,
                         tri(Overwrites::state(&shown, bit)),
-                        rules.locked(bit).then_some(NOT_HELD),
+                        rules.locked(bit).then_some(tr(NOT_HELD)),
                         on,
                     ))
                     .padding(Padding {
@@ -564,7 +584,7 @@ impl<'a> View<'a> {
         if !everyone {
             right = right.push(action(
                 theme,
-                format!("Remove {}", app.overwrite_name(room, &shown)),
+                i18n::fill(tr("Remove {}"), &[&app.overwrite_name(room, &shown)]),
                 Kind::Danger,
                 ready.then(|| input(ChannelInput::Remove)),
             ));
@@ -590,7 +610,7 @@ impl<'a> View<'a> {
         let page = &core.permissions;
         let roles = app.server_roles(&core.room);
         let head = row![
-            text("ROLES/MEMBERS")
+            text(tr("ROLES/MEMBERS"))
                 .size(12)
                 .font(BOLD)
                 .color(theme.muted)
@@ -599,7 +619,7 @@ impl<'a> View<'a> {
                 .look
                 .icon_button(
                     Icon::CirclePlus,
-                    "Add a role or member",
+                    tr("Add a role or member"),
                     ready.then(|| input(ChannelInput::Adding(true)))
                 )
                 .size(ADD_BUTTON, ADD_GLYPH)
@@ -698,21 +718,29 @@ impl<'a> View<'a> {
                         ..Default::default()
                     });
                 (
-                    "Delete Permission Settings",
-                    format!(
-                        "Are you sure you want to delete {} permissions? This action cannot be undone.",
-                        app.overwrite_name(&core.room, &overwrite)
+                    tr("Delete Permission Settings"),
+                    i18n::fill(
+                        tr(
+                            "Are you sure you want to delete {} permissions? This action cannot be undone.",
+                        ),
+                        &[&app.overwrite_name(&core.room, &overwrite)],
                     ),
                 )
             }
             OverwriteConfirm::Sync => (
-                "Sync permissions?",
-                format!("Would you like to sync {channel} permissions with {category}?"),
+                tr("Sync permissions?"),
+                i18n::fill(
+                    tr("Would you like to sync {0} permissions with {1}?"),
+                    &[&channel, &category],
+                ),
             ),
             OverwriteConfirm::DenySelf(name) => (
-                "Pretty sure you don't want to do this",
-                format!(
-                    "You cannot deny this permission to {name} because it will deny it to you as well. Allow another role or yourself before trying again."
+                tr("Pretty sure you don't want to do this"),
+                i18n::fill(
+                    tr(
+                        "You cannot deny this permission to {} because it will deny it to you as well. Allow another role or yourself before trying again.",
+                    ),
+                    &[&name],
                 ),
             ),
         };
@@ -720,14 +748,24 @@ impl<'a> View<'a> {
         let mut answers = row![Space::new().width(Length::Fill)].spacing(form::TIGHT);
         match confirm {
             OverwriteConfirm::DenySelf(_) => {
-                answers = answers.push(action(theme, "Okay", Kind::Primary, Some(cancel.clone())));
+                answers = answers.push(action(
+                    theme,
+                    tr("Okay"),
+                    Kind::Primary,
+                    Some(cancel.clone()),
+                ));
             }
             OverwriteConfirm::Remove(_) => {
                 answers = answers
-                    .push(action(theme, "Cancel", Kind::Ghost, Some(cancel.clone())))
                     .push(action(
                         theme,
-                        "Delete",
+                        tr("Cancel"),
+                        Kind::Ghost,
+                        Some(cancel.clone()),
+                    ))
+                    .push(action(
+                        theme,
+                        tr("Delete"),
                         Kind::Danger,
                         Some(input(ChannelInput::Confirm)),
                     ));
@@ -736,13 +774,13 @@ impl<'a> View<'a> {
                 answers = answers
                     .push(action(
                         theme,
-                        "Keep Current Permissions",
+                        tr("Keep Current Permissions"),
                         Kind::Ghost,
                         Some(cancel.clone()),
                     ))
                     .push(action(
                         theme,
-                        "Sync Permissions",
+                        tr("Sync Permissions"),
                         Kind::Primary,
                         Some(input(ChannelInput::Confirm)),
                     ));
@@ -782,7 +820,7 @@ impl<'a> View<'a> {
             .collect();
         let mut list = column![];
         if !roles.is_empty() {
-            list = list.push(form::heading(theme, "ROLES"));
+            list = list.push(form::heading(theme, tr("ROLES")));
         }
         for role in roles {
             list = list.push(
@@ -807,7 +845,7 @@ impl<'a> View<'a> {
             );
         }
         if !members.is_empty() {
-            list = list.push(form::heading(theme, "MEMBERS"));
+            list = list.push(form::heading(theme, tr("MEMBERS")));
         }
         for member in members {
             let mut names = row![
@@ -853,17 +891,24 @@ impl<'a> View<'a> {
         }
         let close = input(ChannelInput::Adding(false));
         let body = column![
-            text("Add:").size(20).font(BOLD).color(theme.text),
-            controls::field(theme, ADD_SEARCH, "Role/Member", &adding.query, false, true)
-                .size(14)
-                .padding([10.9, 12.0])
-                .on_input(|text| input(ChannelInput::FindMembers(text))),
+            text(tr("Add:")).size(20).font(BOLD).color(theme.text),
+            controls::field(
+                theme,
+                ADD_SEARCH,
+                tr("Role/Member"),
+                &adding.query,
+                false,
+                true
+            )
+            .size(14)
+            .padding([10.9, 12.0])
+            .on_input(|text| input(ChannelInput::FindMembers(text))),
             scroll_view(list)
                 .style(scrollbar(theme))
                 .height(Length::Fill),
             row![
                 Space::new().width(Length::Fill),
-                action(theme, "Cancel", Kind::Ghost, Some(close.clone()))
+                action(theme, tr("Cancel"), Kind::Ghost, Some(close.clone()))
             ]
         ]
         .spacing(12)

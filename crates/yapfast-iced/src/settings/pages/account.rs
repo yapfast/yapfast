@@ -6,7 +6,7 @@ use iced::{
     Alignment, Element, Length,
     widget::{column, row, text},
 };
-use yapfast_core::{application::Action, chat::RelationshipChange};
+use yapfast_core::{application::Action, chat::RelationshipChange, i18n::tr};
 
 use super::{AccountEvent, account_message};
 use crate::settings::{Event, Page, Settings};
@@ -84,9 +84,9 @@ impl<'a> Page<'a> {
             .spacing(16)
             .align_y(Alignment::Center),
         );
-        let mut parts = vec![form::title(theme, "My account"), card];
+        let mut parts = vec![form::title(theme, tr("My account")), card];
         if let Some(storage) = state.storage {
-            parts.push(form::note(theme, storage));
+            parts.push(form::note(theme, tr(storage)));
         }
         let mut buttons = vec![];
         let ink = crate::theme::rgb(theme.text);
@@ -94,7 +94,7 @@ impl<'a> Page<'a> {
             buttons.push(
                 action(
                     theme,
-                    "Reconnect",
+                    tr("Reconnect"),
                     Kind::Plain,
                     (!state.busy).then_some(account_message(AccountEvent::Reconnect)),
                 )
@@ -106,7 +106,7 @@ impl<'a> Page<'a> {
             buttons.push(
                 action(
                     theme,
-                    "Edit profile",
+                    tr("Edit profile"),
                     Kind::Plain,
                     Some(crate::app::settings(Event::EditProfile)),
                 )
@@ -117,9 +117,9 @@ impl<'a> Page<'a> {
                 action(
                     theme,
                     if state.custom_status.is_some() {
-                        "Change custom status"
+                        tr("Change custom status")
                     } else {
-                        "Set a custom status"
+                        tr("Set a custom status")
                     },
                     Kind::Plain,
                     Some(account_message(AccountEvent::CustomStatus)),
@@ -131,7 +131,7 @@ impl<'a> Page<'a> {
         let sign_out = if state.preview {
             action(
                 theme,
-                "Back to sign in",
+                tr("Back to sign in"),
                 Kind::Plain,
                 Some(account_message(AccountEvent::SignOut)),
             )
@@ -139,7 +139,7 @@ impl<'a> Page<'a> {
         } else {
             action(
                 theme,
-                "Sign out",
+                tr("Sign out"),
                 Kind::Danger,
                 (!state.busy && state.sending.is_none())
                     .then_some(account_message(AccountEvent::SignOut)),

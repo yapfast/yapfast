@@ -8,6 +8,7 @@ use iced::{
 use yapfast_core::{
     application::{RoleInput, RoleLock, RoleRules, RolesPage, ServerSettings},
     chat::{RoleDetail, RoleManager},
+    i18n::{self, tr},
 };
 
 use super::{
@@ -48,9 +49,12 @@ impl<'a> View<'a> {
             .count();
         let header = row![
             Space::new().width(HANDLE),
-            container(form::heading(theme, format!("ROLES – {}", listed.len())))
-                .width(Length::Fill),
-            container(form::heading(theme, "MEMBERS")).width(MEMBERS + 2.0 * BUTTON + HANDLE),
+            container(form::heading(
+                theme,
+                i18n::fill(tr("ROLES – {}"), &[&listed.len()])
+            ))
+            .width(Length::Fill),
+            container(form::heading(theme, tr("MEMBERS"))).width(MEMBERS + 2.0 * BUTTON + HANDLE),
         ]
         .spacing(10)
         .padding(Padding {
@@ -61,7 +65,7 @@ impl<'a> View<'a> {
         });
         let mut list = column![header, form::rule(theme)];
         if listed.is_empty() {
-            list = list.push(form::note(theme, "No roles"));
+            list = list.push(form::note(theme, tr("No roles")));
         }
         let count = listed.len();
         let mut rows = Vec::with_capacity(count);
@@ -85,23 +89,23 @@ impl<'a> View<'a> {
             .lifted(theme.raised, 6.0),
         );
         form::page([
-            form::title(theme, "Roles"),
+            form::title(theme, tr("Roles")),
             form::note(
                 theme,
-                "Use roles to group your server members and assign permissions.",
+                tr("Use roles to group your server members and assign permissions."),
             ),
             self.everyone_card(page.everyone()),
             row![
                 search(
                     theme,
                     SEARCH,
-                    "Search Roles",
+                    tr("Search Roles"),
                     &page.search,
                     RoleInput::Search
                 ),
                 action(
                     theme,
-                    "Create Role",
+                    tr("Create Role"),
                     Kind::Primary,
                     ready.then(|| input(RoleInput::Create)),
                 )
@@ -111,7 +115,9 @@ impl<'a> View<'a> {
             .into(),
             form::note(
                 theme,
-                "Members use the color of the highest role they have on this list. Drag roles to reorder them.",
+                tr(
+                    "Members use the color of the highest role they have on this list. Drag roles to reorder them.",
+                ),
             ),
             list.into(),
         ])
@@ -131,13 +137,16 @@ impl<'a> View<'a> {
                 .center(CARD_ICON)
                 .style(move |_| rounded(field, CARD_ICON / 2.0)),
             column![
-                text("Default Permissions")
+                text(tr("Default Permissions"))
                     .size(15)
                     .font(SEMIBOLD)
                     .color(theme.text),
-                text(format!("{name} • applies to all server members"))
-                    .size(13)
-                    .color(theme.secondary)
+                text(i18n::fill(
+                    tr("{} • applies to all server members"),
+                    &[&name]
+                ))
+                .size(13)
+                .color(theme.secondary)
             ]
             .spacing(2)
             .width(Length::Fill),
@@ -190,9 +199,9 @@ impl<'a> View<'a> {
         .spacing(8)
         .align_y(Alignment::Center);
         let badge = match role.managed {
-            Some(RoleManager::Bot) => Some("BOT"),
-            Some(RoleManager::Booster) => Some("BOOSTER"),
-            Some(RoleManager::Integration) => Some("INTEGRATION"),
+            Some(RoleManager::Bot) => Some(tr("BOT")),
+            Some(RoleManager::Booster) => Some(tr("BOOSTER")),
+            Some(RoleManager::Integration) => Some(tr("INTEGRATION")),
             None => None,
         };
         if let Some(badge) = badge {
@@ -216,7 +225,11 @@ impl<'a> View<'a> {
                 } else {
                     Icon::Pencil
                 },
-                if lock.is_some() { "View" } else { "Edit" },
+                if lock.is_some() {
+                    tr("View")
+                } else {
+                    tr("Edit")
+                },
                 Some(open.clone()),
             )
             .size(BUTTON, GLYPH)
@@ -227,7 +240,7 @@ impl<'a> View<'a> {
             .look
             .icon_button(
                 Icon::Ellipsis, // Its tip would cover the menu it opens.
-                if more_open { "" } else { "More" },
+                if more_open { "" } else { tr("More") },
                 may_copy.then(|| local(Event::More(Some(role.id.clone())))),
             )
             .size(BUTTON, GLYPH)
@@ -348,22 +361,22 @@ impl<'a> View<'a> {
         let id = || role.id.clone();
         let rows = column![
             self.cx.look.menu_item(
-                item("Move Up", false, movable && index > first_movable),
+                item(tr("Move Up"), false, movable && index > first_movable),
                 Light::Pointer,
                 local(Event::Moved(index, index.saturating_sub(1))),
             ),
             self.cx.look.menu_item(
-                item("Move Down", false, movable && index + 1 < count),
+                item(tr("Move Down"), false, movable && index + 1 < count),
                 Light::Pointer,
                 local(Event::Moved(index, index + 1)),
             ),
             self.cx.look.menu_item(
-                item("Duplicate Role", false, true),
+                item(tr("Duplicate Role"), false, true),
                 Light::Pointer,
                 input(RoleInput::Duplicate(id())),
             ),
             self.cx.look.menu_item(
-                item("Delete", true, true),
+                item(tr("Delete"), true, true),
                 Light::Pointer,
                 input(RoleInput::Delete(id())),
             ),

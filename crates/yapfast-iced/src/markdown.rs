@@ -22,6 +22,7 @@ use pulldown_cmark::{Event, Options, Parser, Tag, TagEnd};
 use yapfast_core::{
     blocks::{self, Block, Kind},
     chat::{ChatMessage, Notice, NoticeKind},
+    i18n::{self, tr},
     links,
     mention::{self, Mentioned},
     spoiler,
@@ -487,10 +488,12 @@ pub fn notice(message: &ChatMessage, notice: &Notice, text: u32, muted: u32) -> 
     let what = match &notice.kind {
         NoticeKind::Pinned(item) => {
             let jump = item.as_ref().map(|item| format!("{JUMP_LINK}{item}"));
-            format!(
-                " pinned {} to this channel. See all {}.",
-                strong("a message", text, jump.as_deref()),
-                strong("pinned messages", text, Some(PINS_LINK)),
+            i18n::fill(
+                tr(" pinned {} to this channel. See all {}."),
+                &[
+                    &strong(tr("a message"), text, jump.as_deref()),
+                    &strong(tr("pinned messages"), text, Some(PINS_LINK)),
+                ],
             )
         }
         // A possessive follows the name without a space.
@@ -1000,7 +1003,7 @@ impl<'c> crate::ctx::Ctx<'c> {
     /// emoji's picture arrives; prefixed by `prefix` spans if any.
     pub fn inline_emoji_line(
         self,
-        prefix: &[&'c str],
+        prefix: &[&str],
         text: &'c str,
         emoji: &'c [yapfast_core::chat::CustomEmoji],
         look: Look,
@@ -1012,7 +1015,7 @@ impl<'c> crate::ctx::Ctx<'c> {
         let mut moving: Vec<(usize, Box<dyn crate::piece::Moving + 'c>)> = Vec::new();
         for &part in prefix {
             if !part.is_empty() {
-                spans.push(span(part).color(look.ink));
+                spans.push(span(part.to_owned()).color(look.ink));
             }
         }
         for part in split_emoji(text, emoji) {

@@ -6,7 +6,7 @@ use iced::{
     widget::{column, operation, text},
 };
 use yapfast_core::{
-    application::MenuChoice, chat::MemberChange, voice::Command, volume::MAX_PERCENT,
+    application::MenuChoice, chat::MemberChange, i18n::tr, voice::Command, volume::MAX_PERCENT,
 };
 
 use crate::call::Event;
@@ -239,12 +239,12 @@ pub fn volumes_view<'a>(ctx: crate::ctx::Ctx<'a>, volumes: &'a Volumes) -> Eleme
             .font(BOLD)
             .color(theme.text)
             .wrapping(text::Wrapping::None),
-        slider("User volume", false, volumes.voice),
+        slider(tr("User volume"), false, volumes.voice),
     ]
     .spacing(12)
     .padding(12);
     if volumes.live {
-        panel = panel.push(slider("Stream volume", true, volumes.stream));
+        panel = panel.push(slider(tr("Stream volume"), true, volumes.stream));
     }
     panel.into()
 }

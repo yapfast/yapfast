@@ -161,7 +161,7 @@ impl<'a, M: Clone + 'a> Sheet<'a, M> {
         };
         let close = column![
             controls_close(look, self.label, self.close.clone()),
-            text("ESC")
+            text(crate::words::say("ESC"))
                 .size(theme.type_size("small", 12.0))
                 .font(theme.font("small", BOLD))
                 .color(theme.muted)
@@ -244,7 +244,7 @@ pub const PAGE: &str = "sheet-page";
 fn controls_close<'a, M: Clone + 'a>(look: Look<'a>, label: &'a str, close: M) -> Element<'a, M> {
     let theme = look.theme;
     let (raised, lit) = (theme.raised, theme.hover);
-    let tip = format!("Close {label}");
+    let tip = crate::words::say_with("Close {}", label);
     iced::widget::tooltip(
         button(look.glyph(Icon::X, 18, theme.secondary).boxed(CLOSE))
             .padding(0)

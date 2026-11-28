@@ -14,6 +14,7 @@ use iced::{
 use yapfast_core::{
     application::{Action, Application, Navigation},
     emoji::card::{self as expression, Target},
+    i18n::{self, tr},
 };
 
 use crate::{
@@ -468,9 +469,9 @@ impl<'a> View<'a> {
         .spacing(4)
         .padding(12);
         let note = match &role.members {
-            None => Some("Loading..."),
+            None => Some(tr("Loading...")),
             Some(members) if members.is_empty() => {
-                Some("Yapfast hasn't seen anyone with this role yet.")
+                Some(tr("Yapfast hasn't seen anyone with this role yet."))
             }
             Some(_) => None,
         };
@@ -570,12 +571,16 @@ impl<'a> View<'a> {
         };
         let mut counts = row![].spacing(14);
         if let Some(members) = server.members {
-            counts = counts.push(count(count_of(members, "member", "members")));
+            counts = counts.push(count(i18n::trn(
+                "{n} member",
+                "{n} members",
+                members as usize,
+            )));
         }
-        counts = counts.push(count(count_of(
-            server.channels as u64,
-            "channel",
-            "channels",
+        counts = counts.push(count(i18n::trn(
+            "{n} channel",
+            "{n} channels",
+            server.channels,
         )));
         let mut body = column![
             column![
@@ -597,7 +602,7 @@ impl<'a> View<'a> {
         if let Some(nick) = &server.nick {
             body = body.push(
                 column![
-                    text("THEIR NICKNAME")
+                    text(tr("THEIR NICKNAME"))
                         .size(12)
                         .font(BOLD)
                         .color(theme.muted),
@@ -609,7 +614,7 @@ impl<'a> View<'a> {
         body = body.push(
             controls::action(
                 theme,
-                "Go to server",
+                tr("Go to server"),
                 Kind::Primary,
                 Some(Message::Info(Event::GoToServer(server.id.clone()))),
             )
@@ -619,9 +624,4 @@ impl<'a> View<'a> {
         let at = Point::new(at.x + 8.0, at.y - 8.0);
         Some(Place::new(crate::widgets::motion::grow(opaque(card)), at, 8.0).into())
     }
-}
-
-/// "1 member", "12 members".
-fn count_of(count: u64, one: &str, many: &str) -> String {
-    format!("{count} {}", if count == 1 { one } else { many })
 }

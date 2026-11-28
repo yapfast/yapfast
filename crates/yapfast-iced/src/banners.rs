@@ -14,6 +14,7 @@ use crate::{
     fonts::MEDIUM,
     pictures::Icon,
 };
+use yapfast_core::i18n::tr;
 
 pub fn dismiss_notice(app: &mut App) -> iced::Task<Message> {
     app.client.dispatch(Action::DismissNotice);
@@ -39,7 +40,7 @@ pub fn gpu_banner<'a>(ctx: crate::ctx::Ctx<'a>) -> Option<Element<'a, Message>> 
     ctx.gpu_notice.then(|| {
         banner(
             ctx,
-            crate::graphics::NOTICE,
+            tr(crate::graphics::NOTICE),
             Message::Shell(crate::shell::Event::DismissGpuNotice),
         )
     })
@@ -61,11 +62,13 @@ pub fn preview_banner<'a>(ctx: crate::ctx::Ctx<'a>) -> Option<Element<'a, Messag
     let note = container(
         row![
             ctx.look.glyph(Icon::TriangleAlert, 16, theme.accent),
-            text("Local preview: sample data. Nothing leaves this computer.")
-                .size(14)
-                .font(MEDIUM)
-                .color(theme.secondary)
-                .width(Length::Fill),
+            text(tr(
+                "Local preview: sample data. Nothing leaves this computer."
+            ))
+            .size(14)
+            .font(MEDIUM)
+            .color(theme.secondary)
+            .width(Length::Fill),
         ]
         .spacing(10)
         .align_y(Alignment::Center),
@@ -91,7 +94,7 @@ pub fn banner<'a>(
         row![
             ctx.look.glyph(Icon::TriangleAlert, 18, theme.accent),
             text(words).size(15).color(theme.text).width(Length::Fill),
-            action(theme, "Dismiss", Kind::Ghost, Some(dismissed)).small(),
+            action(theme, tr("Dismiss"), Kind::Ghost, Some(dismissed)).small(),
         ]
         .spacing(12)
         .align_y(Alignment::Center),

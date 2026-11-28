@@ -18,6 +18,7 @@ use iced::{
 use yapfast_core::{
     application::{Action, AppState, ProfileEditor, ProfileText, ProfileView},
     chat::{self, ProfilePicture},
+    i18n::tr,
 };
 
 use crate::profile::{Event as ProfileEvent, Mode, Shown, look::Tab};
@@ -386,14 +387,14 @@ impl Editor {
             Event::Pick(kind) => {
                 editor.pop = None;
                 let title = match kind {
-                    ProfilePicture::Avatar => "Change Avatar",
-                    ProfilePicture::Banner => "Change Banner",
+                    ProfilePicture::Avatar => tr("Change Avatar"),
+                    ProfilePicture::Banner => tr("Change Banner"),
                 };
                 return Task::perform(
                     async move {
                         rfd::AsyncFileDialog::new()
                             .set_title(title)
-                            .add_filter("Pictures", &["png", "jpg", "jpeg", "gif", "webp"])
+                            .add_filter(tr("Pictures"), &["png", "jpg", "jpeg", "gif", "webp"])
                             .pick_file()
                             .await
                             .map(|file| file.path().to_owned())
@@ -695,7 +696,7 @@ pub fn profile_editor_view<'a>(ctx: crate::ctx::Ctx<'a>) -> Option<Element<'a, M
         card = card.push(
             container(
                 ctx.look
-                    .icon_button(Icon::X, "Close", message(Event::Close))
+                    .icon_button(Icon::X, tr("Close"), message(Event::Close))
                     .size(36.0, 18)
                     .below(),
             )
@@ -731,9 +732,9 @@ pub fn profile_editor_view<'a>(ctx: crate::ctx::Ctx<'a>) -> Option<Element<'a, M
 fn board_note(ctx: crate::ctx::Ctx<'_>) -> Option<&'static str> {
     let core = ctx.state.profile_editor.as_ref()?;
     if core.loading() {
-        Some("Loading the board...")
+        Some(tr("Loading the board..."))
     } else if core.profile.is_none() {
-        Some("Couldn't load the board.")
+        Some(tr("Couldn't load the board."))
     } else {
         None
     }
@@ -754,9 +755,9 @@ fn editor_tabs<'a>(
     let mut heads = row![].spacing(24);
     for entry in &look.tabs {
         let label = match entry {
-            Tab::Board => "Board",
-            Tab::Activity => "Activity",
-            Tab::Wishlist => "Wishlist",
+            Tab::Board => tr("Board"),
+            Tab::Activity => tr("Activity"),
+            Tab::Wishlist => tr("Wishlist"),
             Tab::Friends | Tab::Servers => continue,
         };
         heads = heads.push(crate::controls::tab(

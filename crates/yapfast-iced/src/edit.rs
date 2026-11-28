@@ -24,6 +24,7 @@ use crate::{
     popover::{Popover, Side},
     timeline::TIMELINE,
 };
+use yapfast_core::i18n::tr;
 
 /// Room kept under a row as its edit opens, so the field is in view as it
 /// grows from the message's text.
@@ -144,7 +145,7 @@ pub fn inline_edit<'a>(ctx: crate::ctx::Ctx<'a>) -> Element<'a, Message> {
     let emoji = crate::composer::composer_button(
         ctx,
         Icon::Smile,
-        "Add an emoji",
+        tr("Add an emoji"),
         18,
         tint,
         Some(Message::Write(Event::EditEmoji)),
@@ -184,10 +185,10 @@ pub fn inline_edit<'a>(ctx: crate::ctx::Ctx<'a>) -> Element<'a, Message> {
         .style(ink_style(theme.link, theme.text))
     };
     let hint = row![
-        words("escape to"),
-        link("cancel", Event::CancelEdit),
-        words("\u{2022} enter to"),
-        link("save", Event::SaveEdit),
+        words(tr("escape to")),
+        link(tr("cancel"), Event::CancelEdit),
+        words(tr("\u{2022} enter to")),
+        link(tr("save"), Event::SaveEdit),
     ]
     .spacing(3);
     column![container(frame).width(Length::Fill), hint]

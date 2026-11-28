@@ -11,6 +11,7 @@ use yapfast_core::{
     application::{AppState, Application, DmScreen, ListedCategory, MenuChoice, Navigation},
     chat::{ChatRoom, MarkKind, Permission, Presence, VoicePerson},
     discord,
+    i18n::{self, tr},
     network::Network,
 };
 
@@ -406,10 +407,16 @@ pub fn sidebar_in(
                 })
             } else if room.voice && !listed_voice {
                 listed_voice = true;
-                Some(("VOICE CHANNELS".to_owned(), "VOICE CHANNELS".to_owned()))
+                Some((
+                    tr("VOICE CHANNELS").to_owned(),
+                    tr("VOICE CHANNELS").to_owned(),
+                ))
             } else if !room.voice && !listed_text {
                 listed_text = true;
-                Some(("TEXT CHANNELS".to_owned(), "TEXT CHANNELS".to_owned()))
+                Some((
+                    tr("TEXT CHANNELS").to_owned(),
+                    tr("TEXT CHANNELS").to_owned(),
+                ))
             } else {
                 None
             };
@@ -474,11 +481,11 @@ pub fn sidebar_in(
         .any(|row| matches!(row, SideRow::Room(_) | SideRow::Heading { .. }))
     {
         let empty = if state.rooms_in(navigation).next().is_some() {
-            "No matching conversations."
+            tr("No matching conversations.")
         } else if direct {
-            "No direct messages yet. Existing DMs appear here after syncing."
+            tr("No direct messages yet. Existing DMs appear here after syncing.")
         } else {
-            "No channels in this server that you can see."
+            tr("No channels in this server that you can see.")
         };
         rows.push(SideRow::Empty(empty));
     }
@@ -497,7 +504,7 @@ fn room_row(
     let unread = room.unread > 0;
     let status = if room.direct && room.network == Network::Discord {
         if room.person.is_none() {
-            Status::words(format!("{} members", room.members))
+            Status::words(i18n::fill(tr("{} members"), &[&room.members]))
         } else {
             Status::activity(&room.activities, room.activity.as_deref())
         }

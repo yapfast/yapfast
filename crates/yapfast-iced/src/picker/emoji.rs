@@ -32,6 +32,7 @@ use yapfast_core::{
     application::Application,
     chat::{CustomEmoji, EmojiSet},
     emoji as names,
+    i18n::{self, tr},
 };
 
 use super::{
@@ -371,12 +372,12 @@ impl Picker {
             };
             section(
                 &mut grid,
-                Some(("Favorites".into(), Mark::Star)),
+                Some((tr("Favorites").into(), Mark::Star)),
                 listed(&favorites),
             );
             section(
                 &mut grid,
-                Some(("Frequently Used".into(), Mark::Clock)),
+                Some((tr("Frequently Used").into(), Mark::Clock)),
                 listed(&frequent),
             );
             for set in &sets {
@@ -400,7 +401,7 @@ impl Picker {
                 section(
                     &mut grid,
                     Some((
-                        category.name.into(),
+                        tr(category.name).into(),
                         Mark::Face(Face::Unicode(category.icon)),
                     )),
                     category
@@ -581,7 +582,7 @@ impl<'a> View<'a> {
         };
         tab.used.borrow_mut().clear();
         tab.players.begin();
-        let field = kit::search(&picker.field, "Find an emoji", theme);
+        let field = kit::search(&picker.field, tr("Find an emoji"), theme);
         let searching = !picker.field.text().trim().is_empty();
         let rail = kit::rail(
             tab.grid
@@ -661,7 +662,7 @@ impl<'a> View<'a> {
             });
         let grid: Element<'a, Message> = if tab.grid.tiles.is_empty() {
             kit::note(
-                format!("No emoji match \"{}\".", picker.field.text().trim()),
+                i18n::fill(tr("No emoji match \"{}\"."), &[&picker.field.text().trim()]),
                 theme,
             )
         } else {
@@ -695,10 +696,10 @@ impl<'a> View<'a> {
             .into(),
             (None, None) => kit::foot_words(
                 match picker.target {
-                    Target::Composer | Target::Edit => "Pick an emoji for your message.",
-                    Target::React(..) => "Pick an emoji to react with.",
-                    Target::Status(_) => "Pick an emoji for your status.",
-                    Target::Poll(..) => "Pick an emoji for your message.",
+                    Target::Composer | Target::Edit => tr("Pick an emoji for your message."),
+                    Target::React(..) => tr("Pick an emoji to react with."),
+                    Target::Status(_) => tr("Pick an emoji for your status."),
+                    Target::Poll(..) => tr("Pick an emoji for your message."),
                 }
                 .into(),
                 false,

@@ -33,6 +33,7 @@ use crate::{
     style::{faded, scrollbar},
     widgets::{Hover, Rows},
 };
+use yapfast_core::i18n::tr;
 
 /// The bar's height, which moves the window's content down.
 pub const HEIGHT: f32 = 32.0;
@@ -845,7 +846,7 @@ pub fn window_bar(app: &App) -> Option<Element<'_, Message>> {
     let place = if !workspace {
         "Yapfast".to_owned()
     } else if app.sidebar.header.server.is_none() {
-        "Direct Messages".to_owned()
+        tr("Direct Messages").to_owned()
     } else {
         app.sidebar.header.name.clone()
     };
@@ -879,7 +880,7 @@ pub fn window_bar(app: &App) -> Option<Element<'_, Message>> {
         bar_button(
             app,
             Icon::ArrowLeft,
-            "Back",
+            tr("Back"),
             back.then_some(Event::Back),
             false,
             BarSize::Arrow
@@ -887,7 +888,7 @@ pub fn window_bar(app: &App) -> Option<Element<'_, Message>> {
         bar_button(
             app,
             Icon::ArrowRight,
-            "Forward",
+            tr("Forward"),
             forward.then_some(Event::Forward),
             false,
             BarSize::Arrow
@@ -905,7 +906,7 @@ pub fn window_bar(app: &App) -> Option<Element<'_, Message>> {
                 bar_button(
                     app,
                     Icon::Inbox,
-                    "Inbox",
+                    tr("Inbox"),
                     Some(Event::Inbox),
                     app.inbox.is_some(),
                     BarSize::Tool
@@ -913,7 +914,7 @@ pub fn window_bar(app: &App) -> Option<Element<'_, Message>> {
                 bar_button(
                     app,
                     Icon::Help,
-                    "Help",
+                    tr("Help"),
                     Some(Event::Help),
                     false,
                     BarSize::Tool
@@ -1217,10 +1218,10 @@ pub fn inbox_view(app: &App) -> Option<Element<'_, Message>> {
         .into()
     };
     let mut head = row![
-        text("Inbox").size(16).font(BOLD).color(theme.text),
+        text(tr("Inbox")).size(16).font(BOLD).color(theme.text),
         Space::new().width(Length::Fill),
-        tab("Unreads", Tab::Unreads, 80.0),
-        tab("Mentions", Tab::Mentions, 92.0),
+        tab(tr("Unreads"), Tab::Unreads, 80.0),
+        tab(tr("Mentions"), Tab::Mentions, 92.0),
     ]
     .spacing(8)
     .padding([0.0, INBOX_SIDE])
@@ -1233,7 +1234,7 @@ pub fn inbox_view(app: &App) -> Option<Element<'_, Message>> {
             app.look()
                 .icon_button(
                     Icon::FiltersHorizontal,
-                    "Filter",
+                    tr("Filter"),
                     Message::Bar(Event::MentionsFilter),
                 )
                 .size(FILTER_BUTTON, 18),
@@ -1243,7 +1244,7 @@ pub fn inbox_view(app: &App) -> Option<Element<'_, Message>> {
         if inbox.rows.is_empty() {
             empty_inbox(
                 theme,
-                "Unread messages from your unmuted channels show up here.",
+                tr("Unread messages from your unmuted channels show up here."),
             )
         } else {
             // Only the rows near the view are built: the Unreads can list
@@ -1270,11 +1271,11 @@ pub fn inbox_view(app: &App) -> Option<Element<'_, Message>> {
         if inbox.mentions.is_empty() && inbox.more.is_empty() {
             // As Discord's tab says it with nothing to list.
             column![
-                text("You made it through everything!")
+                text(tr("You made it through everything!"))
                     .size(16)
                     .font(BOLD)
                     .color(theme.text),
-                text("Whenever someone mentions you it will be saved here for 7 days.")
+                text(tr("Whenever someone mentions you it will be saved here for 7 days."))
                     .size(14)
                     .color(theme.muted)
                     .align_x(Alignment::Center),
@@ -1296,7 +1297,7 @@ pub fn inbox_view(app: &App) -> Option<Element<'_, Message>> {
             }
             if !inbox.more.is_empty() {
                 list = list.push(
-                    text("More channels with mentions")
+                    text(tr("More channels with mentions"))
                         .size(12)
                         .color(theme.muted),
                 );

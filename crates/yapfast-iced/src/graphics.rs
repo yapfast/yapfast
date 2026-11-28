@@ -8,6 +8,7 @@
 use std::path::Path;
 
 use crate::layout::Layout;
+use yapfast_core::i18n::later;
 
 /// The renderer for this start.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -19,7 +20,8 @@ pub struct Plan {
 
 /// What a start after a failed GPU says. The technical reason stays in the
 /// log.
-pub const NOTICE: &str = "GPU rendering failed to start, so Yapfast is using software rendering.";
+pub const NOTICE: &str =
+    later("GPU rendering failed to start, so Yapfast is using software rendering.");
 
 /// The renderer `requested` (`--renderer`) or kept in `layout.json`; after
 /// a GPU failure (`failure`), the CPU, with the setting turned off.

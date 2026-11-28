@@ -22,30 +22,31 @@ use crate::{
     form,
     pictures::Icon,
 };
+use yapfast_core::i18n::{later, tr};
 
 pub(super) const SOUND_SETS: [&str; 6] = [
-    "New Kalimba",
-    "Felt piano",
-    "Soft marimba",
-    "Mellow Rhodes",
-    "Glow",
-    "Flute",
+    later("New Kalimba"),
+    later("Felt piano"),
+    later("Soft marimba"),
+    later("Mellow Rhodes"),
+    later("Glow"),
+    later("Flute"),
 ];
 
 /// Each of Yapfast's sounds, in `Sound::ALL`'s order.
 pub(super) const SOUND_NAMES: [&str; 12] = [
-    "Someone joins the call",
-    "Someone leaves the call",
-    "Muting",
-    "Unmuting",
-    "Deafening",
-    "Undeafening",
-    "A message",
-    "A mention",
-    "Someone starts watching a stream",
-    "Someone stops watching a stream",
-    "Someone starts streaming",
-    "Someone stops streaming",
+    later("Someone joins the call"),
+    later("Someone leaves the call"),
+    later("Muting"),
+    later("Unmuting"),
+    later("Deafening"),
+    later("Undeafening"),
+    later("A message"),
+    later("A mention"),
+    later("Someone starts watching a stream"),
+    later("Someone stops watching a stream"),
+    later("Someone starts streaming"),
+    later("Someone stops streaming"),
 ];
 
 #[derive(Default)]
@@ -213,35 +214,35 @@ impl<'a> Page<'a> {
         let volume = u32::from(voice.sound_volume.unwrap_or(100));
         let custom = voice.uses_custom_sounds();
         let mut parts = vec![
-            form::title(theme, "Sounds"),
+            form::title(theme, tr("Sounds")),
             form::note(
                 theme,
-                "Call tones and sounds for messages, voice and streams play on the speakers chosen for calls.",
+                tr("Call tones and sounds for messages, voice and streams play on the speakers chosen for calls."),
             ),
             form::group([
-                form::heading(theme, "SOUND SET"),
-                crate::controls::choices_within(theme, &SOUND_SETS, set, 520.0, |index| {
+                form::heading(theme, tr("SOUND SET")),
+                crate::controls::choices_within(theme, &SOUND_SETS.map(tr), set, 520.0, |index| {
                     pref(Pref::SoundSet(index))
                 }),
             ]),
-            slider("Event volume", volume, 200, |value| {
+            slider(tr("Event volume"), volume, 200, |value| {
                 pref(Pref::SoundVolume(value, false))
             })
             .on_release(pref(Pref::SoundVolume(volume, true)))
             .view(theme),
             self.flip(
-                "Adjust each sound",
-                "Set how loud each one is, as a share of the volume above. 0% turns a sound off.",
+                tr("Adjust each sound"),
+                tr("Set how loud each one is, as a share of the volume above. 0% turns a sound off."),
                 voice.adjust_each_sound,
                 Pref::AdjustEach,
             ),
             form::switch(
-                "Custom sound set",
+                tr("Custom sound set"),
                 custom,
                 Some(message(Event::Enable(!custom))),
             )
             .description(
-                "Play sound files of your own. Choose Custom in a sound's menu to pick its file.",
+                tr("Play sound files of your own. Choose Custom in a sound's menu to pick its file."),
             )
             .view(self.cx.look),
         ];
@@ -252,26 +253,26 @@ impl<'a> Page<'a> {
         if custom {
             each = each.push(form::note(
                 theme,
-                "WAV, Ogg, Opus and MP3 files can be up to 1 MiB, with a 4-second limit for events and a 6-second limit for call tones.",
+                tr("WAV, Ogg, Opus and MP3 files can be up to 1 MiB, with a 4-second limit for events and a 6-second limit for call tones."),
             ));
             for (slot, name) in [
-                (SoundSlot::Ring, "Incoming call"),
-                (SoundSlot::Ringback, "Outgoing call"),
+                (SoundSlot::Ring, later("Incoming call")),
+                (SoundSlot::Ringback, later("Outgoing call")),
             ] {
                 each =
-                    each.push(self.sound_row(slot, text(name).size(14).color(theme.text).into()));
+                    each.push(self.sound_row(slot, text(tr(name)).size(14).color(theme.text).into()));
             }
         }
         for (index, (&name, sound)) in SOUND_NAMES.iter().zip(Sound::ALL).enumerate() {
             let label: Element<'_, Message> = if voice.adjust_each_sound {
                 let value = u32::from(voice.each_sound.get(&sound).copied().unwrap_or(100));
-                slider(name, value, 100, move |value| {
+                slider(tr(name), value, 100, move |value| {
                     pref(Pref::EachSound(index, value, false))
                 })
                 .on_release(pref(Pref::EachSound(index, value, true)))
                 .view(theme)
             } else {
-                text(name).size(14).color(theme.text).into()
+                text(tr(name)).size(14).color(theme.text).into()
             };
             each = each.push(self.sound_row(SoundSlot::of_sound(sound), label));
         }
@@ -284,7 +285,7 @@ impl<'a> Page<'a> {
         let voice = &self.cx.layout.voice;
         let files = &self.s.sound_editor;
         let play = look
-            .icon_button(Icon::Play, "Play", message(Event::Preview(slot)))
+            .icon_button(Icon::Play, tr("Play"), message(Event::Preview(slot)))
             .size(32.0, 18);
         if !voice.uses_custom_sounds() {
             return form::beside(label, play);
@@ -293,9 +294,9 @@ impl<'a> Page<'a> {
         let has_file = voice.custom_sounds.contains_key(&slot);
         let can_change = files.picking.is_none();
         let open = files.menu == Some(slot);
-        let mut options = vec![("Default", Some(Choice::Default)), ("Custom", None)];
+        let mut options = vec![(tr("Default"), Some(Choice::Default)), (tr("Custom"), None)];
         if has_file {
-            options.push(("Uploaded file", Some(Choice::File)));
+            options.push((tr("Uploaded file"), Some(Choice::File)));
         }
         let selected = Some(voice.sound_choice(slot));
         let current = options.iter().position(|(_, choice)| *choice == selected);
@@ -319,7 +320,7 @@ impl<'a> Page<'a> {
             actions = actions.push(
                 look.icon_button(
                     Icon::X,
-                    "Remove uploaded file",
+                    tr("Remove uploaded file"),
                     can_change.then(|| message(Event::Remove(slot))),
                 )
                 .size(32.0, 18),

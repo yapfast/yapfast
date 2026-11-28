@@ -13,6 +13,7 @@ use iced::{
 use yapfast_core::{
     application::{Action, AppState},
     chat::{ActivityKind, ChatMember, Presence},
+    i18n::{self, tr},
     themes::content::Nameplates,
 };
 
@@ -835,10 +836,10 @@ pub fn activity_cards(
             let activity = member.and_then(|member| doing(member, entry));
             let since = match (entry.hours, entry.tracks) {
                 (Some(hours), _) if entry.kind == Kind::TopGame => {
-                    format!("Most played: {hours}h")
+                    i18n::fill(tr("Most played: {}h"), &[&hours])
                 }
                 (_, Some(tracks)) if entry.kind == Kind::TopArtist => {
-                    format!("{tracks} tracks this week")
+                    i18n::fill(tr("{} tracks this week"), &[&tracks])
                 }
                 _ if live => running_for(
                     activity
@@ -878,10 +879,10 @@ pub fn activity_cards(
 fn running_for(started_ms: u64, now_ms: u64) -> String {
     let minutes = now_ms.saturating_sub(started_ms) / 60_000;
     match minutes {
-        0 => "just started".to_owned(),
-        1..=59 => format!("for {minutes} min"),
-        60..=1439 => format!("for {} hr", minutes / 60),
-        _ => format!("for {} d", minutes / 1440),
+        0 => tr("just started").to_owned(),
+        1..=59 => i18n::fill(tr("for {} min"), &[&minutes]),
+        60..=1439 => i18n::fill(tr("for {} hr"), &[&(minutes / 60)]),
+        _ => i18n::fill(tr("for {} d"), &[&(minutes / 1440)]),
     }
 }
 
@@ -893,12 +894,12 @@ pub fn finished_ago(at_ms: u64, now_ms: u64) -> String {
     const DAY: u64 = 24 * HOUR;
     let seconds = now_ms.saturating_sub(at_ms) / 1000;
     match seconds {
-        0..MINUTE => format!("{seconds}s ago"),
-        MINUTE..HOUR => format!("{}m ago", seconds / MINUTE),
-        _ if seconds < 12 * HOUR => format!("{}h ago", seconds / HOUR),
-        _ if seconds < 9 * DAY => format!("{}d ago", (seconds / DAY).max(1)),
-        _ if seconds < 28 * DAY => format!("{}w ago", seconds / (7 * DAY)),
-        _ => format!("{}mo ago", (seconds / (30 * DAY)).max(1)),
+        0..MINUTE => i18n::fill(tr("{}s ago"), &[&seconds]),
+        MINUTE..HOUR => i18n::fill(tr("{}m ago"), &[&(seconds / MINUTE)]),
+        _ if seconds < 12 * HOUR => i18n::fill(tr("{}h ago"), &[&(seconds / HOUR)]),
+        _ if seconds < 9 * DAY => i18n::fill(tr("{}d ago"), &[&(seconds / DAY).max(1)]),
+        _ if seconds < 28 * DAY => i18n::fill(tr("{}w ago"), &[&(seconds / (7 * DAY))]),
+        _ => i18n::fill(tr("{}mo ago"), &[&(seconds / (30 * DAY)).max(1)]),
     }
 }
 
@@ -1252,9 +1253,9 @@ impl<'a> View<'a> {
         // What the list is waiting for, or why it's empty, in a note over
         // it.
         let note = match &self.cx.state.members {
-            None => Some("Loading members..."),
+            None => Some(tr("Loading members...")),
             Some(Err(error)) => Some(*error),
-            Some(Ok(members)) if members.is_empty() => Some("No one else has joined yet."),
+            Some(Ok(members)) if members.is_empty() => Some(tr("No one else has joined yet.")),
             Some(Ok(_)) => None,
         };
         let note = note.map(|note| {
@@ -2707,18 +2708,21 @@ impl<'a> View<'a> {
         let hidden = self.cx.state.activity_cards_hidden;
         let opens = self.s.activity_cards.len() > FIRST_CARDS || hidden;
         let mut head = row![
-            text(format!("Activity \u{2014} {}", self.s.activity_cards.len()))
-                .size(14.0)
-                .font(MEDIUM)
-                .color(theme.muted)
-                .width(Length::Fill),
+            text(i18n::fill(
+                tr("Activity \u{2014} {}"),
+                &[&self.s.activity_cards.len()],
+            ))
+            .size(14.0)
+            .font(MEDIUM)
+            .color(theme.muted)
+            .width(Length::Fill),
         ]
         .spacing(4)
         .align_y(Alignment::Center);
         let (eye, eye_label) = if hidden {
-            (Icon::EyeOff, "Show Activity Cards")
+            (Icon::EyeOff, tr("Show Activity Cards"))
         } else {
-            (Icon::Eye, "Hide Activity Cards")
+            (Icon::Eye, tr("Hide Activity Cards"))
         };
         head = head.push(
             self.cx

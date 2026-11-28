@@ -9,6 +9,7 @@ use iced::{
 use yapfast_core::{
     application::{ProfileEditor, ProfileText},
     chat::ProfilePicture,
+    i18n::tr,
 };
 
 use crate::profile::Mode;
@@ -159,7 +160,7 @@ pub(super) fn customize<'a>(
         Some(still) => Pic::new(still, Size::new(100.0, 100.0)).radius(6.0).into(),
         // One that's set but switched off isn't "no banner".
         None if accent.is_none() && profile.banner.is_none() => {
-            text("No banner").size(13).color(theme.muted).into()
+            text(tr("No banner")).size(13).color(theme.muted).into()
         }
         None => Space::new().into(),
     };
@@ -174,7 +175,9 @@ pub(super) fn customize<'a>(
         ctx,
         match crate::profile::cosmetic::effect_tile(ctx, shown, Size::new(TILE, 100.0)) {
             Some(tile) => tile,
-            None if profile.effect.is_some() => text("Effect on").size(13).color(theme.text).into(),
+            None if profile.effect.is_some() => {
+                text(tr("Effect on")).size(13).color(theme.text).into()
+            }
             None => plus(),
         },
         100.0,
@@ -184,7 +187,7 @@ pub(super) fn customize<'a>(
     let frame = cell(ctx, plus(), 100.0, None, shop());
     let line = theme.line;
     let head = row![
-        text("Main Profile")
+        text(tr("Main Profile"))
             .size(16)
             .font(SEMIBOLD)
             .color(theme.text)
@@ -192,7 +195,7 @@ pub(super) fn customize<'a>(
         ctx.look
             .icon_button(
                 Icon::ChevronsRight,
-                "Hide Styles",
+                tr("Hide Styles"),
                 message(Event::Side(false))
             )
             .size(30.0, 16)
@@ -206,15 +209,18 @@ pub(super) fn customize<'a>(
     .height(50)
     .align_y(Alignment::Center);
     let list = column![
-        group("Nameplate", nameplate),
+        group(tr("Nameplate"), nameplate),
         group(
-            "Avatar & Decoration",
+            tr("Avatar & Decoration"),
             row![avatar, decoration].spacing(8).into()
         ),
-        group("Display Name Style", style),
-        group("Theme & Banner", row![theme_cell, banner].spacing(8).into()),
+        group(tr("Display Name Style"), style),
         group(
-            "Profile Effect & Frame",
+            tr("Theme & Banner"),
+            row![theme_cell, banner].spacing(8).into()
+        ),
+        group(
+            tr("Profile Effect & Frame"),
             row![effect, frame].spacing(8).into()
         ),
     ]
@@ -292,7 +298,7 @@ pub(super) fn show_styles<'a>(ctx: crate::ctx::Ctx<'a>) -> Element<'a, Message> 
         });
     iced::widget::tooltip(
         face,
-        controls::tip(ctx.look.theme, "Show Styles"),
+        controls::tip(ctx.look.theme, tr("Show Styles")),
         iced::widget::tooltip::Position::Top,
     )
     .gap(6)

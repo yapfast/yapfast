@@ -16,6 +16,7 @@ use iced::{
 use yapfast_core::{
     application::Action,
     chat::{Attachment, ChatMessage, VideoCommand, VoiceMessage},
+    i18n::tr,
 };
 
 use crate::{
@@ -555,8 +556,8 @@ pub fn voice_card<'a>(
             },
             match (volume_open, tuning.muted) {
                 (true, _) => "",
-                (false, true) => "Unmute",
-                (false, false) => "Mute",
+                (false, true) => tr("Unmute"),
+                (false, false) => tr("Mute"),
             },
             Message::Voice(Event::Mute(!tuning.muted)),
         );
@@ -691,7 +692,7 @@ pub fn clip_cell<'a>(
         } else if video.loading {
             layers = layers.push(
                 container(
-                    container(text("Loading...").size(13).color(Color::WHITE))
+                    container(text(tr("Loading...")).size(13).color(Color::WHITE))
                         .padding([0, 10])
                         .height(28)
                         .align_y(Alignment::Center)
@@ -891,9 +892,9 @@ fn media_bar<'a>(
         )
     };
     let mut bar = row![if video.playing {
-        button(Icon::Pause, "Pause", Message::Clip(Clip::Toggle))
+        button(Icon::Pause, tr("Pause"), Message::Clip(Clip::Toggle))
     } else {
-        button(Icon::Play, "Play", Message::Clip(Clip::Toggle))
+        button(Icon::Play, tr("Play"), Message::Clip(Clip::Toggle))
     }]
     .spacing(6)
     .padding(Padding {
@@ -915,13 +916,13 @@ fn media_bar<'a>(
         let mute = if video.muted {
             button(
                 Icon::VolumeOff,
-                if open { "" } else { "Unmute" },
+                if open { "" } else { tr("Unmute") },
                 Message::Clip(Clip::Mute(false)),
             )
         } else {
             button(
                 Icon::Volume,
-                if open { "" } else { "Mute" },
+                if open { "" } else { tr("Mute") },
                 Message::Clip(Clip::Mute(true)),
             )
         };
@@ -939,9 +940,9 @@ fn media_bar<'a>(
     }
     if !audio {
         let (icon, label) = if full {
-            (Icon::Minimize, "Exit full screen")
+            (Icon::Minimize, tr("Exit full screen"))
         } else {
-            (Icon::Maximize, "Full screen")
+            (Icon::Maximize, tr("Full screen"))
         };
         bar = bar.push(button(icon, label, Message::Clip(Clip::Full(!full))));
     }

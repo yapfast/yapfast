@@ -22,6 +22,7 @@ use crate::{
     popover::{Popover, Side, Width},
     style::scrollbar,
 };
+use yapfast_core::i18n::tr;
 
 /// The search's field, a row's least height and the list's most.
 const SEARCH: &str = "select-search";
@@ -138,7 +139,7 @@ pub fn dropdown<'a>(ctx: crate::ctx::Ctx<'a>) -> Element<'a, Message> {
     if matches!(select.kind, 5..=8) {
         panel = panel.push(
             container(
-                field(theme, SEARCH, "Search", &select.query, false, true)
+                field(theme, SEARCH, tr("Search"), &select.query, false, true)
                     .on_input(|query| Message::BotSelect(Event::Search(query))),
             )
             .padding(4),
@@ -146,10 +147,14 @@ pub fn dropdown<'a>(ctx: crate::ctx::Ctx<'a>) -> Element<'a, Message> {
     }
     if shown == 0 {
         panel = panel.push(
-            container(text("No matching options.").size(14).color(theme.secondary))
-                .center_x(Length::Fill)
-                .height(ROW)
-                .align_y(Alignment::Center),
+            container(
+                text(tr("No matching options."))
+                    .size(14)
+                    .color(theme.secondary),
+            )
+            .center_x(Length::Fill)
+            .height(ROW)
+            .align_y(Alignment::Center),
         );
     }
     panel = panel.push(scroll_view(list).style(scrollbar(theme)));

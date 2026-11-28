@@ -27,6 +27,7 @@ use crate::{
     timeline::{AUTHOR_GAP, AUTHOR_LINE, CONTENT_PAD, END_PAD, LINE_HEIGHT, RowLook},
     widgets::{Fold, RightPress},
 };
+use yapfast_core::i18n::{self, tr};
 
 pub mod attachments;
 mod beside;
@@ -189,7 +190,7 @@ pub fn message_content<'a>(
         content = content.push(
             row![
                 ctx.look.glyph(Icon::Forward, 16, theme.muted),
-                text("Forwarded")
+                text(tr("Forwarded"))
                     .size(theme.type_size("body", 14.0))
                     .font(theme.font("body", ITALIC))
                     .color(theme.muted)
@@ -235,7 +236,7 @@ pub fn message_content<'a>(
     }
     if message.edited && message.notice.is_none() && !editing {
         content = content.push(
-            text("(edited)")
+            text(tr("(edited)"))
                 .size(theme.type_size("small", 10.0))
                 .font(theme.font("small", REGULAR))
                 .color(theme.muted),
@@ -869,9 +870,9 @@ pub fn message_content<'a>(
 /// A collapsed message from a blocked or ignored account.
 fn hidden_row<'a>(ctx: crate::ctx::Ctx<'a>, look: &RowLook, blocked: bool) -> Element<'a, Message> {
     let (author, message, show) = if blocked {
-        ("Blocked user", "Blocked message.", "Show it")
+        (tr("Blocked user"), tr("Blocked message."), tr("Show it"))
     } else {
-        ("Ignored user", "Ignored message.", "Show")
+        (tr("Ignored user"), tr("Ignored message."), tr("Show"))
     };
     let theme = ctx.look.theme;
     let avatar = crate::timeline::avatar(theme);
@@ -935,12 +936,12 @@ fn thinking<'a>(ctx: crate::ctx::Ctx<'a>, message: &ChatMessage) -> Element<'a, 
     let timed_out = message.timestamp != 0
         && yapfast_core::clock::now_ms() / 1000 >= message.timestamp + THINKING_SECS;
     if timed_out {
-        text("The application did not respond")
+        text(tr("The application did not respond"))
             .size(text_size(ctx))
             .color(theme.danger)
             .into()
     } else {
-        text(format!("{} is thinking…", message.author))
+        text(i18n::fill(tr("{} is thinking…"), &[&message.author]))
             .size(text_size(ctx))
             .font(ITALIC)
             .color(theme.muted)
@@ -1182,7 +1183,7 @@ fn used_line<'a>(
     let mut line = row![
         ctx.face(Face::new(used.avatar.as_deref(), &used.user, HEADER_AVATAR)),
         user,
-        text("used")
+        text(tr("used"))
             .size(theme.type_size("small", 14.0))
             .font(theme.font("small", REGULAR))
             .color(theme.muted),
@@ -1192,7 +1193,7 @@ fn used_line<'a>(
     .align_y(Alignment::Center);
     if let Some(target) = used.target.as_deref().filter(|target| !target.is_empty()) {
         line = line.push(
-            text(format!("on @{target}"))
+            text(i18n::fill(tr("on @{}"), &[&target]))
                 .size(theme.type_size("small", 14.0))
                 .font(theme.font("small", REGULAR))
                 .color(theme.muted),
@@ -1445,7 +1446,7 @@ fn author_line<'a>(
         .post_author
         .is_some_and(|author| author == message.sender)
     {
-        line = line.push(ctx.blurple_tag("OP", 1.0));
+        line = line.push(ctx.blurple_tag(tr("OP"), 1.0));
     }
     let sent = ctx
         .themes
@@ -1485,9 +1486,13 @@ fn folding<'a>(
     let whole = ctx.lanes.timeline.revealed.contains(&fold_key(&item));
     let theme = ctx.look.theme;
     let more = button(
-        text(if whole { "Show less" } else { "Show more" })
-            .size(text_size(ctx) * 0.875)
-            .font(SEMIBOLD),
+        text(if whole {
+            tr("Show less")
+        } else {
+            tr("Show more")
+        })
+        .size(text_size(ctx) * 0.875)
+        .font(SEMIBOLD),
     )
     .padding(0)
     .on_press(Message::Timeline(crate::timeline::Event::Unfold(item)))
@@ -1550,19 +1555,19 @@ fn thread_card<'a>(
     match &thread.recent {
         _ if thread.archived => {
             bottom = bottom.push(words(
-                "There are no recent messages in this thread.",
+                tr("There are no recent messages in this thread."),
                 theme.text,
             ));
         }
         _ if thread.messages.unwrap_or_default() == 0 => {
             bottom = bottom.push(words(
-                "There are no messages in this thread yet.",
+                tr("There are no messages in this thread yet."),
                 theme.text,
             ));
         }
         None => {
             bottom = bottom.push(words(
-                "There are no recent messages in this thread.",
+                tr("There are no recent messages in this thread."),
                 theme.text,
             ));
         }
@@ -1662,13 +1667,13 @@ fn thread_card<'a>(
 /// Thread" before any message, and "50+" for an old thread Discord stopped
 /// counting.
 fn thread_count(messages: Option<u64>, id: u64) -> String {
-    match messages.unwrap_or_default() {
-        0 => "See Thread \u{203a}".into(),
-        50.. if id <= COUNTED_TO_50 => "50+ Messages \u{203a}".into(),
-        100_000.. => "100k+ Messages \u{203a}".into(),
-        1 => "1 Message \u{203a}".into(),
-        count => format!("{count} Messages \u{203a}"),
-    }
+    let words = match messages.unwrap_or_default() {
+        0 => tr("See Thread").to_owned(),
+        50.. if id <= COUNTED_TO_50 => tr("50+ Messages").to_owned(),
+        100_000.. => tr("100k+ Messages").to_owned(),
+        count => i18n::trn("{n} Message", "{n} Messages", count as usize),
+    };
+    format!("{words} \u{203a}")
 }
 
 /// How long ago a thread was last active, as its card says it: "1m ago"
@@ -1679,11 +1684,11 @@ fn thread_ago(at_ms: u64, now_ms: u64) -> String {
     const DAY: u64 = 24 * HOUR;
     let seconds = now_ms.saturating_sub(at_ms) / 1000;
     match seconds {
-        0..MINUTE => "1m ago".into(),
-        MINUTE..HOUR => format!("{}m ago", seconds / MINUTE),
-        HOUR..DAY => format!("{}h ago", seconds / HOUR),
-        _ if seconds < 30 * DAY => format!("{}d ago", seconds / DAY),
-        _ if seconds < 360 * DAY => ">30d ago".into(),
+        0..MINUTE => tr("1m ago").into(),
+        MINUTE..HOUR => i18n::fill(tr("{}m ago"), &[&(seconds / MINUTE)]),
+        HOUR..DAY => i18n::fill(tr("{}h ago"), &[&(seconds / HOUR)]),
+        _ if seconds < 30 * DAY => i18n::fill(tr("{}d ago"), &[&(seconds / DAY)]),
+        _ if seconds < 360 * DAY => tr(">30d ago").into(),
         _ => yapfast_core::clock::day(at_ms / 1000),
     }
 }
@@ -1700,15 +1705,15 @@ fn delivery_line<'a>(
     let (words, retry, cancel) = match message.delivery {
         chat::Delivery::Sent => return None,
         chat::Delivery::Sending if message.attachments.is_empty() => return None,
-        chat::Delivery::Sending => ("Sending...", false, true),
+        chat::Delivery::Sending => (tr("Sending..."), false, true),
         chat::Delivery::Waiting => (
-            "Not sent yet. Yapfast sends it when the connection returns.",
+            tr("Not sent yet. Yapfast sends it when the connection returns."),
             false,
             true,
         ),
         // An app's command, whose row says why.
-        chat::Delivery::Failed if message.item.starts_with("c:") => ("Not sent.", true, true),
-        chat::Delivery::Failed => ("Not sent. The server refused this message.", true, true),
+        chat::Delivery::Failed if message.item.starts_with("c:") => (tr("Not sent."), true, true),
+        chat::Delivery::Failed => (tr("Not sent. The server refused this message."), true, true),
     };
     let failed = message.delivery == chat::Delivery::Failed;
     let mut line = row![
@@ -1724,7 +1729,7 @@ fn delivery_line<'a>(
         line = line.push(
             controls::action(
                 theme,
-                "Retry",
+                tr("Retry"),
                 controls::Kind::Ghost,
                 Some(Message::Write(Event::Retry(item.clone()))),
             )
@@ -1735,7 +1740,7 @@ fn delivery_line<'a>(
         line = line.push(
             controls::action(
                 theme,
-                "Cancel",
+                tr("Cancel"),
                 controls::Kind::Ghost,
                 Some(Message::Write(Event::CancelSend(item.clone()))),
             )
@@ -1836,7 +1841,7 @@ fn ephemeral_line<'a>(ctx: crate::ctx::Ctx<'a>, message: &ChatMessage) -> Elemen
     let theme = ctx.look.theme;
     let preview = ctx.state.preview;
     let dismiss = button(
-        text("Dismiss message")
+        text(tr("Dismiss message"))
             .size(theme.type_size("small", 12.0))
             .font(theme.font("small", REGULAR)),
     )
@@ -1850,7 +1855,7 @@ fn ephemeral_line<'a>(ctx: crate::ctx::Ctx<'a>, message: &ChatMessage) -> Elemen
     ));
     row![
         ctx.look.glyph(Icon::Eye, 16, theme.muted),
-        text("Only you can see this ·")
+        text(tr("Only you can see this ·"))
             .size(theme.type_size("small", 12.0))
             .font(theme.font("small", REGULAR))
             .color(theme.muted),

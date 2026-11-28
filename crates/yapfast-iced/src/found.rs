@@ -23,6 +23,7 @@ use crate::{
     style::hex,
     timeline::{LINE_HEIGHT, Laid},
 };
+use yapfast_core::i18n::tr;
 
 /// Its pictures' gallery at its widest, its text at its most lines, its
 /// avatar.
@@ -211,9 +212,10 @@ pub fn found_view<'a>(
         .width(Length::Fill)
         .on_press(jump.clone())
         .style(controls::outlined_lit_style(rest, lit, edge, edge, 8.0));
-    let jump_button = container(controls::action(theme, "Jump", Kind::Plain, Some(jump)).small())
-        .width(Length::Fill)
-        .padding(8)
-        .align_x(Alignment::End);
+    let jump_button =
+        container(controls::action(theme, tr("Jump"), Kind::Plain, Some(jump)).small())
+            .width(Length::Fill)
+            .padding(8)
+            .align_x(Alignment::End);
     crate::widgets::Hover::new(card, jump_button).into()
 }

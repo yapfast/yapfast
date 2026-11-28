@@ -6,7 +6,7 @@ use iced::{
     Alignment, Color, Element, Length, Padding,
     widget::{button, column, container, opaque, row, text},
 };
-use yapfast_core::{application::ProfileEditor, chat::ProfilePicture};
+use yapfast_core::{application::ProfileEditor, chat::ProfilePicture, i18n::tr};
 
 use crate::{
     app::Message,
@@ -48,10 +48,12 @@ pub(super) fn picture_menu<'a>(
         ProfilePicture::Avatar => Pop::Avatar,
         ProfilePicture::Banner => Pop::Banner,
     };
-    let word = if core.main() { "Remove" } else { "Reset" };
-    let (change, reset) = match kind {
-        ProfilePicture::Avatar => ("Change Avatar", format!("{word} Avatar")),
-        ProfilePicture::Banner => ("Change Banner", format!("{word} Banner")),
+    let main = core.main();
+    let (change, reset) = match (kind, main) {
+        (ProfilePicture::Avatar, true) => (tr("Change Avatar"), tr("Remove Avatar")),
+        (ProfilePicture::Avatar, false) => (tr("Change Avatar"), tr("Reset Avatar")),
+        (ProfilePicture::Banner, true) => (tr("Change Banner"), tr("Remove Banner")),
+        (ProfilePicture::Banner, false) => (tr("Change Banner"), tr("Reset Banner")),
     };
     let list = (editor.pop == Some(pop)).then(|| {
         menu_list(
@@ -145,10 +147,15 @@ pub(super) fn tag_picker<'a>(
             },
             1.0,
         )),
-        None => face.push(text("Server Tag").size(12).color(ink2).font(iced::Font {
-            style: iced::font::Style::Italic,
-            ..iced::Font::default()
-        })),
+        None => face.push(
+            text(tr("Server Tag"))
+                .size(12)
+                .color(ink2)
+                .font(iced::Font {
+                    style: iced::font::Style::Italic,
+                    ..iced::Font::default()
+                }),
+        ),
     };
     face = face.push(ctx.look.glyph(Icon::ChevronDown, 14, ink2));
     let ink = inks.ink;
@@ -186,7 +193,7 @@ pub(super) fn tag_list<'a>(ctx: crate::ctx::Ctx<'a>, editor: &'a Editor) -> Elem
         .flatten();
     let query = editor.tag_query.trim().to_lowercase();
     let mut rows = column![ctx.look.menu_item(
-        item("No Server Tag".into(), None, false),
+        item(tr("No Server Tag").into(), None, false),
         Light::Pointer,
         message(Event::Tag(String::new())),
     )]
@@ -214,7 +221,7 @@ pub(super) fn tag_list<'a>(ctx: crate::ctx::Ctx<'a>, editor: &'a Editor) -> Elem
     }
     let panel = container(
         column![
-            form::field(theme, TAG_SEARCH, "Search", &editor.tag_query)
+            form::field(theme, TAG_SEARCH, tr("Search"), &editor.tag_query)
                 .size(13)
                 .padding(7)
                 .on_input(|query| message(Event::TagQuery(query))),

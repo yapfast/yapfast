@@ -12,11 +12,15 @@ use iced::{
 };
 use yapfast_core::{
     application::Action,
+    i18n::tr,
+    i18n::{self, Language},
     theme::{self as palette, Custom},
     themes::Performance,
 };
 
-use super::{Drop, Event as SettingsEvent, Page, Section, Settings, theme_marketplace};
+use super::{
+    Drop, Event as SettingsEvent, Page, Section, Settings, pages::Pref, theme_marketplace,
+};
 use crate::{
     app::Message,
     controls::{self, Kind, action, lights, placed},
@@ -182,7 +186,7 @@ impl Editor {
     /// The name in the field, or "My theme" if it holds none.
     fn kept_name(&self) -> String {
         match self.name.trim() {
-            "" => "My theme".to_owned(),
+            "" => tr("My theme").to_owned(),
             name => name.to_owned(),
         }
     }
@@ -858,7 +862,7 @@ impl<'a> Page<'a> {
         let actions = row![
             action(
                 theme,
-                "Browse themes",
+                tr("Browse themes"),
                 Kind::Plain,
                 Some(crate::app::settings(SettingsEvent::Open(Section::Themes))),
             )
@@ -870,7 +874,7 @@ impl<'a> Page<'a> {
             ),
             action(
                 theme,
-                "Import",
+                tr("Import"),
                 Kind::Plain,
                 Some(theme_message(Event::Import))
             )
@@ -882,7 +886,7 @@ impl<'a> Page<'a> {
             ),
             action(
                 theme,
-                "Paste",
+                tr("Paste"),
                 Kind::Plain,
                 Some(theme_message(Event::Paste))
             )
@@ -894,7 +898,7 @@ impl<'a> Page<'a> {
             ),
             action(
                 theme,
-                "New theme",
+                tr("New theme"),
                 Kind::Plain,
                 Some(theme_message(Event::New))
             )
@@ -911,93 +915,109 @@ impl<'a> Page<'a> {
             |name| {
                 form::note(
                     theme,
-                    format!(
-                        "Showing {name}, an installed theme. Choose one above, or manage it in Themes."
+                    i18n::fill(
+                        tr("Showing {}, an installed theme. Choose one above, or manage it in Themes."),
+                        &[&name],
                     ),
                 )
             },
         );
-        let mut head = vec![form::title(theme, "Appearance")];
+        let mut head = vec![form::title(theme, tr("Appearance"))];
         head.extend(self.theme_note());
         head.extend([
             form::group([
-                form::beside(form::heading(theme, "THEME"), actions),
+                form::heading(theme, tr("LANGUAGE")),
+                form::dropdown(
+                    Language::offered()
+                        .into_iter()
+                        .map(|language| language.name().to_owned())
+                        .collect(),
+                    Some(prefs.language_place()),
+                    self.s.open == Some(Drop::Language),
+                    crate::app::settings(SettingsEvent::Drop(Drop::Language)),
+                    |place| crate::app::settings(SettingsEvent::Pref(Pref::Language(place))),
+                )
+                .width(240.0)
+                .view(self.cx.look),
+            ]),
+            form::group([
+                form::beside(form::heading(theme, tr("THEME")), actions),
                 tiles,
             ]),
             self.font_section(),
             installed_note,
             theme_options,
             switch(
-                "Readable text",
+                tr("Readable text"),
                 self.cx.layout.readable_text,
                 Some(theme_message(Event::ReadableText(
                     !self.cx.layout.readable_text,
                 ))),
             )
-            .description(
+            .description(tr(
                 "Messages, names, channels and what you type use Yapfast's own font in every theme. The theme's art, colours and layout stay.",
-            )
+            ))
             .view(self.cx.look),
             switch(
-                "Draw text glow",
+                tr("Draw text glow"),
                 self.cx.layout.prefs.text_glow.unwrap_or(true),
                 Some(theme_message(Event::TextGlow(
                     !self.cx.layout.prefs.text_glow.unwrap_or(true),
                 ))),
             )
-            .description(
+            .description(tr(
                 "The soft edge a theme puts round text. Off, text keeps its shadow and outline and takes less drawing.",
-            )
+            ))
             .view(self.cx.look),
             self.desktop_icons(),
             self.title_bar_switch(),
             column![
-                form::heading(theme, "PROFILES"),
+                form::heading(theme, tr("PROFILES")),
                 profile(
-                    "Play profile effects",
-                    "The animations some people put over their profile cards.",
+                    tr("Play profile effects"),
+                    tr("The animations some people put over their profile cards."),
                     cosmetics.effects,
                     Cosmetic::Effects,
                 ),
                 profile(
-                    "Show avatar decorations",
-                    "The pictures around people's avatars.",
+                    tr("Show avatar decorations"),
+                    tr("The pictures around people's avatars."),
                     cosmetics.decorations,
                     Cosmetic::Decorations,
                 ),
                 profile(
-                    "Show nameplates",
-                    "The pictures Discord members equip behind their rows in the member list and on your account card.",
+                    tr("Show nameplates"),
+                    tr("The pictures Discord members equip behind their rows in the member list and on your account card."),
                     prefs.nameplates.unwrap_or(true),
                     Cosmetic::Nameplates,
                 ),
                 profile(
-                    "Animate decorations and nameplates",
-                    "They play when pointed at, as in Discord. Off, they hold still.",
+                    tr("Animate decorations and nameplates"),
+                    tr("They play when pointed at, as in Discord. Off, they hold still."),
                     cosmetics.moving,
                     Cosmetic::Moving,
                 ),
                 profile(
-                    "Show name styles",
-                    "The fonts and colours people give their display names.",
+                    tr("Show name styles"),
+                    tr("The fonts and colours people give their display names."),
                     cosmetics.name_styles,
                     Cosmetic::NameStyles,
                 ),
                 profile(
-                    "Draw role colour gradients",
-                    "The colours that run across a name with a gradient or holographic role colour. Off, the name keeps the role's first colour.",
+                    tr("Draw role colour gradients"),
+                    tr("The colours that run across a name with a gradient or holographic role colour. Off, the name keeps the role's first colour."),
                     cosmetics.name_colours,
                     Cosmetic::NameColours,
                 ),
                 profile(
-                    "Show server tags",
-                    "The tag and its badge beside people's names.",
+                    tr("Show server tags"),
+                    tr("The tag and its badge beside people's names."),
                     cosmetics.server_tags,
                     Cosmetic::ServerTags,
                 ),
                 profile(
-                    "Show profile frames",
-                    "The frames some people put around their profile cards.",
+                    tr("Show profile frames"),
+                    tr("The frames some people put around their profile cards."),
                     cosmetics.frames,
                     Cosmetic::Frames,
                 ),
@@ -1160,7 +1180,7 @@ impl<'a> Page<'a> {
             .look
             .icon_button(
                 Icon::Pencil,
-                "Edit",
+                tr("Edit"),
                 theme_message(Event::Edit(id.to_owned())),
             )
             .size(24.0, 14);
@@ -1188,7 +1208,7 @@ impl<'a> Page<'a> {
                     .map(|start| start.name.to_owned())
                     .collect();
                 parts.push(form::group([
-                    form::heading(theme, "START FROM"),
+                    form::heading(theme, tr("START FROM")),
                     form::dropdown(
                         names,
                         Some(editor.start),
@@ -1201,18 +1221,18 @@ impl<'a> Page<'a> {
             }
             parts.push(
                 switch(
-                    "Dark",
+                    tr("Dark"),
                     editor.theme.dark,
                     Some(theme_message(Event::Dark(!editor.theme.dark))),
                 )
-                .description("Drop-down lists and scroll bars draw dark to match.")
+                .description(tr("Drop-down lists and scroll bars draw dark to match."))
                 .view(self.cx.look),
             );
             parts.push(form::group([
-                form::heading(theme, "EVERY COLOUR"),
+                form::heading(theme, tr("EVERY COLOUR")),
                 form::note(
                     theme,
-                    "Each as #rgb, #rrggbb or #rrggbbaa, or picked from its swatch. The window shows a change as you make it.",
+                    tr("Each as #rgb, #rrggbb or #rrggbbaa, or picked from its swatch. The window shows a change as you make it."),
                 ),
                 picker_colour_rows(theme, editor),
             ]));
@@ -1246,9 +1266,9 @@ impl<'a> Page<'a> {
                 action(
                     theme,
                     if editor.confirming {
-                        "Delete it for good"
+                        tr("Delete it for good")
                     } else {
-                        "Delete theme"
+                        tr("Delete theme")
                     },
                     Kind::Danger,
                     Some(theme_message(Event::Delete)),
@@ -1269,7 +1289,7 @@ impl<'a> Page<'a> {
 
 /// What a theme copied from another is called until it's named.
 fn copy_name(name: &str) -> String {
-    format!("{name} copy")
+    i18n::fill(tr("{} copy"), &[&name])
 }
 
 /// A theme's small window, 78 px tall: the rail with three servers, the
@@ -1372,13 +1392,13 @@ impl<'a> Page<'a> {
         }
         let system = !self.cx.own_title_bar;
         let title_bar = switch(
-            "Use the system title bar",
+            tr("Use the system title bar"),
             system,
             Some(crate::app::settings(SettingsEvent::Pref(
-                super::pages::Pref::SystemTitleBar(!system),
+                Pref::SystemTitleBar(!system),
             ))),
         )
-        .description("Your desktop draws the window's title bar and buttons, as on its other windows. Off, Yapfast draws its own.")
+        .description(tr("Your desktop draws the window's title bar and buttons, as on its other windows. Off, Yapfast draws its own."))
         .view(self.cx.look);
         if !system {
             return title_bar;
@@ -1387,13 +1407,13 @@ impl<'a> Page<'a> {
         // takes or the two bars it makes.
         let discord_bar = self.cx.layout.discord_bar.unwrap_or(true);
         let under = switch(
-            "Show Discord's bar under it",
+            tr("Show Discord's bar under it"),
             discord_bar,
             Some(crate::app::settings(SettingsEvent::Pref(
                 super::pages::Pref::DiscordBar(!discord_bar),
             ))),
         )
-        .description("Back and Forward, where you are, the Inbox and Help, as Discord's app always shows them. Off, the desktop's title bar alone.")
+        .description(tr("Back and Forward, where you are, the Inbox and Help, as Discord's app always shows them. Off, the desktop's title bar alone."))
         .view(self.cx.look);
         iced::widget::column![title_bar, under]
             .spacing(form::GAP)

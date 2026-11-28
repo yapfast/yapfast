@@ -8,6 +8,7 @@ use iced::{
 };
 use yapfast_core::{
     application::Action,
+    i18n::Language,
     sounds::{Sound, SoundSet},
 };
 
@@ -42,6 +43,8 @@ const ANIMATES: [Animate; 3] = [Animate::Focused, Animate::Always, Animate::Neve
 /// the slider was let go, when it's kept).
 #[derive(Clone, Debug)]
 pub enum Pref {
+    /// A language, by its place among those Appearance offers.
+    Language(usize),
     TwelveHour(bool),
     Seconds(bool),
     DateFormat(usize),
@@ -142,6 +145,17 @@ impl Settings {
     pub(in crate::settings) fn pref(&mut self, pref: Pref, cx: &mut Cx<'_>) {
         let prefs = &mut cx.layout.prefs;
         match pref {
+            Pref::Language(place) => {
+                let Some(language) = Language::offered().get(place).copied() else {
+                    return;
+                };
+                self.open = None;
+                prefs.interface_language = Some(language.code().to_owned());
+                // Every text, and the order and words of dates and times.
+                prefs.apply_language();
+                cx.keep("interface_language", language.code());
+                cx.request(Request::Changed(Shown::Language));
+            }
             Pref::TwelveHour(on) => {
                 prefs.twelve_hour_clock = on;
                 prefs.apply_clock();

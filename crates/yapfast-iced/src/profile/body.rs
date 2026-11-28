@@ -29,6 +29,7 @@ use crate::{
     theme::rgb,
     widgets::{Above, Fold, Pic},
 };
+use yapfast_core::i18n::{self, tr};
 
 /// The selection row the bio's pieces say they're in: none of the
 /// timeline's.
@@ -262,7 +263,7 @@ pub(super) fn profile_body<'a>(
         let panel = mode == Mode::Docked;
         body = body.push(section_box(
             theme,
-            "Member Since",
+            tr("Member Since"),
             member_since(ctx, shown, &inks, panel),
             inks.ink,
             true,
@@ -271,7 +272,7 @@ pub(super) fn profile_body<'a>(
     if mode.large() && !look.friends_since.is_empty() {
         body = body.push(
             column![
-                title("Friends Since", inks.ink),
+                title(tr("Friends Since"), inks.ink),
                 text(look.friends_since.as_str()).size(14).color(inks.ink2),
             ]
             .spacing(6),
@@ -280,7 +281,7 @@ pub(super) fn profile_body<'a>(
     if !profile.roles.is_empty() {
         body = body.push(section_box(
             theme,
-            "Roles",
+            tr("Roles"),
             role_chips(ctx, shown, &inks),
             inks.ink,
             mode.full(),
@@ -303,7 +304,7 @@ pub(super) fn profile_body<'a>(
         body = body.push(
             action(
                 theme,
-                "Edit Profile",
+                tr("Edit Profile"),
                 Kind::Primary,
                 Some(Message::Profile(Event::EditProfile)),
             )
@@ -722,7 +723,7 @@ fn banner_buttons<'a>(ctx: crate::ctx::Ctx<'a>, shown: &'a Shown) -> Element<'a,
     if !id.is_empty() {
         buttons = buttons.push(round(
             Icon::Ellipsis,
-            "More actions",
+            tr("More actions"),
             Some(Message::Profile(Event::More(id))),
         ));
     }
@@ -926,7 +927,7 @@ fn profile_actions<'a>(
         return Some(
             action(
                 theme,
-                "Edit Profile",
+                tr("Edit Profile"),
                 Kind::Primary,
                 Some(Message::Profile(Event::EditProfile)),
             )
@@ -1231,10 +1232,15 @@ pub(super) fn bio_view<'a>(
     let three = line_height * 3.0;
     Fold::new(
         shown,
-        button(text("View full bio").size(12).font(BOLD).color(inks.ink))
-            .padding(0)
-            .on_press(Message::Profile(Event::Enlarge(None, false)))
-            .style(|_, _| iced::widget::button::Style::default()),
+        button(
+            text(tr("View full bio"))
+                .size(12)
+                .font(BOLD)
+                .color(inks.ink),
+        )
+        .padding(0)
+        .on_press(Message::Profile(Event::Enlarge(None, false)))
+        .style(|_, _| iced::widget::button::Style::default()),
         true,
         (three + 2.0, three, 6.0),
     )
@@ -1335,7 +1341,7 @@ fn connections<'a>(
     inks: &Inks,
 ) -> Element<'a, Message> {
     let profile = shown.look.profile();
-    let mut list = column![title("Connections", inks.ink)].spacing(8);
+    let mut list = column![title(tr("Connections"), inks.ink)].spacing(8);
     for connection in &profile.connections {
         let mut name = row![
             text(connection.name.as_str())
@@ -1355,7 +1361,7 @@ fn connections<'a>(
         let mut words = column![name];
         if let Some(since) = &connection.since {
             words = words.push(
-                text(format!("Member since {since}"))
+                text(i18n::fill(tr("Member since {}"), &[&since]))
                     .size(12)
                     .color(inks.ink3),
             );
@@ -1380,7 +1386,7 @@ fn connections<'a>(
 /// profile closes.
 fn note_editor<'a>(ctx: crate::ctx::Ctx<'a>, inks: &Inks) -> Element<'a, Message> {
     let (ground, ink, hint, accent) = (inks.field, inks.ink, inks.ink3, ctx.look.theme.accent);
-    let field = text_input("Click to add a note", &ctx.profiles.note)
+    let field = text_input(tr("Click to add a note"), &ctx.profiles.note)
         .id(iced::widget::Id::new(NOTE_FIELD))
         .size(14)
         .padding(8)
@@ -1402,7 +1408,7 @@ fn note_editor<'a>(ctx: crate::ctx::Ctx<'a>, inks: &Inks) -> Element<'a, Message
             value: ink,
             selection: Color { a: 0.35, ..accent },
         });
-    column![title("Note (only visible to you)", inks.ink), field]
+    column![title(tr("Note (only visible to you)"), inks.ink), field]
         .spacing(6)
         .into()
 }

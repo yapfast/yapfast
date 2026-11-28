@@ -1371,7 +1371,7 @@ pub fn live_pill_in<'a, M: Clone + 'a>(
         (theme.danger, theme.danger_hover, theme.on_danger)
     };
     let face = container(
-        text("LIVE")
+        text(crate::words::say("LIVE"))
             .size(10)
             .font(theme.font("small", BOLD))
             .color(ink),

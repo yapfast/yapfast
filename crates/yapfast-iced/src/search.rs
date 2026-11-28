@@ -20,6 +20,7 @@ use yapfast_core::{
     application::{Action, AppState, SEARCH_PAGE, SEARCH_PAGES, Search},
     chat::SearchSort,
     discord,
+    i18n::{self, tr},
     search_words::Words,
     yapfast_discord::search,
 };
@@ -297,7 +298,7 @@ pub fn header_search<'a>(
     let typed = !searching.text.is_empty();
     let end: Element<'a, Message> = if typed {
         cx.look
-            .icon_button(Icon::X, "Clear search", Message::Search(Event::Clear))
+            .icon_button(Icon::X, tr("Clear search"), Message::Search(Event::Clear))
             .size(24.0, 14)
             .below()
             .into()
@@ -756,10 +757,9 @@ pub fn page_buttons(selected: u32, count: u32, visible: u32) -> Vec<PageButton> 
 /// what it says instead.
 fn count(search: &Search) -> String {
     match search {
-        search if search.loading && search.total == 0 => "Searching…".to_owned(),
-        search if search.total == 0 => "No Results".to_owned(),
-        search if search.total == 1 => "1 Result".to_owned(),
-        search => format!("{} Results", search.total),
+        search if search.loading && search.total == 0 => tr("Searching…").to_owned(),
+        search if search.total == 0 => tr("No Results").to_owned(),
+        search => i18n::trn("{n} Result", "{n} Results", search.total as usize),
     }
 }
 
@@ -836,7 +836,7 @@ pub fn view<'a>(searching: &'a Searching, cx: Ctx<'a>) -> Option<Element<'a, Mes
                 filters,
                 sort,
                 cx.look
-                    .icon_button(Icon::X, "Close search", Message::Search(Event::Clear))
+                    .icon_button(Icon::X, tr("Close search"), Message::Search(Event::Clear))
                     .below(),
             ]
             .spacing(4)
@@ -1126,7 +1126,7 @@ pub fn search_field<'a>(
         ctx.look.glyph(Icon::Search, 16, theme.secondary).into()
     } else {
         ctx.look
-            .icon_button(Icon::X, "Clear search", clear)
+            .icon_button(Icon::X, tr("Clear search"), clear)
             .size(24.0, 14)
             .below()
             .into()

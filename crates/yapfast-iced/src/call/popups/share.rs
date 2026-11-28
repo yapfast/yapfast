@@ -31,6 +31,7 @@ use crate::{
     menus::{PAD, SUB_WIDTH},
     pictures::Icon,
 };
+use yapfast_core::i18n::{self, tr};
 
 pub(super) const SHARE_WIDE: f32 = 496.0;
 
@@ -68,7 +69,7 @@ const RESOLUTIONS: [(Resolution, &str); 5] = [
     (Resolution::P720, "720p"),
     (Resolution::P1080, "1080p"),
     (Resolution::P1440, "1440p"),
-    (Resolution::Source, "Source"),
+    (Resolution::Source, i18n::later("Source")),
 ];
 const FRAME_RATES: [u32; 3] = [15, 30, 60];
 
@@ -129,16 +130,16 @@ impl Share {
         {
             let (max_width, max_height) = resolution.bounds();
             let cap = if width > max_width || height > max_height {
-                " (up to 4K)"
+                tr(" (up to 4K)")
             } else {
                 ""
             };
-            return format!("Source · {width} × {height}{cap}").into();
+            return format!("{} · {width} × {height}{cap}", tr("Source")).into();
         }
         RESOLUTIONS
             .iter()
             .find(|(preset, _)| *preset == resolution)
-            .map_or("", |(_, label)| *label)
+            .map_or("", |(_, label)| tr(label))
             .into()
     }
 
@@ -180,7 +181,7 @@ impl Share {
                 .map_or("", |(_, title)| title.as_str())
                 .into(),
             Setting::Resolution => self.resolution_label(self.resolution()),
-            Setting::FrameRate => format!("{} fps", self.quality.fps).into(),
+            Setting::FrameRate => i18n::fill(tr("{} fps"), &[&self.quality.fps]).into(),
         }
     }
 }
@@ -549,8 +550,8 @@ pub(super) fn share_menu<'a>(
     let mut choices = column![].spacing(2);
     let card_width = (width - 16.0) / 2.0;
     for (label, sources, first) in [
-        ("SCREENS", &share.screens, 0),
-        ("WINDOWS", &share.windows, share.screens.len()),
+        (tr("SCREENS"), &share.screens, 0),
+        (tr("WINDOWS"), &share.windows, share.screens.len()),
     ] {
         if sources.is_empty() {
             continue;
@@ -577,11 +578,11 @@ pub(super) fn share_menu<'a>(
     let dialog_index = share.screens.len() + share.windows.len();
     if share.dialog {
         choices = choices
-            .push(heading(theme, "SCREEN", 4.0))
+            .push(heading(theme, tr("SCREEN"), 4.0))
             .push(crate::call::popups::popup_row(
                 ctx,
-                "Screen or window",
-                Some("Picked in the system's dialog".into()),
+                tr("Screen or window"),
+                Some(tr("Picked in the system's dialog").into()),
                 None,
                 checked(dialog_index),
                 Some(pick(dialog_index)),
@@ -593,7 +594,7 @@ pub(super) fn share_menu<'a>(
         } else {
             4.0
         };
-        choices = choices.push(heading(theme, "CAMERAS", top));
+        choices = choices.push(heading(theme, tr("CAMERAS"), top));
         let first = dialog_index + usize::from(share.dialog);
         for (index, title) in share.cameras.iter().enumerate() {
             let at = first + index;
@@ -614,9 +615,9 @@ pub(super) fn share_menu<'a>(
     for &setting in share.settings() {
         let item = Item {
             label: match setting {
-                Setting::Audio => "Audio",
-                Setting::Resolution => "Resolution",
-                Setting::FrameRate => "Frame rate",
+                Setting::Audio => tr("Audio"),
+                Setting::Resolution => tr("Resolution"),
+                Setting::FrameRate => tr("Frame rate"),
             }
             .into(),
             icon: None,
@@ -644,16 +645,16 @@ pub(super) fn share_menu<'a>(
     if !share.switching {
         let (hint, quality) = if ctx.layout.voice.gpu_encoding.unwrap_or(true) {
             (
-                "Quality preset for the GPU encoder",
+                tr("Quality preset for the GPU encoder"),
                 share.quality.gpu_high_quality,
             )
         } else {
-            ("Sharper, at twice the CPU", share.quality.high_quality)
+            (tr("Sharper, at twice the CPU"), share.quality.high_quality)
         };
         settings = settings.push(
             mouse_area(crate::call::popups::popup_row(
                 ctx,
-                "Higher quality",
+                tr("Higher quality"),
                 Some(hint.into()),
                 None,
                 Check::Box(quality),
@@ -662,7 +663,11 @@ pub(super) fn share_menu<'a>(
             .on_enter(event(ShareEvent::Side(None))),
         );
     }
-    let label = if share.switching { "Switch" } else { "Go Live" };
+    let label = if share.switching {
+        tr("Switch")
+    } else {
+        tr("Go Live")
+    };
     let start: Element<'a, Message> = controls::action(
         theme,
         label,
@@ -764,7 +769,7 @@ pub(super) fn side_list<'a>(
         Setting::FrameRate => {
             for fps in FRAME_RATES {
                 rows = rows.push(choice(
-                    format!("{fps} fps").into(),
+                    i18n::fill(tr("{} fps"), &[&fps]).into(),
                     None,
                     fps == share.quality.fps,
                     false,

@@ -21,6 +21,7 @@ use crate::{
     pictures::Icon,
     theme::Theme,
 };
+use yapfast_core::i18n::tr;
 
 /// Which keybind records: push to talk's (Voice's), or a row's.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -175,14 +176,14 @@ impl<'a> Page<'a> {
         // Discord's page: Custom Keybinds with Add a Keybind beside its
         // title, then Default Keybinds, the list's own shortcut first.
         let note = self.cx.keybinds.page_note().unwrap_or_else(|| {
-            "Keybinds mute, deafen or talk from any app. Add one, choose what it does, and record its keys.".to_owned()
+            tr("Keybinds mute, deafen or talk from any app. Add one, choose what it does, and record its keys.").to_owned()
         });
         let mut custom = column![
             form::beside(
-                form::title(theme, "Custom Keybinds"),
+                form::title(theme, tr("Custom Keybinds")),
                 action(
                     theme,
-                    "Add a Keybind",
+                    tr("Add a Keybind"),
                     Kind::Plain,
                     Some(keybind_message(Event::Add)),
                 ),
@@ -193,14 +194,14 @@ impl<'a> Page<'a> {
         if self.cx.layout.keybinds.is_empty() {
             custom = custom.push(form::note(
                 theme,
-                "You haven't added any custom keybinds yet.",
+                tr("You haven't added any custom keybinds yet."),
             ));
         }
         for (row, binding) in self.cx.layout.keybinds.iter().enumerate() {
             custom = custom.push(self.keybind_row(row, binding));
         }
         let defaults = column![
-            form::title(theme, "Default Keybinds"),
+            form::title(theme, tr("Default Keybinds")),
             shortcut_card(theme, &[crate::shortcuts::HELP]),
         ]
         .spacing(24);
@@ -254,9 +255,9 @@ impl<'a> Page<'a> {
             .map(Shortcut::name)
             .unwrap_or_default();
         let shown = match recorded {
-            Some(keys) if keys.is_empty() => "Press a key...".to_owned(),
+            Some(keys) if keys.is_empty() => tr("Press a key...").to_owned(),
             Some(keys) => keys,
-            None if keys.is_empty() => "No Keybind Set".to_owned(),
+            None if keys.is_empty() => tr("No Keybind Set").to_owned(),
             None => keys,
         };
         let (ground, edge, ink) = (
@@ -279,7 +280,7 @@ impl<'a> Page<'a> {
         };
         let record = button(
             container(
-                text(if recording { "Stop" } else { "Record" })
+                text(if recording { tr("Stop") } else { tr("Record") })
                     .size(13)
                     .font(crate::fonts::MEDIUM),
             )
@@ -345,7 +346,7 @@ impl<'a> Page<'a> {
             .look
             .icon_button(
                 Icon::Trash,
-                "Remove Keybind",
+                tr("Remove Keybind"),
                 keybind_message(Event::Remove(row)),
             )
             .size(32.0, 16);
@@ -458,11 +459,11 @@ pub(super) fn record_button<'a>(
     action(
         theme,
         if recording {
-            "Stop recording"
+            tr("Stop recording")
         } else if empty {
-            "Record keybind"
+            tr("Record keybind")
         } else {
-            "Edit keybind"
+            tr("Edit keybind")
         },
         if recording { Kind::Danger } else { Kind::Plain },
         Some(crate::app::settings(SettingsEvent::Record(
@@ -580,7 +581,7 @@ fn key_name(key: &Pressed, physical: key::Physical, location: Location) -> Strin
         }
         Pressed::Unidentified => match physical {
             key::Physical::Code(code) => format!("{code:?}"),
-            key::Physical::Unidentified(_) => "Unknown key".to_owned(),
+            key::Physical::Unidentified(_) => tr("Unknown key").to_owned(),
         },
     }
 }
