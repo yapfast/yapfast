@@ -84,6 +84,7 @@ pub enum Pref {
     StartMinimized(bool),
     DiscordLinks(bool),
     SystemTitleBar(bool),
+    DiscordBar(bool),
 }
 
 /// My account's and the Discord page's buttons.
@@ -368,6 +369,11 @@ impl Settings {
                 cx.layout.system_title_bar = Some(on);
                 cx.keep("system_title_bar", on);
                 cx.request(Request::TitleBar(on));
+            }
+            Pref::DiscordBar(on) => {
+                cx.layout.discord_bar = Some(on);
+                cx.keep("discord_bar", on);
+                cx.request(Request::DiscordBar(on));
             }
         }
         cx.touch();

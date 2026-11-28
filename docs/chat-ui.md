@@ -552,7 +552,10 @@ and a tiling compositor such as Hyprland, sway or niri, or any desktop not
 listed, keeps whatever the desktop draws, which may be nothing. There, and
 under any desktop's title bar, Discord's bar stays without the window's
 buttons, as Discord's client always shows it: where you are, back and
-forward, Inbox and Help; it neither moves nor resizes the window. "Use the
+forward, Inbox and Help; it neither moves nor resizes the window. Appearance's
+"Show Discord's bar under it", shown while the system title bar is used and
+on by default, takes it away for the desktop's bar alone (`discord_bar` in
+`layout.json`), as GNOME's own bar over it makes two. "Use the
 system title bar" in Appearance overrides it either way
 (`system_title_bar` in `layout.json`) and applies at once. Each window is
 made with the desktop's frame or without it, so the window is made again

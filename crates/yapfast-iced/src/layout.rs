@@ -134,6 +134,9 @@ pub struct Layout {
     /// desktop's way decides.
     pub zoom: Option<f32>,
     pub system_title_bar: Option<bool>,
+    /// Under the desktop's title bar, Discord's bar (Back and Forward,
+    /// where you are, Inbox and Help) shows unless turned off.
+    pub discord_bar: Option<bool>,
     /// The window's size, its place and whether it was maximized, for the
     /// next start.
     pub placement: Option<Placement>,

@@ -2416,3 +2416,32 @@ fn a_theme_review_shows_the_whole_window_in_the_stock_look() {
     )));
     assert_eq!(app.theme.id, "nord");
 }
+
+/// Under the desktop's title bar, Appearance turns Discord's bar off and
+/// on again, and the content takes its room; Yapfast's own bar has no such
+/// switch.
+#[test]
+fn discords_bar_under_the_desktops_can_be_turned_off() {
+    let (mut app, folder) = preview();
+    app.shell.own_title_bar = false;
+    app.shell.bar_under_frame = true;
+    open(&mut app, Section::Appearance);
+    let frame = app.shell.frame;
+    assert_eq!(app.window.height, frame.height - crate::window_bar::HEIGHT);
+    interact(&mut app, |ui| {
+        ui.click("Show Discord's bar under it").expect("the switch");
+    });
+    assert!(!app.shell.bar_under_frame);
+    assert_eq!(
+        app.window.height, frame.height,
+        "the content takes its room"
+    );
+    assert_eq!(stored(&folder)["discord_bar"], false);
+    interact(&mut app, |ui| {
+        ui.click("Show Discord's bar under it").expect("the switch");
+    });
+    assert!(app.shell.bar_under_frame);
+    assert_eq!(app.window.height, frame.height - crate::window_bar::HEIGHT);
+    app.shell.own_title_bar = true;
+    assert!(!shows(&app, "Show Discord's bar under it"));
+}

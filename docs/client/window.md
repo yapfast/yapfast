@@ -152,7 +152,9 @@ own, which a stream hands to the event loop as messages; nothing polls.
   bar still shows, as Discord's client always has one, with Back, Forward,
   the place, Inbox and Help but without the window's buttons, and it
   neither moves nor resizes the window (`Shell::bar_under_frame`; the tests
-  lay the window out without it unless one asks). It goes while the
+  lay the window out without it unless one asks). Appearance's "Show
+  Discord's bar under it", on by default, turns it off there
+  (`window_bar::show_under_frame`, `discord_bar` in `layout.json`). It goes while the
   window or a video is full screen. The content under it is laid out in
   the room below (`widgets::Below`), so overlays placed by the layout's
   sums or at the pointer needn't know it's there, and `App::window` is
