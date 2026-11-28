@@ -83,7 +83,13 @@ author who joined the server in the last week (`new_member`; not a bot, not
 one who left and came back, and not in a server itself under a week old, as
 Discord's client marks them), and, in a forum post, an "OP" tag for the
 post's author unless the APP tag is there; a reply's line quotes the
-author's tag a little smaller. A notice shows its icon in place of the avatar
+author's tag a little smaller. Before the name, a red clock marks an
+author who is timed out, only for an account that may time them out
+(`author_timed_out_until`, which the core sets; see
+[servers](../discord/servers.md#a-server-members-menu)); its tooltip reads "This is
+only visible to moderators and indicates this user is timed out." The row
+checks the end when it's drawn, as Discord's client checks it when it
+renders, so nothing wakes for it. A notice shows its icon in place of the avatar
 and its words in Discord's wording. An app's answer still to come says
 "{app} is thinking…", and "The application did not respond" once it's 15
 minutes old.

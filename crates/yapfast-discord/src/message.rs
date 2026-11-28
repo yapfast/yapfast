@@ -1853,10 +1853,10 @@ impl Names {
             learned |= changed(&mut self.member_styles, key, Style::parse(style));
         }
         // Present when known, null when they aren't timed out; a time past
-        // is a timeout that ended.
+        // is a timeout that ended. A moderator's messages show it.
         if let Some(until) = member.get("communication_disabled_until") {
             let until = until.as_str().and_then(iso_ms);
-            changed(&mut self.timeouts, key, until);
+            learned |= changed(&mut self.timeouts, key, until);
         }
         // Present when known, null when they don't boost it.
         if let Some(since) = member.get("premium_since") {
