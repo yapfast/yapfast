@@ -41,9 +41,23 @@ const CHANNEL_FIELD: &str = "channel-name";
 /// The choices for a new invite link, as Discord's dialog words them, in
 /// the order of `INVITE_AGES` and `INVITE_USES`.
 const AGES: [&str; 7] = [
-    "30 min", "1 hr", "6 hr", "12 hr", "1 day", "7 days", "Never",
+    crate::i18n::tr_mark!("30 min"),
+    crate::i18n::tr_mark!("1 hr"),
+    crate::i18n::tr_mark!("6 hr"),
+    crate::i18n::tr_mark!("12 hr"),
+    crate::i18n::tr_mark!("1 day"),
+    crate::i18n::tr_mark!("7 days"),
+    crate::i18n::tr_mark!("Never"),
 ];
-const USES: [&str; 7] = ["No limit", "1", "5", "10", "25", "50", "100"];
+const USES: [&str; 7] = [
+    crate::i18n::tr_mark!("No limit"),
+    "1",
+    "5",
+    "10",
+    "25",
+    "50",
+    "100",
+];
 
 /// What's being chosen or typed in the open dialogs.
 #[derive(Default)]
@@ -348,6 +362,7 @@ impl<'a> View<'a> {
         let invite = self.cx.state.invite.as_ref()?;
         let choice = self.s.invite.as_ref()?;
         let theme = self.cx.look.theme;
+        let i18n = self.cx.i18n;
         let place = if invite.voice {
             invite.channel.clone()
         } else {
@@ -406,10 +421,12 @@ impl<'a> View<'a> {
         if invite.link.is_some() {
             body.push(form::note(
                 theme,
-                format!(
-                    "This link {}{}.",
-                    lasts(invite.max_age),
-                    works(invite.max_uses)
+                yapfast_core::themes::chrome::fill(
+                    crate::i18n::tr!(i18n, "This link {expiry}{usage}."),
+                    &[
+                        ("expiry", &lasts(i18n, invite.max_age)),
+                        ("usage", &works(i18n, invite.max_uses)),
+                    ],
                 ),
             ));
         }
@@ -418,13 +435,19 @@ impl<'a> View<'a> {
         }
         body.extend([
             form::heading(theme, crate::i18n::tr!(self.cx.i18n, "EXPIRE AFTER")),
-            controls::choices(theme, &AGES, choice.age, |index| {
-                message(Event::InviteAge(index))
-            }),
+            controls::choices(
+                theme,
+                &AGES.map(|label| i18n.text(label)),
+                choice.age,
+                |index| message(Event::InviteAge(index)),
+            ),
             form::heading(theme, crate::i18n::tr!(self.cx.i18n, "MAX NUMBER OF USES")),
-            controls::choices(theme, &USES, choice.uses, |index| {
-                message(Event::InviteUses(index))
-            }),
+            controls::choices(
+                theme,
+                &USES.map(|label| i18n.text(label)),
+                choice.uses,
+                |index| message(Event::InviteUses(index)),
+            ),
             buttons([
                 action(
                     theme,
@@ -489,7 +512,13 @@ impl<'a> View<'a> {
         if let Some(preview) = preview {
             let detail = match (preview.members, preview.online) {
                 (Some(members), Some(online)) if members >= 5 || online > 0 => {
-                    format!("{online} online, {members} members")
+                    yapfast_core::themes::chrome::fill(
+                        crate::i18n::tr!(self.cx.i18n, "{online} online, {members} members"),
+                        &[
+                            ("online", &online.to_string()),
+                            ("members", &members.to_string()),
+                        ],
+                    )
                 }
                 _ if preview.voice => preview.channel.clone(),
                 _ => format!("#{}", preview.channel),
@@ -528,7 +557,7 @@ impl<'a> View<'a> {
             body.push(form::note(theme, status));
         }
         if let Some(error) = &join.error {
-            body.push(form::note_in(error.as_str(), theme.danger));
+            body.push(form::note_in(self.cx.i18n.text(error), theme.danger));
         }
         let confirm = if join.form.is_some() {
             crate::i18n::tr!(self.cx.i18n, "Open in browser")
@@ -846,22 +875,26 @@ impl<'a> View<'a> {
 }
 
 /// How long an invite link lasts, as the dialog says it.
-fn lasts(age: u32) -> String {
+fn lasts(i18n: &crate::i18n::I18n, age: u32) -> String {
     match age {
-        0 => "never expires".to_owned(),
-        1800 => "expires in 30 minutes".to_owned(),
-        3600 => "expires in an hour".to_owned(),
-        86_400 => "expires in a day".to_owned(),
-        age if age % 86_400 == 0 => format!("expires in {} days", age / 86_400),
-        age => format!("expires in {} hours", age / 3600),
+        0 => crate::i18n::tr!(i18n, "never expires").to_owned(),
+        1800 => crate::i18n::tr!(i18n, "expires in 30 minutes").to_owned(),
+        3600 => crate::i18n::tr!(i18n, "expires in an hour").to_owned(),
+        86_400 => crate::i18n::tr!(i18n, "expires in a day").to_owned(),
+        age if age % 86_400 == 0 => crate::i18n::tr!(i18n, "expires in {count} days")
+            .replace("{count}", &(age / 86_400).to_string()),
+        age => crate::i18n::tr!(i18n, "expires in {count} hours")
+            .replace("{count}", &(age / 3600).to_string()),
     }
 }
 
 /// How often it works, after how long it lasts.
-fn works(uses: u32) -> String {
+fn works(i18n: &crate::i18n::I18n, uses: u32) -> String {
     match uses {
         0 => String::new(),
-        1 => " and works once".to_owned(),
-        uses => format!(" and works {uses} times"),
+        1 => crate::i18n::tr!(i18n, " and works once").to_owned(),
+        uses => {
+            crate::i18n::tr!(i18n, " and works {count} times").replace("{count}", &uses.to_string())
+        }
     }
 }

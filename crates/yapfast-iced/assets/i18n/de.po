@@ -3057,3 +3057,57 @@ msgstr "{count} Nachrichten blockierter und ignorierter Personen wurden ausgeble
 
 msgid "No game detected right now"
 msgstr "Derzeit wurde kein Spiel erkannt"
+
+msgid "30 min"
+msgstr "30 Min."
+
+msgid "1 hr"
+msgstr "1 Std."
+
+msgid "6 hr"
+msgstr "6 Std."
+
+msgid "12 hr"
+msgstr "12 Std."
+
+msgid "1 day"
+msgstr "1 Tag"
+
+msgid "7 days"
+msgstr "7 Tage"
+
+msgid "No limit"
+msgstr "Unbegrenzt"
+
+msgid "This link {expiry}{usage}."
+msgstr "Dieser Link {expiry}{usage}."
+
+msgid "never expires"
+msgstr "läuft nie ab"
+
+msgid "expires in 30 minutes"
+msgstr "läuft in 30 Minuten ab"
+
+msgid "expires in an hour"
+msgstr "läuft in einer Stunde ab"
+
+msgid "expires in a day"
+msgstr "läuft in einem Tag ab"
+
+msgid "expires in {count} days"
+msgstr "läuft in {count} Tagen ab"
+
+msgid "expires in {count} hours"
+msgstr "läuft in {count} Stunden ab"
+
+msgid " and works once"
+msgstr " und kann einmal verwendet werden"
+
+msgid " and works {count} times"
+msgstr " und kann {count}-mal verwendet werden"
+
+msgid "{online} online, {members} members"
+msgstr "{online} online, {members} Mitglieder"
+
+msgid "This invite is invalid or has expired."
+msgstr "Diese Einladung ist ungültig oder abgelaufen."

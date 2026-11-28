@@ -3057,3 +3057,57 @@ msgstr "Скрыто сообщений от заблокированных и �
 
 msgid "No game detected right now"
 msgstr "Сейчас игры не обнаружены"
+
+msgid "30 min"
+msgstr "30 мин"
+
+msgid "1 hr"
+msgstr "1 ч"
+
+msgid "6 hr"
+msgstr "6 ч"
+
+msgid "12 hr"
+msgstr "12 ч"
+
+msgid "1 day"
+msgstr "1 день"
+
+msgid "7 days"
+msgstr "7 дней"
+
+msgid "No limit"
+msgstr "Без лимита"
+
+msgid "This link {expiry}{usage}."
+msgstr "Ссылка {expiry}{usage}"
+
+msgid "never expires"
+msgstr "действует бессрочно"
+
+msgid "expires in 30 minutes"
+msgstr "действует ещё 30 минут"
+
+msgid "expires in an hour"
+msgstr "действует ещё час"
+
+msgid "expires in a day"
+msgstr "действует ещё сутки"
+
+msgid "expires in {count} days"
+msgstr "действует ещё {count} дн."
+
+msgid "expires in {count} hours"
+msgstr "действует ещё {count} ч"
+
+msgid " and works once"
+msgstr " и доступна для одного использования"
+
+msgid " and works {count} times"
+msgstr " · число использований: {count}"
+
+msgid "{online} online, {members} members"
+msgstr "В сети: {online} · Участников: {members}"
+
+msgid "This invite is invalid or has expired."
+msgstr "Приглашение недействительно или срок его действия истёк."
