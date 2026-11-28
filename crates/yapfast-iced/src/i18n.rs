@@ -32,11 +32,7 @@ macro_rules! language {
         Language {
             tag: $tag,
             name: $name,
-            source: Some(include_str!(concat!(
-                "../assets/locales/",
-                $tag,
-                "/settings.po"
-            ))),
+            source: Some(include_str!(concat!("../assets/i18n/", $tag, ".po"))),
         }
     };
 }

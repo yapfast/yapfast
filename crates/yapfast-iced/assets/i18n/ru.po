@@ -294,3 +294,282 @@ msgstr "Использовать системную настройку"
 
 msgid "Reduced motion follows whether your desktop turns its animations off."
 msgstr "Ограничение анимации следует настройкам рабочего стола."
+
+msgid "Just looking?"
+msgstr "Хочешь осмотреться?"
+
+msgid "Try the layout with sample conversations. Nothing leaves this computer."
+msgstr "Попробуй интерфейс на примере бесед. Данные остаются на этом компьютере."
+
+msgid "Explore local preview"
+msgstr "Открыть локальный предпросмотр"
+
+msgid "Sign in to Yapfast"
+msgstr "Войти в Yapfast"
+
+msgid "Link your Discord account with your phone."
+msgstr "Привяжи аккаунт Discord с помощью телефона."
+
+msgid "Try again"
+msgstr "Попробовать снова"
+
+msgid "Show the code"
+msgstr "Показать код"
+
+msgid "Use a token"
+msgstr "Использовать токен"
+
+msgid "TOKEN"
+msgstr "ТОКЕН"
+
+msgid "Discord token"
+msgstr "Токен Discord"
+
+msgid "Link"
+msgstr "Привязать"
+
+msgid "Checking the token..."
+msgstr "Проверяем токен…"
+
+msgid "Solve the captcha in your browser"
+msgstr "Пройди проверку CAPTCHA в браузере"
+
+msgid "Open it again"
+msgstr "Открыть снова"
+
+msgid "Scanned"
+msgstr "Код отсканирован"
+
+msgid "Getting a code..."
+msgstr "Получаем код…"
+
+msgid "Confirm on your phone"
+msgstr "Подтверди на телефоне"
+
+msgid "Scan it with the Discord app"
+msgstr "Отсканируй в приложении Discord"
+
+msgid "Use your existing Matrix account."
+msgstr "Войди в свой аккаунт Matrix."
+
+msgid "HOMESERVER"
+msgstr "ДОМАШНИЙ СЕРВЕР"
+
+msgid "MATRIX ID"
+msgstr "ИДЕНТИФИКАТОР MATRIX"
+
+msgid "PASSWORD"
+msgstr "ПАРОЛЬ"
+
+msgid "Connecting..."
+msgstr "Подключаемся…"
+
+msgid "Sign in"
+msgstr "Войти"
+
+msgid "Retry saved session"
+msgstr "Повторить вход в сохранённую сессию"
+
+msgid "Sign in with your Matrix password. Single sign-on isn't available yet."
+msgstr "Войди с паролем Matrix. Единый вход пока недоступен."
+
+msgid "Recovery key"
+msgstr "Ключ восстановления"
+
+msgid "Verify this device to send messages"
+msgstr "Подтверди это устройство, чтобы отправлять сообщения"
+
+msgid "Recover"
+msgstr "Восстановить"
+
+msgid "Check again"
+msgstr "Проверить снова"
+
+msgid "Friends"
+msgstr "Друзья"
+
+msgid "Requests"
+msgstr "Запросы"
+
+msgid "Online"
+msgstr "В сети"
+
+msgid "All"
+msgstr "Все"
+
+msgid "Pending"
+msgstr "Ожидают ответа"
+
+msgid "Add Friend"
+msgstr "Добавить друга"
+
+msgid "New Group DM"
+msgstr "Новая групповая переписка"
+
+msgid "No friends yet"
+msgstr "Пока нет друзей"
+
+msgid "Add someone with their Discord username."
+msgstr "Добавь друга по имени пользователя Discord."
+
+msgid "Add a friend"
+msgstr "Добавить друга"
+
+msgid "Search"
+msgstr "Поиск"
+
+msgid "All Friends"
+msgstr "Все друзья"
+
+msgid "None of your friends are around right now."
+msgstr "Сейчас никого из друзей нет в сети."
+
+msgid "No friend's name matches that."
+msgstr "Друзья с таким именем не найдены."
+
+msgid "Go to Settings"
+msgstr "Открыть настройки"
+
+msgid "Looking for accounts you've blocked or ignored?"
+msgstr "Ищешь заблокированные или игнорируемые аккаунты?"
+
+msgid "Dismiss"
+msgstr "Закрыть"
+
+msgid "Enter a username"
+msgstr "Введи имя пользователя"
+
+msgid "Send Friend Request"
+msgstr "Отправить запрос в друзья"
+
+msgid "You can add friends with their Discord username."
+msgstr "Друзей можно добавлять по имени пользователя Discord."
+
+msgid "Sending..."
+msgstr "Отправляем…"
+
+msgid "Message"
+msgstr "Сообщение"
+
+msgid "More"
+msgstr "Ещё"
+
+msgid "Username"
+msgstr "Имя пользователя"
+
+msgid "Send request"
+msgstr "Отправить запрос"
+
+msgid "Send someone a friend request on Discord with their username."
+msgstr "Отправь запрос в друзья по имени пользователя Discord."
+
+msgid "Do Not Disturb"
+msgstr "Не беспокоить"
+
+msgid "Idle"
+msgstr "Нет на месте"
+
+msgid "Offline"
+msgstr "Не в сети"
+
+msgid "Choose a DM or server channel to write a message."
+msgstr "Выбери личную переписку или канал, чтобы написать сообщение."
+
+msgid "Discord · not end-to-end encrypted."
+msgstr "Discord · без сквозного шифрования."
+
+msgid "Discord is disconnected. Yapfast is reconnecting."
+msgstr "Связь с Discord потеряна. Yapfast переподключается."
+
+msgid "Discord · not end-to-end encrypted. Enter to send, Shift+Enter for a new line."
+msgstr "Discord · без сквозного шифрования. Enter — отправить, Shift+Enter — новая строка."
+
+msgid "Sending is locked until this device is verified."
+msgstr "Чтобы отправлять сообщения, подтверди это устройство."
+
+msgid "End-to-end encrypted. Enter to send, Shift+Enter for a new line."
+msgstr "Сквозное шифрование. Enter — отправить, Shift+Enter — новая строка."
+
+msgid "Unencrypted room. Reading only in this build."
+msgstr "Комната без шифрования. В этой сборке её можно только читать."
+
+msgid "Write a reply"
+msgstr "Написать ответ"
+
+msgid "You do not have permission to send messages in this channel."
+msgstr "У тебя нет прав на отправку сообщений в этом канале."
+
+msgid "Accept to reply. Ignoring removes it without telling them."
+msgstr "Прими запрос, чтобы ответить. Если проигнорировать запрос, отправитель не получит уведомление."
+
+msgid "Ignore"
+msgstr "Игнорировать"
+
+msgid "Accept"
+msgstr "Принять"
+
+msgid "Message @{name}"
+msgstr "Написать @{name}"
+
+msgid "Message #{name}"
+msgstr "Написать #{name}"
+
+msgid "Message {name}"
+msgstr "Написать {name}"
+
+msgid "More options"
+msgstr "Другие действия"
+
+msgid "Attach files"
+msgstr "Прикрепить файлы"
+
+msgid "Open GIF picker"
+msgstr "Открыть выбор GIF"
+
+msgid "Open sticker picker"
+msgstr "Открыть выбор стикеров"
+
+msgid "Add an emoji"
+msgstr "Добавить эмодзи"
+
+msgid "Mention the person you reply to"
+msgstr "Упомянуть автора сообщения"
+
+msgid "Cancel reply"
+msgstr "Отменить ответ"
+
+msgid "Direct Messages"
+msgstr "Личные сообщения"
+
+msgid "Back"
+msgstr "Назад"
+
+msgid "Forward"
+msgstr "Вперёд"
+
+msgid "Inbox"
+msgstr "Входящие"
+
+msgid "Help"
+msgstr "Помощь"
+
+msgid "Unreads"
+msgstr "Непрочитанные"
+
+msgid "Mentions"
+msgstr "Упоминания"
+
+msgid "Filter"
+msgstr "Фильтр"
+
+msgid "Unread messages from your unmuted channels show up here."
+msgstr "Здесь появляются непрочитанные сообщения из каналов с включёнными уведомлениями."
+
+msgid "You made it through everything!"
+msgstr "Всё прочитано!"
+
+msgid "Whenever someone mentions you it will be saved here for 7 days."
+msgstr "Упоминания сохраняются здесь на 7 дней."
+
+msgid "More channels with mentions"
+msgstr "Другие каналы с упоминаниями"

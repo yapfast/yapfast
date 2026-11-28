@@ -245,8 +245,8 @@ pub fn add_page(ctx: crate::ctx::Ctx<'_>) -> bool {
 pub fn friends_header<'a>(ctx: crate::ctx::Ctx<'a>, screen: DmScreen) -> Element<'a, Message> {
     let theme = ctx.look.theme;
     let (icon, name) = match screen {
-        DmScreen::Friends => (Icon::Users, "Friends"),
-        DmScreen::Requests => (Icon::Inbox, "Requests"),
+        DmScreen::Friends => (Icon::Users, crate::i18n::tr!(ctx.i18n, "Friends")),
+        DmScreen::Requests => (Icon::Inbox, crate::i18n::tr!(ctx.i18n, "Requests")),
     };
     let mut head = row![
         ctx.look.glyph(icon, 22, theme.channel_read),
@@ -266,32 +266,38 @@ pub fn friends_header<'a>(ctx: crate::ctx::Ctx<'a>, screen: DmScreen) -> Element
             .push(crate::header::dot(theme))
             .push(apart(header_tab(
                 ctx,
-                "Online",
+                crate::i18n::tr!(ctx.i18n, "Online"),
                 !all && !page,
                 false,
                 Some(Message::Friends(Event::All(false))),
             )))
             .push(apart(header_tab(
                 ctx,
-                "All",
+                crate::i18n::tr!(ctx.i18n, "All"),
                 all && !page,
                 false,
                 Some(Message::Friends(Event::All(true))),
             )))
             .push(apart(header_tab(
                 ctx,
-                "Pending",
+                crate::i18n::tr!(ctx.i18n, "Pending"),
                 false,
                 false,
                 Some(Message::Side(crate::sidebar::Event::Requests)),
             )));
         head = if page {
-            head.push(header_tab(ctx, "Add Friend", true, true, None))
+            head.push(header_tab(
+                ctx,
+                crate::i18n::tr!(ctx.i18n, "Add Friend"),
+                true,
+                true,
+                None,
+            ))
         } else {
             head.push(
                 action(
                     theme,
-                    "Add Friend",
+                    crate::i18n::tr!(ctx.i18n, "Add Friend"),
                     Kind::Primary,
                     Some(Message::Friends(Event::OpenAdd)),
                 )
@@ -308,7 +314,7 @@ pub fn friends_header<'a>(ctx: crate::ctx::Ctx<'a>, screen: DmScreen) -> Element
                     ctx.look
                         .icon_button(
                             Icon::MessageCirclePlus,
-                            "New Group DM",
+                            crate::i18n::tr!(ctx.i18n, "New Group DM"),
                             Message::Switcher(crate::switcher::Event::OpenNewDm),
                         )
                         .size(32.0, 20)
@@ -333,7 +339,7 @@ pub fn friends_header<'a>(ctx: crate::ctx::Ctx<'a>, screen: DmScreen) -> Element
 /// (the Add Friend page's tab a pill tinted with the accent).
 fn header_tab<'a>(
     ctx: crate::ctx::Ctx<'a>,
-    label: &'static str,
+    label: &'a str,
     chosen: bool,
     brand: bool,
     message: Option<Message>,
@@ -405,15 +411,18 @@ fn friends_list<'a>(ctx: crate::ctx::Ctx<'a>) -> Element<'a, Message> {
     if state.friends.is_empty() {
         return ctx.look.empty_screen(
             Icon::Users,
-            "No friends yet",
-            "Add someone with their Discord username.",
-            Some(("Add a friend", Message::Friends(Event::OpenAdd))),
+            crate::i18n::tr!(ctx.i18n, "No friends yet"),
+            crate::i18n::tr!(ctx.i18n, "Add someone with their Discord username."),
+            Some((
+                crate::i18n::tr!(ctx.i18n, "Add a friend"),
+                Message::Friends(Event::OpenAdd),
+            )),
         );
     }
     let shown = friends_shown(ctx);
     // Discord's field: a 1 px border, a magnifier, 40 px in all.
     let (ink, hint, selection) = (theme.text, theme.muted, theme.selection);
-    let input = iced::widget::text_input("Search", &ctx.friends.filter)
+    let input = iced::widget::text_input(crate::i18n::tr!(ctx.i18n, "Search"), &ctx.friends.filter)
         .id(iced::widget::Id::new(SEARCH))
         .size(15)
         .padding(0)
@@ -446,9 +455,9 @@ fn friends_list<'a>(ctx: crate::ctx::Ctx<'a>) -> Element<'a, Message> {
         text(format!(
             "{} \u{2014} {}",
             if ctx.friends.all {
-                "All Friends"
+                crate::i18n::tr!(ctx.i18n, "All Friends")
             } else {
-                "Online"
+                crate::i18n::tr!(ctx.i18n, "Online")
             },
             shown.len()
         ))
@@ -478,9 +487,9 @@ fn friends_list<'a>(ctx: crate::ctx::Ctx<'a>) -> Element<'a, Message> {
         .height(Length::Fill);
     if shown.is_empty() {
         let words = if ctx.friends.filter.is_empty() {
-            "None of your friends are around right now."
+            crate::i18n::tr!(ctx.i18n, "None of your friends are around right now.")
         } else {
-            "No friend's name matches that."
+            crate::i18n::tr!(ctx.i18n, "No friend's name matches that.")
         };
         page = page.push(container(text(words).size(14).color(theme.secondary)).padding([0, 8]));
     }
@@ -518,7 +527,7 @@ fn friends_list<'a>(ctx: crate::ctx::Ctx<'a>) -> Element<'a, Message> {
 fn blocked_note<'a>(ctx: crate::ctx::Ctx<'a>) -> Element<'a, Message> {
     let theme = ctx.look.theme;
     let link = button(
-        text("Go to Settings")
+        text(crate::i18n::tr!(ctx.i18n, "Go to Settings"))
             .size(15)
             .font(SEMIBOLD)
             .color(theme.link),
@@ -530,16 +539,23 @@ fn blocked_note<'a>(ctx: crate::ctx::Ctx<'a>) -> Element<'a, Message> {
         row![
             ctx.look.glyph(Icon::CircleInfoFilled, 20, theme.secondary),
             row![
-                text("Looking for accounts you've blocked or ignored?")
-                    .size(15)
-                    .font(SEMIBOLD)
-                    .color(theme.text),
+                text(crate::i18n::tr!(
+                    ctx.i18n,
+                    "Looking for accounts you've blocked or ignored?"
+                ))
+                .size(15)
+                .font(SEMIBOLD)
+                .color(theme.text),
                 link
             ]
             .spacing(4)
             .width(Length::Fill),
             ctx.look
-                .icon_button(Icon::X, "Dismiss", Message::Friends(Event::DismissNote))
+                .icon_button(
+                    Icon::X,
+                    crate::i18n::tr!(ctx.i18n, "Dismiss"),
+                    Message::Friends(Event::DismissNote)
+                )
                 .size(28.0, 18)
         ]
         .spacing(12)
@@ -566,7 +582,7 @@ fn add_friend_page<'a>(ctx: crate::ctx::Ctx<'a>) -> Element<'a, Message> {
     let name = &ctx.friends.add_name;
     let ready = !sending && !name.is_empty();
     let (ink, hint, selection) = (theme.text, theme.muted, theme.selection);
-    let mut input = iced::widget::text_input("Enter a username", name)
+    let mut input = iced::widget::text_input(crate::i18n::tr!(ctx.i18n, "Enter a username"), name)
         .id(iced::widget::Id::new(ADD_FIELD))
         .size(15)
         .padding(12)
@@ -585,7 +601,7 @@ fn add_friend_page<'a>(ctx: crate::ctx::Ctx<'a>) -> Element<'a, Message> {
     }
     let send = action(
         theme,
-        "Send Friend Request",
+        crate::i18n::tr!(ctx.i18n, "Send Friend Request"),
         Kind::Primary,
         ready.then_some(Message::Friends(Event::Send)),
     )
@@ -608,14 +624,22 @@ fn add_friend_page<'a>(ctx: crate::ctx::Ctx<'a>) -> Element<'a, Message> {
     .align_y(Alignment::Center)
     .style(move |_| crate::style::outlined(ground, line, 8.0));
     let mut page = column![
-        container(text("Add Friend").size(20).font(BOLD).color(theme.text))
-            .height(24)
-            .align_y(Alignment::Center),
         container(
-            text("You can add friends with their Discord username.")
-                .size(15)
-                .font(SEMIBOLD)
+            text(crate::i18n::tr!(ctx.i18n, "Add Friend"))
+                .size(20)
+                .font(BOLD)
                 .color(theme.text)
+        )
+        .height(24)
+        .align_y(Alignment::Center),
+        container(
+            text(crate::i18n::tr!(
+                ctx.i18n,
+                "You can add friends with their Discord username."
+            ))
+            .size(15)
+            .font(SEMIBOLD)
+            .color(theme.text)
         )
         .height(20)
         .align_y(Alignment::Center),
@@ -630,7 +654,10 @@ fn add_friend_page<'a>(ctx: crate::ctx::Ctx<'a>) -> Element<'a, Message> {
         bottom: 0.0,
     });
     let (note, ink) = match dialog_state {
-        AddFriend { sending: true, .. } => ("Sending...".to_owned(), theme.muted),
+        AddFriend { sending: true, .. } => (
+            crate::i18n::tr!(ctx.i18n, "Sending...").to_owned(),
+            theme.muted,
+        ),
         AddFriend {
             outcome: Some(Ok(name)),
             ..
@@ -692,7 +719,7 @@ fn friend_row<'a>(
             ))
             .into()
         }
-        (None, true) => text(presence_word(presence))
+        (None, true) => text(ctx.i18n.text(presence_word(presence)))
             .size(theme.type_size("small", 13.0))
             .font(theme.font("small", crate::fonts::REGULAR))
             .color(theme.muted)
@@ -716,10 +743,14 @@ fn friend_row<'a>(
         .gap(6)
     };
     let buttons = row![
-        round(Icon::MessageCircle, "Message", message.clone()),
+        round(
+            Icon::MessageCircle,
+            crate::i18n::tr!(ctx.i18n, "Message"),
+            message.clone()
+        ),
         round(
             Icon::EllipsisVertical,
-            "More",
+            crate::i18n::tr!(ctx.i18n, "More"),
             Message::Friends(Event::Menu(friend.id.clone()))
         )
     ]
@@ -777,22 +808,29 @@ pub fn add_friend_view<'a>(ctx: crate::ctx::Ctx<'a>) -> Option<Element<'a, Messa
         .style(lit_style(None, theme.hover, 6.0));
     let sending = dialog_state.sending;
     let name = &ctx.friends.add_name;
-    let mut input = field(theme, ADD_FIELD, "Username", name, false, true)
-        .size(15)
-        .padding(10)
-        .on_input(|text| Message::Friends(Event::AddName(text)));
+    let mut input = field(
+        theme,
+        ADD_FIELD,
+        crate::i18n::tr!(ctx.i18n, "Username"),
+        name,
+        false,
+        true,
+    )
+    .size(15)
+    .padding(10)
+    .on_input(|text| Message::Friends(Event::AddName(text)));
     if !sending && !name.is_empty() {
         input = input.on_submit(Message::Friends(Event::Send));
     }
     let send = action(
         theme,
-        "Send request",
+        crate::i18n::tr!(ctx.i18n, "Send request"),
         Kind::Primary,
         (!sending && !name.is_empty()).then_some(Message::Friends(Event::Send)),
     );
     let mut body = column![
         row![
-            text("Add a friend")
+            text(crate::i18n::tr!(ctx.i18n, "Add a friend"))
                 .size(18)
                 .font(BOLD)
                 .color(theme.text)
@@ -800,15 +838,21 @@ pub fn add_friend_view<'a>(ctx: crate::ctx::Ctx<'a>) -> Option<Element<'a, Messa
             close
         ]
         .align_y(Alignment::Center),
-        text("Send someone a friend request on Discord with their username.")
-            .size(14)
-            .color(theme.secondary),
+        text(crate::i18n::tr!(
+            ctx.i18n,
+            "Send someone a friend request on Discord with their username."
+        ))
+        .size(14)
+        .color(theme.secondary),
         row![input, send].spacing(8).align_y(Alignment::Center),
     ]
     .spacing(12)
     .padding(20);
     let (note, ink) = match dialog_state {
-        AddFriend { sending: true, .. } => ("Sending...".to_owned(), theme.muted),
+        AddFriend { sending: true, .. } => (
+            crate::i18n::tr!(ctx.i18n, "Sending...").to_owned(),
+            theme.muted,
+        ),
         AddFriend {
             outcome: Some(Ok(name)),
             ..

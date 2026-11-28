@@ -294,3 +294,282 @@ msgstr "Systemeinstellung übernehmen"
 
 msgid "Reduced motion follows whether your desktop turns its animations off."
 msgstr "Die Einstellung folgt der Animationsoption deines Desktops."
+
+msgid "Just looking?"
+msgstr "Nur mal umsehen?"
+
+msgid "Try the layout with sample conversations. Nothing leaves this computer."
+msgstr "Probiere die Oberfläche mit Beispielunterhaltungen aus. Alle Daten bleiben auf diesem Computer."
+
+msgid "Explore local preview"
+msgstr "Lokale Vorschau öffnen"
+
+msgid "Sign in to Yapfast"
+msgstr "Bei Yapfast anmelden"
+
+msgid "Link your Discord account with your phone."
+msgstr "Verknüpfe dein Discord-Konto mit deinem Handy."
+
+msgid "Try again"
+msgstr "Erneut versuchen"
+
+msgid "Show the code"
+msgstr "Code anzeigen"
+
+msgid "Use a token"
+msgstr "Token verwenden"
+
+msgid "TOKEN"
+msgstr "TOKEN"
+
+msgid "Discord token"
+msgstr "Discord-Token"
+
+msgid "Link"
+msgstr "Verknüpfen"
+
+msgid "Checking the token..."
+msgstr "Token wird geprüft …"
+
+msgid "Solve the captcha in your browser"
+msgstr "Löse das CAPTCHA im Browser"
+
+msgid "Open it again"
+msgstr "Erneut öffnen"
+
+msgid "Scanned"
+msgstr "Code gescannt"
+
+msgid "Getting a code..."
+msgstr "Code wird abgerufen …"
+
+msgid "Confirm on your phone"
+msgstr "Auf dem Handy bestätigen"
+
+msgid "Scan it with the Discord app"
+msgstr "Mit der Discord-App scannen"
+
+msgid "Use your existing Matrix account."
+msgstr "Melde dich mit deinem Matrix-Konto an."
+
+msgid "HOMESERVER"
+msgstr "HOMESERVER"
+
+msgid "MATRIX ID"
+msgstr "MATRIX-ID"
+
+msgid "PASSWORD"
+msgstr "PASSWORT"
+
+msgid "Connecting..."
+msgstr "Verbindung wird hergestellt …"
+
+msgid "Sign in"
+msgstr "Anmelden"
+
+msgid "Retry saved session"
+msgstr "Gespeicherte Sitzung erneut starten"
+
+msgid "Sign in with your Matrix password. Single sign-on isn't available yet."
+msgstr "Melde dich mit deinem Matrix-Passwort an. Single Sign-on ist noch nicht verfügbar."
+
+msgid "Recovery key"
+msgstr "Wiederherstellungsschlüssel"
+
+msgid "Verify this device to send messages"
+msgstr "Bestätige dieses Gerät, um Nachrichten zu senden"
+
+msgid "Recover"
+msgstr "Wiederherstellen"
+
+msgid "Check again"
+msgstr "Erneut prüfen"
+
+msgid "Friends"
+msgstr "Freunde"
+
+msgid "Requests"
+msgstr "Anfragen"
+
+msgid "Online"
+msgstr "Online"
+
+msgid "All"
+msgstr "Alle"
+
+msgid "Pending"
+msgstr "Ausstehend"
+
+msgid "Add Friend"
+msgstr "Freund hinzufügen"
+
+msgid "New Group DM"
+msgstr "Neuer Gruppenchat"
+
+msgid "No friends yet"
+msgstr "Noch keine Freunde"
+
+msgid "Add someone with their Discord username."
+msgstr "Füge jemanden mit seinem Discord-Benutzernamen hinzu."
+
+msgid "Add a friend"
+msgstr "Freund hinzufügen"
+
+msgid "Search"
+msgstr "Suchen"
+
+msgid "All Friends"
+msgstr "Alle Freunde"
+
+msgid "None of your friends are around right now."
+msgstr "Gerade ist keiner deiner Freunde online."
+
+msgid "No friend's name matches that."
+msgstr "Kein Freund hat einen passenden Namen."
+
+msgid "Go to Settings"
+msgstr "Einstellungen öffnen"
+
+msgid "Looking for accounts you've blocked or ignored?"
+msgstr "Suchst du blockierte oder ignorierte Konten?"
+
+msgid "Dismiss"
+msgstr "Schließen"
+
+msgid "Enter a username"
+msgstr "Benutzernamen eingeben"
+
+msgid "Send Friend Request"
+msgstr "Freundschaftsanfrage senden"
+
+msgid "You can add friends with their Discord username."
+msgstr "Du kannst Freunde mit ihrem Discord-Benutzernamen hinzufügen."
+
+msgid "Sending..."
+msgstr "Wird gesendet …"
+
+msgid "Message"
+msgstr "Nachricht"
+
+msgid "More"
+msgstr "Mehr"
+
+msgid "Username"
+msgstr "Benutzername"
+
+msgid "Send request"
+msgstr "Anfrage senden"
+
+msgid "Send someone a friend request on Discord with their username."
+msgstr "Sende eine Discord-Freundschaftsanfrage über den Benutzernamen."
+
+msgid "Do Not Disturb"
+msgstr "Nicht stören"
+
+msgid "Idle"
+msgstr "Abwesend"
+
+msgid "Offline"
+msgstr "Offline"
+
+msgid "Choose a DM or server channel to write a message."
+msgstr "Wähle einen Direktchat oder Serverkanal, um eine Nachricht zu schreiben."
+
+msgid "Discord · not end-to-end encrypted."
+msgstr "Discord · nicht Ende-zu-Ende-verschlüsselt."
+
+msgid "Discord is disconnected. Yapfast is reconnecting."
+msgstr "Die Verbindung zu Discord wurde getrennt. Yapfast verbindet sich erneut."
+
+msgid "Discord · not end-to-end encrypted. Enter to send, Shift+Enter for a new line."
+msgstr "Discord · nicht Ende-zu-Ende-verschlüsselt. Enter sendet, Umschalt+Enter fügt eine neue Zeile ein."
+
+msgid "Sending is locked until this device is verified."
+msgstr "Bestätige dieses Gerät, um Nachrichten zu senden."
+
+msgid "End-to-end encrypted. Enter to send, Shift+Enter for a new line."
+msgstr "Ende-zu-Ende-verschlüsselt. Enter sendet, Umschalt+Enter fügt eine neue Zeile ein."
+
+msgid "Unencrypted room. Reading only in this build."
+msgstr "Unverschlüsselter Raum. In diesem Build kannst du nur mitlesen."
+
+msgid "Write a reply"
+msgstr "Antwort schreiben"
+
+msgid "You do not have permission to send messages in this channel."
+msgstr "Du darfst in diesem Kanal keine Nachrichten senden."
+
+msgid "Accept to reply. Ignoring removes it without telling them."
+msgstr "Nimm die Anfrage an, um zu antworten. Beim Ignorieren wird die andere Person nicht benachrichtigt."
+
+msgid "Ignore"
+msgstr "Ignorieren"
+
+msgid "Accept"
+msgstr "Annehmen"
+
+msgid "Message @{name}"
+msgstr "Nachricht an @{name}"
+
+msgid "Message #{name}"
+msgstr "Nachricht an #{name}"
+
+msgid "Message {name}"
+msgstr "Nachricht an {name}"
+
+msgid "More options"
+msgstr "Weitere Optionen"
+
+msgid "Attach files"
+msgstr "Dateien anhängen"
+
+msgid "Open GIF picker"
+msgstr "GIF-Auswahl öffnen"
+
+msgid "Open sticker picker"
+msgstr "Stickerauswahl öffnen"
+
+msgid "Add an emoji"
+msgstr "Emoji hinzufügen"
+
+msgid "Mention the person you reply to"
+msgstr "Person erwähnen, der du antwortest"
+
+msgid "Cancel reply"
+msgstr "Antwort abbrechen"
+
+msgid "Direct Messages"
+msgstr "Direktnachrichten"
+
+msgid "Back"
+msgstr "Zurück"
+
+msgid "Forward"
+msgstr "Vorwärts"
+
+msgid "Inbox"
+msgstr "Posteingang"
+
+msgid "Help"
+msgstr "Hilfe"
+
+msgid "Unreads"
+msgstr "Ungelesen"
+
+msgid "Mentions"
+msgstr "Erwähnungen"
+
+msgid "Filter"
+msgstr "Filter"
+
+msgid "Unread messages from your unmuted channels show up here."
+msgstr "Hier erscheinen ungelesene Nachrichten aus Kanälen, die nicht stummgeschaltet sind."
+
+msgid "You made it through everything!"
+msgstr "Du hast alles gelesen!"
+
+msgid "Whenever someone mentions you it will be saved here for 7 days."
+msgstr "Erwähnungen bleiben hier 7 Tage lang sichtbar."
+
+msgid "More channels with mentions"
+msgstr "Weitere Kanäle mit Erwähnungen"

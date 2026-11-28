@@ -834,7 +834,7 @@ pub fn window_bar(app: &App) -> Option<Element<'_, Message>> {
     let place = if !workspace {
         "Yapfast".to_owned()
     } else if app.sidebar.header.server.is_none() {
-        "Direct Messages".to_owned()
+        crate::i18n::tr!(app.i18n, "Direct Messages").to_owned()
     } else {
         app.sidebar.header.name.clone()
     };
@@ -845,11 +845,15 @@ pub fn window_bar(app: &App) -> Option<Element<'_, Message>> {
     } else {
         theme.secondary
     };
-    // The Friends page names the bar "Friends", as Discord's does.
+    // The Friends page names the bar crate::i18n::tr!(app.i18n, "Friends"), as Discord's does.
     let friends = workspace
         && app.sidebar.header.server.is_none()
         && crate::friends::dm_screen(app) == Some(DmScreen::Friends);
-    let place = if friends { "Friends".to_owned() } else { place };
+    let place = if friends {
+        crate::i18n::tr!(app.i18n, "Friends").to_owned()
+    } else {
+        place
+    };
     let middle = row![
         app.look()
             .glyph(
@@ -868,7 +872,7 @@ pub fn window_bar(app: &App) -> Option<Element<'_, Message>> {
         bar_button(
             app,
             Icon::ArrowLeft,
-            "Back",
+            crate::i18n::tr!(app.i18n, "Back"),
             back.then_some(Event::Back),
             false,
             BarSize::Arrow
@@ -876,7 +880,7 @@ pub fn window_bar(app: &App) -> Option<Element<'_, Message>> {
         bar_button(
             app,
             Icon::ArrowRight,
-            "Forward",
+            crate::i18n::tr!(app.i18n, "Forward"),
             forward.then_some(Event::Forward),
             false,
             BarSize::Arrow
@@ -894,7 +898,7 @@ pub fn window_bar(app: &App) -> Option<Element<'_, Message>> {
                 bar_button(
                     app,
                     Icon::Inbox,
-                    "Inbox",
+                    crate::i18n::tr!(app.i18n, "Inbox"),
                     Some(Event::Inbox),
                     app.inbox.is_some(),
                     BarSize::Tool
@@ -902,7 +906,7 @@ pub fn window_bar(app: &App) -> Option<Element<'_, Message>> {
                 bar_button(
                     app,
                     Icon::Help,
-                    "Help",
+                    crate::i18n::tr!(app.i18n, "Help"),
                     Some(Event::Help),
                     false,
                     BarSize::Tool
@@ -1013,7 +1017,7 @@ impl BarSize {
 fn bar_button<'a>(
     app: &'a App,
     icon: Icon,
-    label: &'static str,
+    label: &'a str,
     event: Option<Event>,
     active: bool,
     size: BarSize,
@@ -1184,14 +1188,19 @@ pub fn inbox_view(app: &App) -> Option<Element<'_, Message>> {
         return None;
     }
     let theme = &app.theme;
-    let tab = |label: &'static str, which: Tab, width: f32| -> Element<'_, Message> {
+    let tab = |label: &str, which: Tab, width: f32| -> Element<'_, Message> {
         let selected = inbox.tab == which;
         button(
-            container(text(label).size(14).font(BOLD).color(if selected {
-                theme.text
-            } else {
-                theme.secondary
-            }))
+            container(
+                text(label.to_owned())
+                    .size(14)
+                    .font(BOLD)
+                    .color(if selected {
+                        theme.text
+                    } else {
+                        theme.secondary
+                    }),
+            )
             .center(Length::Fill),
         )
         .padding(0)
@@ -1206,10 +1215,13 @@ pub fn inbox_view(app: &App) -> Option<Element<'_, Message>> {
         .into()
     };
     let mut head = row![
-        text("Inbox").size(16).font(BOLD).color(theme.text),
+        text(crate::i18n::tr!(app.i18n, "Inbox"))
+            .size(16)
+            .font(BOLD)
+            .color(theme.text),
         Space::new().width(Length::Fill),
-        tab("Unreads", Tab::Unreads, 80.0),
-        tab("Mentions", Tab::Mentions, 92.0),
+        tab(crate::i18n::tr!(app.i18n, "Unreads"), Tab::Unreads, 80.0),
+        tab(crate::i18n::tr!(app.i18n, "Mentions"), Tab::Mentions, 92.0),
     ]
     .spacing(8)
     .padding([0.0, INBOX_SIDE])
@@ -1222,7 +1234,7 @@ pub fn inbox_view(app: &App) -> Option<Element<'_, Message>> {
             app.look()
                 .icon_button(
                     Icon::FiltersHorizontal,
-                    "Filter",
+                    crate::i18n::tr!(app.i18n, "Filter"),
                     Message::Bar(Event::MentionsFilter),
                 )
                 .size(FILTER_BUTTON, 18),
@@ -1232,7 +1244,10 @@ pub fn inbox_view(app: &App) -> Option<Element<'_, Message>> {
         if inbox.rows.is_empty() {
             empty_inbox(
                 theme,
-                "Unread messages from your unmuted channels show up here.",
+                crate::i18n::tr!(
+                    app.i18n,
+                    "Unread messages from your unmuted channels show up here."
+                ),
             )
         } else {
             // Only the rows near the view are built: the Unreads can list
@@ -1259,14 +1274,20 @@ pub fn inbox_view(app: &App) -> Option<Element<'_, Message>> {
         if inbox.mentions.is_empty() && inbox.more.is_empty() {
             // As Discord's tab says it with nothing to list.
             column![
-                text("You made it through everything!")
-                    .size(16)
-                    .font(BOLD)
-                    .color(theme.text),
-                text("Whenever someone mentions you it will be saved here for 7 days.")
-                    .size(14)
-                    .color(theme.muted)
-                    .align_x(Alignment::Center),
+                text(crate::i18n::tr!(
+                    app.i18n,
+                    "You made it through everything!"
+                ))
+                .size(16)
+                .font(BOLD)
+                .color(theme.text),
+                text(crate::i18n::tr!(
+                    app.i18n,
+                    "Whenever someone mentions you it will be saved here for 7 days."
+                ))
+                .size(14)
+                .color(theme.muted)
+                .align_x(Alignment::Center),
             ]
             .spacing(8)
             .padding(iced::Padding {
@@ -1285,7 +1306,7 @@ pub fn inbox_view(app: &App) -> Option<Element<'_, Message>> {
             }
             if !inbox.more.is_empty() {
                 list = list.push(
-                    text("More channels with mentions")
+                    text(crate::i18n::tr!(app.i18n, "More channels with mentions"))
                         .size(12)
                         .color(theme.muted),
                 );

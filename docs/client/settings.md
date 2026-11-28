@@ -143,12 +143,12 @@ recording. Each change is kept at once in
   `tr!(self.cx.i18n, "Interface language")`. Use `tr_mark!` for a source
   string stored in a constant and translate it through `Ctx::i18n` when
   displaying it. The Russian and German catalogs live in
-  `crates/yapfast-iced/assets/locales/<language>/settings.po`. Missing,
+  `crates/yapfast-iced/assets/i18n/<language>.po`. Missing,
   empty and fuzzy entries display the English source string.
 
   Extract a fresh template with a version of GNU gettext that supports
   Rust. Run this from the repository root and use `msgmerge --update`
-  with the template to refresh each `settings.po` after editing English
+  with the template to refresh each language catalog after editing English
   strings.
 
   ```sh
