@@ -12,10 +12,33 @@ use crate::{CacheKey, CacheKeyFlags, Color, FontSystem, HashMap};
 pub use swash::scale::image::{Content as SwashContent, Image as SwashImage};
 pub use swash::zeno::{Angle, Command, Placement, Transform};
 
+#[cfg(feature = "std")]
+static WINDOW_ANTIALIASING: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+
+/// Select window text antialiasing before creating its renderer.
+#[cfg(feature = "std")]
+pub fn set_window_antialiasing(enabled: bool) {
+    let _ = WINDOW_ANTIALIASING.set(enabled);
+}
+
+/// Whether window text uses grayscale antialiasing.
+#[cfg(feature = "std")]
+pub fn window_antialiasing() -> bool {
+    WINDOW_ANTIALIASING.get().copied().unwrap_or(true)
+}
+
+#[derive(Clone, Copy)]
+enum MaskMode {
+    Standard,
+    WindowGrayscale,
+    Binary,
+}
+
 fn swash_image(
     font_system: &mut FontSystem,
     context: &mut ScaleContext,
     cache_key: CacheKey,
+    mask_mode: MaskMode,
 ) -> Option<SwashImage> {
     let Some(font) = font_system.get_font(cache_key.font_id, cache_key.font_weight) else {
         log::warn!("did not find font {:?}", cache_key.font_id);
@@ -53,7 +76,7 @@ fn swash_image(
     };
 
     // Select our source order
-    Render::new(&[
+    let mut image = Render::new(&[
         // Color outline with the first palette
         Source::ColorOutline(0),
         // Color bitmap with best fit selection mode
@@ -74,7 +97,26 @@ fn swash_image(
         None
     })
     // Render the image
-    .render(&mut scaler, cache_key.glyph_id)
+    .render(&mut scaler, cache_key.glyph_id)?;
+    if image.content == Content::Mask {
+        match mask_mode {
+            MaskMode::Binary => {
+                for coverage in &mut image.data {
+                    *coverage = u8::from(*coverage >= 128) * 255;
+                }
+            }
+            MaskMode::WindowGrayscale if !cache_key.flags.contains(CacheKeyFlags::PIXEL_FONT) => {
+                for coverage in &mut image.data {
+                    // Gently strengthen partially covered pixels. The
+                    // adjustment peaks at 16 and preserves both endpoints.
+                    let alpha = u16::from(*coverage);
+                    *coverage = (alpha + (alpha * (255 - alpha) + 512) / 1024) as u8;
+                }
+            }
+            _ => {}
+        }
+    }
+    Some(image)
 }
 
 fn swash_outline_commands(
@@ -118,6 +160,7 @@ fn swash_outline_commands(
 /// Cache for rasterizing with the swash scaler
 pub struct SwashCache {
     context: ScaleContext,
+    mask_mode: MaskMode,
     pub image_cache: HashMap<CacheKey, Option<SwashImage>>,
     pub outline_command_cache: HashMap<CacheKey, Option<Box<[swash::zeno::Command]>>>,
 }
@@ -133,8 +176,22 @@ impl SwashCache {
     pub fn new() -> Self {
         Self {
             context: ScaleContext::new(),
+            mask_mode: MaskMode::Standard,
             image_cache: HashMap::default(),
             outline_command_cache: HashMap::default(),
+        }
+    }
+
+    /// Create a cache for the window's selected antialiasing mode.
+    #[cfg(feature = "std")]
+    pub fn for_window() -> Self {
+        Self {
+            mask_mode: if window_antialiasing() {
+                MaskMode::WindowGrayscale
+            } else {
+                MaskMode::Binary
+            },
+            ..Self::new()
         }
     }
 
@@ -144,7 +201,7 @@ impl SwashCache {
         font_system: &mut FontSystem,
         cache_key: CacheKey,
     ) -> Option<SwashImage> {
-        swash_image(font_system, &mut self.context, cache_key)
+        swash_image(font_system, &mut self.context, cache_key, self.mask_mode)
     }
 
     /// Create a swash Image from a cache key, caching results
@@ -153,9 +210,9 @@ impl SwashCache {
         font_system: &mut FontSystem,
         cache_key: CacheKey,
     ) -> &Option<SwashImage> {
-        self.image_cache
-            .entry(cache_key)
-            .or_insert_with(|| swash_image(font_system, &mut self.context, cache_key))
+        self.image_cache.entry(cache_key).or_insert_with(|| {
+            swash_image(font_system, &mut self.context, cache_key, self.mask_mode)
+        })
     }
 
     /// Creates outline commands

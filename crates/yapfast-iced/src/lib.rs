@@ -247,10 +247,12 @@ pub fn run(
     video::install();
     frames::install();
     fonts::install(TWEMOJI);
-    // The font the person chose to draw the window in, if any.
-    let own_font = layout::Layout::read(&root).prefs.ui_font_files;
-    if !own_font.is_empty() {
-        custom_font::set(&own_font);
+    let prefs = layout::Layout::read(&root).prefs;
+    iced::advanced::graphics::text::cosmic_text::set_window_antialiasing(
+        prefs.font_antialiasing.unwrap_or(true),
+    );
+    if !prefs.ui_font_files.is_empty() {
+        custom_font::set(&prefs.ui_font_files);
     }
     EXECUTOR
         .set(runtime.block_on(async { tokio::runtime::Handle::current() }))

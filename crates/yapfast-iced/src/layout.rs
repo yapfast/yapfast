@@ -280,6 +280,8 @@ pub struct Prefs {
     /// The font files Appearance's Font chose to draw the window in, in the
     /// order they were added; none keeps DM Sans.
     pub ui_font_files: Vec<String>,
+    /// None keeps the default grayscale smoothing.
+    pub font_antialiasing: Option<bool>,
     /// Notifications: shown, saying what messages say, flashing the
     /// taskbar.
     pub notifications: Option<bool>,
