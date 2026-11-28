@@ -80,7 +80,7 @@ jobs:
           key: windows-xwin-${{ hashFiles('nix/flake.lock') }}
       - uses: kunobi-ninja/kache-action@061011817fd04b0e460f79d6bb3c115b1fc8f029 # v1
         with:
-          version: 2.3.0
+          version: 2.4.0
           cache-dir: ${{ runner.temp }}/kache
           max-size: 6GiB
           github-cache: false
