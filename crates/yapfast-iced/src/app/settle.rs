@@ -228,6 +228,7 @@ impl App {
                     Request::TitleBar(system) => {
                         tasks.push(crate::window_bar::choose_title_bar(self, system));
                     }
+                    Request::DiscordBar(on) => crate::window_bar::show_under_frame(self, on),
                     Request::LookForUpdates(announce) => {
                         crate::updates::look_for_updates(self, announce);
                     }

@@ -256,6 +256,33 @@ fn frequent_reactions_follow_use_and_fill_with_defaults() {
 }
 
 #[test]
+fn discord_rooms_offer_the_accounts_reactions_as_discord_does() {
+    let mut app = Application::default();
+    app.state.selected = Some("discord:1:2".into());
+    // Discord seeds an account that never reacted with 100 and thumbs up
+    // and down counted twice.
+    assert_eq!(app.frequent_reactions(3), ["💯", "👍", "👎"]);
+    app.state.discord_emojis.reactions = vec!["sob".into(), "skull".into()];
+    assert_eq!(
+        app.frequent_reactions(3),
+        ["😭", "💀", "💯"],
+        "then Discord's own fill"
+    );
+    // A custom emoji this account can't reach, and one this device used,
+    // would be empty squares: they're left out.
+    app.state.discord_emojis.reactions.insert(0, "4242".into());
+    app.remember_reaction_uses(HashMap::from([
+        ("gone:4243".into(), 9),
+        ("🔥".into(), 2),
+        ("🫩".into(), 5),
+    ]));
+    assert_eq!(app.frequent_reactions(4), ["😭", "💀", "🔥", "💯"]);
+    // Outside Discord, this device's reactions and the old defaults.
+    app.state.selected = Some("!room:matrix.org".into());
+    assert_eq!(app.frequent_reactions(3), ["🔥", "👍", "❤️"]);
+}
+
+#[test]
 fn blocked_messages_can_leave_the_timeline_and_come_back() {
     let mut app = connected();
     let blocked = ChatMessage {

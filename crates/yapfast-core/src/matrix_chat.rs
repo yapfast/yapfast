@@ -1202,6 +1202,7 @@ async fn room_index(client: &Client) -> RoomIndex {
             join_locked: false,
             read_only: false,
             reacts: Reacts::Any,
+            voice_limit: None,
             slowmode: 0,
             slowed: false,
             timed_out_until: None,

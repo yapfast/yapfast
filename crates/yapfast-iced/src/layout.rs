@@ -22,9 +22,12 @@ use yapfast_core::{
     application::{Application, StickerUse},
     chat::Sticker,
     keybinds::{Binding, Shortcut},
+    ring::{self, Tone},
     theme::Custom,
-    themes::Performance,
+    themes::{Performance, media::SoundSlot},
 };
+
+use crate::custom_sounds::{self, Choice};
 
 pub use yapfast_core::layout_file::LAYOUT;
 
@@ -133,6 +136,9 @@ pub struct Layout {
     /// desktop's way decides.
     pub zoom: Option<f32>,
     pub system_title_bar: Option<bool>,
+    /// Under the desktop's title bar, Discord's bar (Back and Forward,
+    /// where you are, Inbox and Help) shows unless turned off.
+    pub discord_bar: Option<bool>,
     /// The window's size, its place and whether it was maximized, for the
     /// next start.
     pub placement: Option<Placement>,
@@ -245,6 +251,7 @@ pub struct Prefs {
     pub date_format: Option<i32>,
     pub text_size: Option<i32>,
     pub chat_text_size: Option<u8>,
+    pub scroll_speed: Option<u16>,
     pub link_previews: Option<bool>,
     pub boost_gems: Option<bool>,
     pub reply_ping: Option<bool>,
@@ -370,7 +377,15 @@ impl Layout {
     }
 }
 
+pub const SCROLL_SPEEDS: [u16; 5] = [50, 100, 150, 200, 300];
+
 impl Prefs {
+    pub fn scroll_speed(&self) -> u16 {
+        self.scroll_speed
+            .filter(|speed| SCROLL_SPEEDS.contains(speed))
+            .unwrap_or(100)
+    }
+
     /// Messages' text size in pixels: the one chosen, at the nearest size
     /// offered, or what older versions' three sizes were (14, 15 and 18).
     pub fn text_px(&self) -> u8 {
@@ -519,9 +534,9 @@ pub struct Voice {
     pub push_to_talk_key: Option<Shortcut>,
     pub push_to_talk_release_delay: Option<u32>,
     /// How loud calls send the microphone and play, as sliders'
-    /// percentages from 0% to 200%; 100% unless changed.
-    pub microphone_volume: Option<u8>,
-    pub speaker_volume: Option<u8>,
+    /// percentages from 0% to 400%; 100% unless changed.
+    pub microphone_volume: Option<u16>,
+    pub speaker_volume: Option<u16>,
     /// People's own volumes and their streams', by Discord or Matrix id.
     pub volumes: std::collections::BTreeMap<String, f32>,
     pub stream_volumes: std::collections::BTreeMap<String, f32>,
@@ -531,12 +546,23 @@ pub struct Voice {
     pub soundboard_muted_people: BTreeSet<String>,
     /// Encoding a shared screen on the GPU; on unless turned off.
     pub gpu_encoding: Option<bool>,
+    /// Shows the local stream preview at the outgoing resolution.
+    pub enhanced_live_preview: bool,
     /// Yapfast's sounds: their instrument, how loud as a slider's
     /// percentage, and each one's own volume while adjusted.
     pub sound_set: yapfast_core::sounds::SoundSet,
     pub sound_volume: Option<u8>,
     pub adjust_each_sound: bool,
     pub each_sound: std::collections::BTreeMap<yapfast_core::sounds::Sound, u8>,
+    /// Sound files of the user's own in place of Yapfast's sounds and call
+    /// tones, while on; off unless turned on.
+    pub custom_sound_set: Option<bool>,
+    /// Which sounds play their file; one with a file and no choice does.
+    pub(crate) custom_sound_choices: BTreeMap<SoundSlot, Choice>,
+    /// The files, decoded, from this device's data folder; loaded only while
+    /// the custom set is on.
+    #[serde(skip)]
+    pub(crate) custom_sounds: crate::custom_sounds::CustomSounds,
 }
 
 /// How calls decide when to send the microphone, as Discord's Input Mode.
@@ -569,6 +595,7 @@ impl Voice {
                 .min(push_to_talk::MOST_RELEASE_DELAY),
         );
         self.play_volumes();
+        self.apply_rings();
         for (person, gain) in &self.volumes {
             volume::set(volume::Kind::Voice, person, *gain);
         }
@@ -582,6 +609,7 @@ impl Voice {
             volume::mute_soundboard(person, true);
         }
         yapfast_core::stream_worker::set_hardware_encoding(self.gpu_encoding.unwrap_or(true));
+        yapfast_core::stream_worker::set_enhanced_preview(self.enhanced_live_preview);
     }
 
     /// Calls send the microphone and play at the volume sliders' values.
@@ -590,9 +618,9 @@ impl Voice {
         // as it opens: one checking them holds them meanwhile.
         #[cfg(test)]
         let _held = (!tests::HOLDING.get()).then(tests::lock);
-        let gain = |value: Option<u8>| {
-            yapfast_core::volume::from_slider(f32::from(value.unwrap_or(100).min(200)))
-        };
+        use yapfast_core::volume::{MAX_PERCENT, from_slider};
+        let gain =
+            |value: Option<u16>| from_slider(f32::from(value.unwrap_or(100).min(MAX_PERCENT)));
         yapfast_core::volume::set_microphone(gain(self.microphone_volume));
         yapfast_core::volume::set_speakers(gain(self.speaker_volume));
     }
@@ -607,6 +635,47 @@ impl Voice {
             .filter(|_| self.adjust_each_sound)
             .unwrap_or(100);
         gain(self.sound_volume.unwrap_or(100)) * gain(each)
+    }
+
+    pub(crate) fn uses_custom_sounds(&self) -> bool {
+        self.custom_sound_set.unwrap_or(false)
+    }
+
+    pub(crate) fn sound_choice(&self, slot: SoundSlot) -> Choice {
+        let file = self.custom_sounds.contains_key(&slot);
+        match self.custom_sound_choices.get(&slot).copied() {
+            None if file => Choice::File,
+            Some(Choice::File) if !file => Choice::Default,
+            choice => choice.unwrap_or_default(),
+        }
+    }
+
+    pub(crate) fn apply_rings(&self) {
+        ring::set_custom(Tone::ALL.map(|tone| {
+            if !self.uses_custom_sounds() {
+                return None;
+            }
+            let slot = custom_sounds::ring_slot(tone);
+            match self.sound_choice(slot) {
+                Choice::Default => None,
+                Choice::File => self.custom_sounds.get(&slot).cloned(),
+            }
+        }));
+    }
+
+    /// Plays the user's file for `sound`, else the theme's sound or the set's.
+    pub fn play_sound(&self, sound: yapfast_core::sounds::Sound, speaker: Option<&str>) {
+        use yapfast_core::sounds;
+        let gain = self.sound_gain(sound);
+        if self.uses_custom_sounds() {
+            let slot = SoundSlot::of_sound(sound);
+            if self.sound_choice(slot) == Choice::File
+                && let Some(samples) = self.custom_sounds.get(&slot)
+            {
+                return sounds::play_decoded(samples.clone(), gain, speaker);
+            }
+        }
+        sounds::play(self.sound_set, sound, gain, speaker);
     }
 }
 
@@ -752,6 +821,9 @@ impl Layout {
     pub fn open(root: &Path, running: &str) -> Self {
         let fresh = !root.join(LAYOUT).exists();
         let mut layout = Self::read(root);
+        if layout.voice.uses_custom_sounds() {
+            layout.voice.custom_sounds = custom_sounds::load(root);
+        }
         if layout.first_version.is_none() {
             let first = yapfast_core::new_tags::first_version(fresh, running);
             if fresh {

@@ -10,6 +10,10 @@
 //! each picture when the clock reaches it, takes Yapfast's controls and reports
 //! back. The clock is the system's, held while there's nothing to play, as
 //! when the download falls behind.
+//!
+//! A sound file, such as an MP3 or a WAV, plays the same way with no
+//! pictures: its decoder fills only the sound's queue, and the job's thread
+//! reports the clock's time ([`Report::Played`]) in their place.
 
 use std::{
     collections::VecDeque,
@@ -42,6 +46,8 @@ const QUEUED_SOUND_MS: u64 = 2_000;
 const SOUND_AHEAD_MS: u64 = 500;
 /// How far sound may stray from the clock before it's skipped or waited for.
 const SOUND_SLACK_MS: u64 = 80;
+/// How often a sound file's time goes to Yapfast as it plays.
+const PLAYED_EVERY_MS: u64 = 250;
 
 /// A file Yapfast is still downloading, perhaps out of order: reading reads
 /// only the bytes Yapfast said arrived, and waits for the rest.
@@ -357,6 +363,8 @@ pub struct Playing {
     pub height: u32,
     /// Whether to play its sound, on these speakers or the default ones.
     pub sound: bool,
+    /// A sound file, with no pictures: it plays only with speakers.
+    pub audio: bool,
     pub speakers: Option<String>,
     pub volume: f32,
 }
@@ -378,8 +386,8 @@ pub fn play(
         interrupt: interrupt.clone(),
     };
     let shared = Arc::new(Shared::new((job.width, job.height), job.volume, interrupt));
-    let speaker = job
-        .sound
+    let audio = job.audio;
+    let speaker = (job.sound || audio)
         .then(|| {
             // About 100 ms queued: enough to ride out a busy moment.
             Output::<f32>::open_or_default(
@@ -396,12 +404,15 @@ pub fn play(
             .ok()
         })
         .flatten();
+    if audio && speaker.is_none() {
+        anyhow::bail!("Yapfast couldn't open the speakers.");
+    }
     let decoder = {
         let shared = shared.clone();
         let sound = speaker.is_some();
         std::thread::Builder::new()
             .name("yapfast-video-decoder".into())
-            .spawn(move || decode(download, sound, &shared))
+            .spawn(move || decode(download, sound, audio, &shared))
             .context("could not start decoding the video")?
     };
     let speaker = match speaker {
@@ -416,7 +427,15 @@ pub fn play(
         }
         None => None,
     };
-    let result = show(&shared, &mut writer, &controls, &progress, stop, report);
+    let result = show(
+        &shared,
+        &mut writer,
+        &controls,
+        &progress,
+        audio,
+        stop,
+        report,
+    );
     shared.lock().stop = true;
     shared.interrupt.store(true, Ordering::Relaxed);
     shared.changed.notify_all();
@@ -427,18 +446,26 @@ pub fn play(
     result
 }
 
-/// The job's own thread: shows pictures as the clock reaches them and takes
-/// Yapfast's controls, until it stops.
+/// The job's own thread: shows pictures as the clock reaches them, or for
+/// a sound file (`audio`) reports its time, and takes Yapfast's controls,
+/// until it stops.
+#[allow(
+    clippy::too_many_arguments,
+    reason = "the shared state, where pictures go, and the job's controls and reports"
+)]
 fn show(
     shared: &Shared,
     writer: &mut Writer,
     controls: &channel::Receiver<Control>,
     progress: &Progress,
+    audio: bool,
     stop: &AtomicBool,
     report: &mut dyn FnMut(Report),
 ) -> Result<()> {
     let mut opened = false;
     let mut finished = false;
+    // The sound file's time last reported.
+    let mut played = None;
     while !stop.load(Ordering::Relaxed) {
         let wait = {
             let state = shared.lock();
@@ -447,6 +474,7 @@ fn show(
                 Some(picture) => Duration::from_millis(
                     picture.time.saturating_sub(state.clock.now()).clamp(1, 20),
                 ),
+                None if audio => Duration::from_millis(50),
                 None => Duration::from_millis(10),
             }
         };
@@ -482,6 +510,15 @@ fn show(
         let running = state.playing && !waiting;
         state.clock.run(running);
         let now = state.clock.now();
+        if audio
+            && opened
+            && played.is_none_or(|played: u64| {
+                now.abs_diff(played) >= PLAYED_EVERY_MS || (!running && now != played)
+            })
+        {
+            played = Some(now);
+            report(Report::Played { time_ms: now });
+        }
         let mut shown = false;
         while let Some(picture) = state.pictures.front() {
             let due = state.show_next || (state.playing && picture.time <= now);
@@ -569,12 +606,22 @@ fn move_to(shared: &Shared, state: &mut State, time_ms: u64) {
     shared.interrupt.store(true, Ordering::Relaxed);
 }
 
-/// The decoder's thread: opens the file, then keeps the queues filled.
-fn decode(download: Download, sound: bool, shared: &Shared) {
-    let Some(mut video) = Video::open(download, sound) else {
+/// The decoder's thread: opens the file, then keeps the queues filled. A
+/// sound file (`audio`) fills only the sound's.
+fn decode(download: Download, sound: bool, audio: bool, shared: &Shared) {
+    let opened = if audio {
+        Video::open_sound(download)
+    } else {
+        Video::open(download, sound)
+    };
+    let Some(mut video) = opened else {
         let mut state = shared.lock();
         if !state.stop {
-            state.failed = Some("Yapfast can't play this video.".into());
+            state.failed = Some(if audio {
+                "Yapfast can't play this file.".into()
+            } else {
+                "Yapfast can't play this video.".into()
+            });
         }
         return;
     };
@@ -625,6 +672,9 @@ fn decode(download: Download, sound: bool, shared: &Shared) {
                 }
                 let sound_ms = state.sound_frames as u64 * 1000 / u64::from(RATE);
                 if !state.ended && sound_ms < QUEUED_SOUND_MS {
+                    if audio {
+                        break true;
+                    }
                     if state.pictures.len() < QUEUED_PICTURES {
                         break false;
                     }
@@ -643,6 +693,8 @@ fn decode(download: Download, sound: bool, shared: &Shared) {
         let next = if sound_only {
             match video.decode_sound() {
                 Ok(Some(time)) => Ok(Next::Sound(time)),
+                // A sound file's sound ends with it.
+                Ok(None) if audio => Ok(Next::End),
                 Ok(None) => {
                     held = true;
                     continue;
@@ -945,6 +997,117 @@ mod tests {
         assert_eq!(clock.now(), 5_000);
     }
 
+    /// A second of a 440 Hz tone as a 16-bit mono WAV at `rate`.
+    fn tone_wav(rate: u32) -> Vec<u8> {
+        let samples: Vec<i16> = (0..rate)
+            .map(|at| {
+                let phase = std::f32::consts::TAU * 440.0 * at as f32 / rate as f32;
+                (phase.sin() * 8000.0) as i16
+            })
+            .collect();
+        let data = samples.len() as u32 * 2;
+        let mut wav = Vec::new();
+        wav.extend_from_slice(b"RIFF");
+        wav.extend_from_slice(&(36 + data).to_le_bytes());
+        wav.extend_from_slice(b"WAVEfmt ");
+        wav.extend_from_slice(&16u32.to_le_bytes());
+        // PCM, one channel, the rate, bytes a second, bytes a frame, bits.
+        wav.extend_from_slice(&1u16.to_le_bytes());
+        wav.extend_from_slice(&1u16.to_le_bytes());
+        wav.extend_from_slice(&rate.to_le_bytes());
+        wav.extend_from_slice(&(rate * 2).to_le_bytes());
+        wav.extend_from_slice(&2u16.to_le_bytes());
+        wav.extend_from_slice(&16u16.to_le_bytes());
+        wav.extend_from_slice(b"data");
+        wav.extend_from_slice(&data.to_le_bytes());
+        wav.extend(samples.iter().flat_map(|sample| sample.to_le_bytes()));
+        wav
+    }
+
+    /// A sound file plays with no pictures, its time reported as it goes,
+    /// and moves as a video does.
+    #[test]
+    fn plays_a_sound_file() {
+        let directory = tempfile::tempdir().unwrap();
+        let path = directory.path().join("tone.wav");
+        let wav = tone_wav(44_100);
+        std::fs::write(&path, &wav).unwrap();
+        let frames = crate::frames::Frames::create(1, 1).unwrap();
+        let writer = Writer::open(&frames.path().unwrap()).unwrap();
+        let (controls, received) = channel::channel();
+        let size = wav.len() as u64;
+        controls
+            .send(Control::Downloaded { size: Some(size) })
+            .unwrap();
+        let (reports, reported) = channel::channel();
+        let stop = Arc::new(AtomicBool::new(false));
+        let job = Playing {
+            path,
+            size: Some(size),
+            width: 1,
+            height: 1,
+            sound: true,
+            audio: true,
+            speakers: None,
+            volume: 1.0,
+        };
+        let player = {
+            let stop = stop.clone();
+            std::thread::spawn(move || {
+                play(job, writer, received, &stop, &mut |report| {
+                    let _ = reports.send(report);
+                })
+            })
+        };
+        let report = || reported.recv_timeout(Duration::from_secs(5)).unwrap();
+        let opened = report();
+        assert!(
+            matches!(
+                opened,
+                Report::Opened {
+                    width: 0,
+                    height: 0,
+                    sound: true,
+                    duration_ms: Some(990..=1010),
+                }
+            ),
+            "{opened:?}"
+        );
+        let started = Instant::now();
+        let mut times = vec![];
+        loop {
+            match report() {
+                Report::Played { time_ms } => times.push(time_ms),
+                Report::Finished => break,
+                other => panic!("{other:?}"),
+            }
+        }
+        assert!(
+            started.elapsed() >= Duration::from_millis(900),
+            "it plays in time: {:?}",
+            started.elapsed()
+        );
+        assert!(times.windows(2).all(|pair| pair[0] <= pair[1]), "{times:?}");
+        assert!(times.len() >= 3, "{times:?}");
+        assert!(frames.take_timed(|_, _, _| ()).is_none(), "no pictures");
+        // Moved after its end, it plays on from there.
+        controls.send(Control::Seek(600)).unwrap();
+        controls.send(Control::Play).unwrap();
+        let played = loop {
+            if let Report::Played { time_ms } = report() {
+                break time_ms;
+            }
+        };
+        assert!((600..900).contains(&played), "{played}");
+        loop {
+            if report() == Report::Finished {
+                break;
+            }
+        }
+        stop.store(true, Ordering::Relaxed);
+        player.join().unwrap().unwrap();
+    }
+
     /// Plays a fixture as the worker does, the file arriving after a moment.
     #[test]
     fn plays_a_video_as_it_downloads() {
@@ -973,6 +1136,7 @@ mod tests {
             width: 80,
             height: 80,
             sound: false,
+            audio: false,
             speakers: None,
             volume: 1.0,
         };
@@ -1127,7 +1291,7 @@ mod tests {
             let shared = Arc::new(Shared::new((80, 80), 1.0, interrupt));
             let decoder = {
                 let shared = shared.clone();
-                std::thread::spawn(move || decode(download, true, &shared))
+                std::thread::spawn(move || decode(download, true, false, &shared))
             };
             let started = Instant::now();
             while shared.lock().pictures.len() < QUEUED_PICTURES {
@@ -1273,6 +1437,7 @@ mod tests {
             width: 80,
             height: 80,
             sound: false,
+            audio: false,
             speakers: None,
             volume: 1.0,
         };

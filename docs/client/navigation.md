@@ -15,7 +15,12 @@ behind another, it shows. Each tile has its pill at the
 rail's edge (open, pointed at, unread), its mentions in a red badge, a
 speaker at its top right, and its name in a tooltip;
 a server out of reach in a Discord outage shows faded, its tooltip "Name
-(unavailable in a Discord outage)".
+(unavailable in a Discord outage)". While a server's invites are paused,
+its tooltip says "Invites paused for this server" under its name, only to
+an account that may Manage Server (`ChatServer::invites_paused_until`,
+which the core leaves empty for anyone else), as Discord's server tooltip
+does; the line is made under the pointer only, which checks when they
+resume.
 On the standard left rail, drag a Discord server onto another server to
 create a folder, or onto an existing folder to add it. The dragged icon
 follows the pointer. An outline
@@ -33,7 +38,8 @@ a channel muted itself, not one in a muted category), and aren't
 blocked or ignored. A muted server shows none unless this account is in
 a call there.
 Under the pointer, a server with people in voice has a card for its
-tooltip, made then and only for it: its name, then each busy voice
+tooltip, made then and only for it: its name, the paused invites' line
+when it has one, then each busy voice
 channel's name, by a screen when someone in it shares theirs, else a
 speaker, over its people's overlapping faces, the first four channels
 and six faces each, with how many more. Discord's card puts everyone in
@@ -110,7 +116,12 @@ Its 2 px stem starts one pixel below the parent row and spans the gaps
 between threads. The arms are 2 px thick and curve into the stem. The
 last arm ends the stem with a taller outer bend. A channel's row under
 the pointer or while selected offers Create invite, to that
-channel, for those who may invite; a busy voice channel lists who is in it (the call this
+channel, for those who may invite. A capped Discord voice channel shows
+Discord's limit pill, who is in it against its limit, zero-padded (`03`
+then `04` on a stronger ground), in the subtle ink even when full; not on
+the open channel nor where this account may not connect, a mention badge
+takes its place, and it takes the call's clock's. A busy
+voice channel lists who is in it (the call this
 account is in, in the call's order: this account first; this account in
 the call from another client dimmed until pointed at, without its marks,
 its tooltip "Connected on another client") and how long the

@@ -187,6 +187,7 @@ fn discord_threads_show_beside_their_channel() {
                 gif: None,
                 spoiler: false,
                 video: false,
+                audio: false,
                 url: None,
                 description: None,
             }],
@@ -891,7 +892,7 @@ fn a_forum_shows_its_posts_as_discords_client_does() {
 
     // Older posts come with their own first messages.
     app.apply(Event::Threads {
-        room: ideas,
+        room: ideas.clone(),
         query: None,
         offset: 0,
         result: Ok((
@@ -927,6 +928,27 @@ fn a_forum_shows_its_posts_as_discords_client_does() {
         effect,
         Effect::Backend(Command::Discord(DiscordCommand::Posts { posts, .. })) if *posts == [room("55")]
     )));
+
+    // Search pages have no marks of their own, so use the live read state.
+    app.dispatch(Action::SearchPosts("Joined".into()));
+    app.apply(Event::Threads {
+        room: ideas,
+        query: Some("Joined".into()),
+        offset: 0,
+        result: Ok((
+            vec![ListedThread {
+                room: room("45"),
+                name: "Joined".into(),
+                last: 60,
+                ..Default::default()
+            }],
+            false,
+        )),
+        starters: vec![],
+    });
+    let found = app.forum_posts().unwrap().found.unwrap().unwrap().unwrap();
+    assert!(found[0].thread.opened);
+    assert!(!found[0].thread.unread);
 
     // Another room forgets it all.
     let effects = app.dispatch(Action::SelectRoom(room("11")));

@@ -70,13 +70,19 @@ The call's views and what they do are in `call/`.
   One list shows at a time; a choice is taken and its list closes, as it
   does with the pointer on Higher quality, a source picked, or Escape,
   which closes the menu only after. The audio's list scrolls where many
-  windows are open. The audio chosen is the call's at once and is kept
+  windows are open. Source shows the selected screen's dimensions once known.
+  Presets above its height are disabled. A saved preset above that height
+  falls back to Source for the current stream.
+  Higher quality controls the encoder selected in Advanced. CPU and GPU
+  quality preferences are remembered independently.
+  The audio chosen is the call's at once and is kept
   for the next start; on Windows an application is kept by its program
   and found again by a window it has as the menu opens, and everything
   is shared while it isn't running
   ([Go Live](../discord/go-live.md)). While live only Audio has a row,
   and its changes apply immediately; pick a source and select Switch to
-  change the video. Escape, a second click, another popup or leaving the
+  change the video. If the system dialog is the only source while switching,
+  it opens directly. Escape, a second click, another popup or leaving the
   call cancels a pending source listing.
 - The soundboard lists the server's sounds and the defaults in rows of
   three, each played on a click, previewed from its speaker under the
@@ -118,6 +124,8 @@ The call's views and what they do are in `call/`.
   switching calls asks first (Escape cancels, Enter confirms). The DM's
   header starts a call or a video call, its buttons greyed while the call
   can't be joined (Discord offline, another call joining or leaving).
+  Settings → Sounds can play files of the user's own for the ring and the
+  ringback.
 - While the call isn't on screen, the stream watched last, this account's
   screen or a camera stays in a corner of the window (`call/corner.rs`),
   its title and stop under the pointer; a click returns to the call, a

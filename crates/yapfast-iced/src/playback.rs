@@ -5,8 +5,9 @@
 //! while the pointer is on it (always with animations off) the speed and
 //! mute. And videos: the poster with a play mark, then the video in its
 //! cell, its controls along the bottom while the pointer is on it or it's
-//! paused, and full screen with keys of its own. The core plays both and
-//! says where they are; nothing here keeps time.
+//! paused, and full screen with keys of its own. A sound file plays as a
+//! video without pictures, in its card under the video's controls. The
+//! core plays them all and says where they are; nothing here keeps time.
 
 use iced::{
     Alignment, Background, Color, Element, Length, Padding, Size, Task, gradient,
@@ -14,7 +15,7 @@ use iced::{
 };
 use yapfast_core::{
     application::Action,
-    chat::{ChatMessage, VideoCommand, VoiceMessage},
+    chat::{Attachment, ChatMessage, VideoCommand, VoiceMessage},
 };
 
 use crate::{
@@ -108,6 +109,12 @@ const CLIP_BUTTON: f32 = 28.0;
 const TRACK: f32 = 4.0;
 /// A note's and the volume slider's ground over a video.
 pub const CLIP_SHADE: Color = Color::from_rgba8(0, 0, 0, 0.8);
+/// A sound file's controls' ground in its card, as Discord's, and the
+/// room above it.
+const AUDIO_BAR: Color = Color::from_rgba8(0, 0, 0, 0.4);
+const AUDIO_GAP: f32 = 8.0;
+/// What a sound file's card adds to a file's: its controls.
+pub const AUDIO_CONTROLS: f32 = AUDIO_GAP + CLIP_BAR;
 const TRACK_REST: Color = Color::from_rgba8(255, 255, 255, 0.3);
 /// How far the volume's slider rises over its button, and its gap to it.
 const VOLUME_RISE: f32 = 112.0;
@@ -554,23 +561,17 @@ pub fn voice_card<'a>(
             Message::Voice(Event::Mute(!tuning.muted)),
         );
         // The pointer on the mute opens the volume over it, upright as
-        // Discord's desktop player has it, centred on the button.
-        let slot = container(mute).center_x(MUTE);
-        let slot: Element<'a, Message> = if volume_open {
-            container(iced::widget::stack![
-                slot,
-                crate::widgets::Corner::new(
-                    voice_volume_slider(ctx, item, tuning),
-                    (MUTE - VOICE_SLOT) / 2.0,
-                    -(VOICE_SLIDER + VOICE_GAP)
-                )
-                .free(),
-            ])
-            .width(MUTE)
-            .into()
-        } else {
-            slot.into()
-        };
+        // Discord's desktop player has it, centred on the button: in iced's
+        // overlay layer, so it takes presses before the message under it.
+        let slider = volume_open.then(|| voice_volume_slider(ctx, item, tuning));
+        let slot = crate::popover::Popover::new(
+            container(mute).center_x(MUTE),
+            slider,
+            crate::popover::Side::Above,
+        )
+        .width(crate::popover::Width::Own(VOICE_SLOT))
+        .centred()
+        .gap(0.0);
         let mute = mouse_area(slot)
             .on_enter(Message::Voice(Event::VolumeHover(item.clone(), true)))
             .on_exit(Message::Voice(Event::VolumeHover(item.clone(), false)));
@@ -724,6 +725,17 @@ pub fn clip_cell<'a>(
         .into()
 }
 
+/// Where a video's controls show.
+#[derive(Clone, Copy, PartialEq)]
+enum Bar {
+    /// Over its foot, in its cell.
+    Cell,
+    /// Under it, full screen.
+    Full,
+    /// In a sound file's card.
+    Audio,
+}
+
 /// The bar along a playing video's foot: play or pause, its time, the
 /// track to move through it, mute with a slider over it for how loud,
 /// and full screen. A narrow video leaves out the time, then mute. Full
@@ -734,7 +746,127 @@ pub fn clip_controls<'a>(
     width: f32,
     full: bool,
 ) -> Element<'a, Message> {
-    let at = ctx.playback.clip_time.unwrap_or(0);
+    media_bar(ctx, video, width, if full { Bar::Full } else { Bar::Cell })
+}
+
+/// A sound file's card, as Discord's audio player: the file's icon, name,
+/// size and Save over its controls, those of a video without full screen.
+/// Until it plays they hold Play and where it starts; a press plays it as
+/// a video without pictures.
+pub fn audio_card<'a>(
+    ctx: crate::ctx::Ctx<'a>,
+    message: &'a ChatMessage,
+    index: usize,
+    attachment: &'a Attachment,
+) -> Element<'a, Message> {
+    let theme = ctx.look.theme;
+    let width = crate::message::FILE_CARD_WIDTH;
+    let playing = ctx
+        .state
+        .video
+        .as_ref()
+        .filter(|video| video.item == message.item && video.index == index);
+    let play = Message::Clip(Clip::Play(message.item.clone(), index, Size::new(1.0, 1.0)));
+    let controls = match playing {
+        Some(video) if video.error.is_none() => media_bar(ctx, video, width - 20.0, Bar::Audio),
+        _ => {
+            let mut bar = row![ctx.look.face_button(
+                ctx.look.glyph(Icon::Play, 16, Color::WHITE),
+                CLIP_BUTTON,
+                "Play",
+                play,
+            )]
+            .spacing(6)
+            .padding(Padding::ZERO.left(4).right(6))
+            .height(CLIP_BAR)
+            .align_y(Alignment::Center);
+            // Why it stopped, in place of its time.
+            bar = match playing.and_then(|video| video.error.as_deref()) {
+                Some(why) => bar.push(
+                    container(
+                        text(why)
+                            .size(12)
+                            .color(Color::WHITE)
+                            .wrapping(text::Wrapping::None),
+                    )
+                    .width(Length::Fill)
+                    .clip(true),
+                ),
+                None => bar
+                    .push(text(video_time(0, None)).size(12).color(Color::WHITE))
+                    .push(container(track(0.0)).width(Length::Fill)),
+            };
+            container(bar)
+                .width(Length::Fill)
+                .style(|_| rounded(AUDIO_BAR, 4))
+                .into()
+        }
+    };
+    let (ground, edge) = (theme.sidebar, theme.edge);
+    container(
+        iced::widget::column![
+            crate::message::attachments::file_row(
+                ctx,
+                &message.item,
+                index,
+                attachment,
+                Icon::Music
+            ),
+            controls,
+        ]
+        .spacing(AUDIO_GAP),
+    )
+    .padding(Padding {
+        top: 12.0,
+        bottom: 10.0,
+        left: 10.0,
+        right: 8.0,
+    })
+    .max_width(width)
+    .style(move |_| crate::style::outlined(ground, edge, 8.0))
+    .into()
+}
+
+/// A track filled up to `progress`, from 0 to 1.
+fn track<'a>(progress: f32) -> Element<'a, Message> {
+    let filled = row![
+        container(Space::new().height(TRACK))
+            .width(Length::FillPortion(
+                ((progress * 1000.0).round() as u16).max(1)
+            ))
+            .style(|_| rounded(Color::WHITE, TRACK / 2.0)),
+        Space::new().width(Length::FillPortion(
+            ((1000.0 - progress * 1000.0).round() as u16).max(1)
+        )),
+    ];
+    let track = stack![
+        container(Space::new().width(Length::Fill).height(TRACK))
+            .style(|_| rounded(TRACK_REST, TRACK / 2.0)),
+        filled,
+    ];
+    container(track)
+        .height(CLIP_BAR)
+        .width(Length::Fill)
+        .align_y(Alignment::Center)
+        .into()
+}
+
+/// A video's controls where `bar` says, `width` across.
+fn media_bar<'a>(
+    ctx: crate::ctx::Ctx<'a>,
+    video: &'a yapfast_core::chat::Video,
+    width: f32,
+    bar_at: Bar,
+) -> Element<'a, Message> {
+    let full = bar_at == Bar::Full;
+    let audio = bar_at == Bar::Audio;
+    // A sound file has no frames to bring its time.
+    let at = if audio {
+        video.played_ms
+    } else {
+        ctx.playback.clip_time
+    };
+    let at = at.unwrap_or(0);
     let at = match video.duration_ms {
         Some(duration) if video.ended => duration,
         _ => at,
@@ -746,7 +878,7 @@ pub fn clip_controls<'a>(
     let time = video_time(at, video.duration_ms);
     // Play, full screen, the padding and the spacing; the track keeps
     // 32 px.
-    let fixed = 4.0 + CLIP_BUTTON + 6.0 + 32.0 + 6.0 + CLIP_BUTTON + 6.0;
+    let fixed = 4.0 + CLIP_BUTTON + 6.0 + 32.0 + 6.0 + if audio { 0.0 } else { CLIP_BUTTON + 6.0 };
     let show_mute = video.sound && width >= fixed + 34.0;
     let show_time =
         width >= fixed + if show_mute { 34.0 } else { 0.0 } + time.len() as f32 * 7.0 + 6.0;
@@ -774,28 +906,9 @@ pub fn clip_controls<'a>(
     if show_time {
         bar = bar.push(text(time).size(12).color(Color::WHITE));
     }
-    let filled = row![
-        container(Space::new().height(TRACK))
-            .width(Length::FillPortion(
-                ((progress * 1000.0).round() as u16).max(1)
-            ))
-            .style(|_| rounded(Color::WHITE, TRACK / 2.0)),
-        Space::new().width(Length::FillPortion(
-            ((1000.0 - progress * 1000.0).round() as u16).max(1)
-        )),
-    ];
-    let track = stack![
-        container(Space::new().width(Length::Fill).height(TRACK))
-            .style(|_| rounded(TRACK_REST, TRACK / 2.0)),
-        filled,
-    ];
-    bar = bar.push(Scrub::new(
-        container(track)
-            .height(CLIP_BAR)
-            .width(Length::Fill)
-            .align_y(Alignment::Center),
-        |at| Message::Clip(Clip::Seek(at)),
-    ));
+    bar = bar.push(Scrub::new(track(progress), |at| {
+        Message::Clip(Clip::Seek(at))
+    }));
     if show_mute {
         // Its tip would cover the slider over it while that's open.
         let open = ctx.playback.clip_volume > 0;
@@ -812,15 +925,11 @@ pub fn clip_controls<'a>(
                 Message::Clip(Clip::Mute(true)),
             )
         };
-        let mute: Element<'a, Message> = if ctx.playback.clip_volume > 0 {
-            iced::widget::stack![
-                mute,
-                crate::widgets::Corner::new(volume_slider(video), 0.0, -VOLUME_RISE),
-            ]
-            .into()
-        } else {
-            mute.into()
-        };
+        // Over the button in iced's overlay layer, so the slider takes its
+        // presses before what it covers: a sound file's Save, a video's
+        // picture, the message above.
+        let slider = (ctx.playback.clip_volume > 0).then(|| volume_slider(video));
+        let mute = crate::popover::Popover::new(mute, slider, crate::popover::Side::Above).gap(0.0);
         bar = bar.push(
             mouse_area(container(mute).width(CLIP_BUTTON))
                 .on_enter(Message::Clip(Clip::VolumeHover(true)))
@@ -828,16 +937,21 @@ pub fn clip_controls<'a>(
                 .on_scroll(|delta| Message::Clip(Clip::Turn(turned(delta)))),
         );
     }
-    let (icon, label) = if full {
-        (Icon::Minimize, "Exit full screen")
-    } else {
-        (Icon::Maximize, "Full screen")
-    };
-    bar = bar.push(button(icon, label, Message::Clip(Clip::Full(!full))));
+    if !audio {
+        let (icon, label) = if full {
+            (Icon::Minimize, "Exit full screen")
+        } else {
+            (Icon::Maximize, "Full screen")
+        };
+        bar = bar.push(button(icon, label, Message::Clip(Clip::Full(!full))));
+    }
     // Between the controls, a click leaves the video be.
     mouse_area(container(bar).width(Length::Fill).style(move |_| {
         if full {
             return iced::widget::container::Style::default();
+        }
+        if audio {
+            return rounded(AUDIO_BAR, 4);
         }
         iced::widget::container::Style {
             background: Some(Background::Gradient(
@@ -884,6 +998,7 @@ fn volume_slider<'a>(video: &'a yapfast_core::chat::Video) -> Element<'a, Messag
     // Down to the button, so the pointer stays on it on the way.
     let reach = container(boxed).padding(Padding::ZERO.bottom(VOLUME_GAP));
     mouse_area(reach)
+        .on_press(Message::Nothing)
         .on_enter(Message::Clip(Clip::VolumeHover(true)))
         .on_exit(Message::Clip(Clip::VolumeHover(false)))
         .on_scroll(|delta| Message::Clip(Clip::Turn(turned(delta))))

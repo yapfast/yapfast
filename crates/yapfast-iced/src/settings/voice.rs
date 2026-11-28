@@ -19,6 +19,7 @@ use yapfast_core::{
     noise::{Strength, Suppressor},
     picture::Feed,
     voice::Command,
+    volume::MAX_PERCENT,
 };
 
 use super::{Drop, Event as SettingsEvent, Page, Settings};
@@ -241,7 +242,7 @@ impl Settings {
                 return;
             }
             Event::Volume(input, value, done) => {
-                let value = value.min(200) as u8;
+                let value = value.min(u32::from(MAX_PERCENT)) as u16;
                 let (kept, key) = if input {
                     (&mut voice.microphone_volume, "microphone_volume")
                 } else {
@@ -388,18 +389,24 @@ impl<'a> Page<'a> {
                 form::group([
                     form::heading(theme, "MICROPHONE"),
                     device(Drop::Microphone, microphones, microphone),
-                    slider("Microphone volume", mic_volume, 200, |value| {
-                        voice_message(Event::Volume(true, value, false))
-                    })
+                    slider(
+                        "Microphone volume",
+                        mic_volume,
+                        u32::from(MAX_PERCENT),
+                        |value| voice_message(Event::Volume(true, value, false)),
+                    )
                     .on_release(voice_message(Event::Volume(true, mic_volume, true)))
                     .view(theme),
                 ]),
                 form::group([
                     form::heading(theme, "SPEAKERS"),
                     device(Drop::Speaker, speakers, speaker),
-                    slider("Speaker volume", speaker_volume, 200, |value| {
-                        voice_message(Event::Volume(false, value, false))
-                    })
+                    slider(
+                        "Speaker volume",
+                        speaker_volume,
+                        u32::from(MAX_PERCENT),
+                        |value| voice_message(Event::Volume(false, value, false)),
+                    )
                     .on_release(voice_message(Event::Volume(false, speaker_volume, true)))
                     .view(theme),
                 ]),

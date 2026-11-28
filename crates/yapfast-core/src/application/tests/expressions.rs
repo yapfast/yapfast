@@ -517,3 +517,79 @@ fn stickers_changed_elsewhere_keep_who_uploaded_them() {
     assert_eq!(page.stickers[0].user_id.as_deref(), Some("2"));
     assert!(page.stickers[0].user.is_some() && page.stickers[1].user.is_none());
 }
+
+#[test]
+fn a_stickers_card_says_where_it_is_from_as_discords_does() {
+    use crate::{
+        chat::{Attachment, Placement, Sticker, StickerCollection},
+        emoji::card,
+    };
+    let mut app = discord_server();
+    // The server's stickers come with the snapshot, whether or not the
+    // picker was ever opened.
+    change_server(&mut app, |server| {
+        server.stickers = Arc::new(vec![yapfast_discord::stickers::Sticker {
+            id: "77".into(),
+            name: "shockedfast".into(),
+            format: 1,
+            unavailable: false,
+        }]);
+    });
+    app.state.stickers.packs = vec![StickerCollection {
+        id: "1".into(),
+        name: "Wumpus Beyond".into(),
+        stickers: vec![Sticker {
+            id: "88".into(),
+            name: "wave".into(),
+            format: 1,
+            picture: String::new(),
+            usable: true,
+        }],
+    }];
+    let messages = ["77", "88", "99"]
+        .iter()
+        .map(|id| {
+            Arc::new(ChatMessage {
+                attachments: vec![Attachment {
+                    name: format!("sticker{id}"),
+                    size: None,
+                    image: true,
+                    dimensions: None,
+                    preview: None,
+                    preview_failed: false,
+                    placement: Placement::Sticker,
+                    spoiler: false,
+                    video: false,
+                    audio: false,
+                    gif: None,
+                    url: Some(
+                        format!("https://media.discordapp.net/stickers/{id}.png?size=160").into(),
+                    ),
+                    description: None,
+                }],
+                ..message(&format!("d:{id}"), false)
+            })
+        })
+        .collect();
+    app.state.messages = Arc::new(messages);
+    let says = |app: &Application, id: &str| {
+        let card = card::sticker(app, &format!("d:{id}"), 0).unwrap();
+        (card.description, card.server.map(|server| server.name))
+    };
+    app.state.selected = Some("discord:10:11".into());
+    assert_eq!(
+        says(&app, "77"),
+        (card::HERE_STICKER_NO_NITRO.into(), Some("Test".into())),
+        "the server it's from, not a default sticker"
+    );
+    app.state.selected = Some("discord:55:56".into());
+    assert_eq!(
+        says(&app, "77"),
+        (card::SERVER_STICKER_NO_NITRO.into(), Some("Test".into()))
+    );
+    assert_eq!(
+        says(&app, "88"),
+        ("This is a Wumpus Beyond sticker.".into(), None)
+    );
+    assert_eq!(says(&app, "99"), (card::OTHER_STICKER.into(), None));
+}

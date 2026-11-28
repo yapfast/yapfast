@@ -26,6 +26,9 @@ const ZOOM_NOTE_TOP: f32 = 12.0;
 
 impl App {
     pub fn view(&self) -> Element<'_, Message> {
+        crate::widgets::flick::set_scroll_speed(
+            f32::from(self.layout.prefs.scroll_speed()) / 100.0,
+        );
         // Whatever this returns, what it no longer shows goes at its end.
         let _viewing = self.win.pictures.view();
         // The dialogs centre in the window under its bar, and dim it.

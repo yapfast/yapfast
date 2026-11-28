@@ -524,13 +524,35 @@ fn an_emoji_in_a_messages_text_opens_its_card_until_escape() {
 
 #[test]
 fn a_stickers_card_names_the_server_it_is_from_which_opens() {
-    use yapfast_core::{
-        application::ServerStickers,
-        chat::{Attachment, Placement, Sticker},
-    };
+    use yapfast_core::chat::{Attachment, Placement};
     let (mut app, _folder) = preview();
     let (server_id, server_name) = ("discord:70".to_owned(), "Wavers".to_owned());
-    let item = app.client.state().messages[0].item.clone();
+    // The server's stickers come with Discord's snapshot, as READY gives
+    // them, whether or not the picker was ever opened.
+    let mut listed = yapfast_core::yapfast_discord::ready::server(&serde_json::json!({
+        "id": "70", "properties": {"name": server_name},
+    }))
+    .expect("the server");
+    listed.stickers = std::sync::Arc::new(vec![yapfast_core::yapfast_discord::stickers::Sticker {
+        id: "77".into(),
+        name: "wave".into(),
+        format: 1,
+        unavailable: false,
+    }]);
+    app.client
+        .apply(yapfast_core::chat::Event::Discord(std::sync::Arc::new(
+            yapfast_core::yapfast_discord::service::Snapshot {
+                servers: vec![yapfast_core::yapfast_discord::marked::MarkedServer::marked(
+                    listed,
+                    Default::default(),
+                    |_| Default::default(),
+                )],
+                ..Default::default()
+            },
+        )));
+    // Discord's snapshot replaced the preview's messages: one with the
+    // sticker comes.
+    let item = "d:5".to_owned();
     super::change(&mut app, |state| {
         state
             .servers
@@ -541,7 +563,13 @@ fn a_stickers_card_names_the_server_it_is_from_which_opens() {
                 ..Default::default()
             }));
         let messages = std::sync::Arc::make_mut(&mut state.messages);
-        let message = std::sync::Arc::make_mut(&mut messages[0]);
+        messages.push(std::sync::Arc::new(yapfast_core::chat::ChatMessage {
+            id: item.clone(),
+            item: item.clone(),
+            author: "Bob".into(),
+            ..Default::default()
+        }));
+        let message = std::sync::Arc::make_mut(messages.last_mut().expect("the message"));
         message.attachments.push(Attachment {
             name: "wave".into(),
             size: None,
@@ -552,26 +580,18 @@ fn a_stickers_card_names_the_server_it_is_from_which_opens() {
             placement: Placement::Sticker,
             spoiler: false,
             video: false,
+            audio: false,
             gif: None,
             url: Some("https://media.discordapp.net/stickers/77.png?size=160".into()),
             description: None,
         });
-        state.stickers.servers.push(ServerStickers {
-            id: "70".into(),
-            name: server_name.clone(),
-            stickers: vec![Sticker {
-                id: "77".into(),
-                name: "wave".into(),
-                format: 1,
-                picture: String::new(),
-                usable: true,
-            }],
-        });
     });
-    let index = app.client.state().messages[0].attachments.len() - 1;
-    let _ = app.update(Message::Info(Event::Sticker(item, index)));
+    let _ = app.update(Message::Info(Event::Sticker(item, 0)));
     assert!(shows(&app, "wave"));
-    assert!(shows(&app, "This sticker is from one of your servers."));
+    assert!(shows(
+        &app,
+        "This sticker is from one of your servers. Get Nitro to use it everywhere."
+    ));
     assert!(shows(&app, "This sticker is from"));
     interact(&mut app, |ui| {
         let at = last(ui, &server_name);
@@ -604,6 +624,7 @@ fn a_stickers_card_goes_with_its_message() {
             placement: Placement::Sticker,
             spoiler: false,
             video: false,
+            audio: false,
             gif: None,
             url: Some("https://media.discordapp.net/stickers/77.png?size=160".into()),
             description: None,

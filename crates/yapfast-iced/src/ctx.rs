@@ -138,6 +138,8 @@ pub enum Request {
     ThemeApplied,
     /// The window's title bar: the system's, or Yapfast's own.
     TitleBar(bool),
+    /// Discord's bar under the system's title bar, or none.
+    DiscordBar(bool),
     /// A look at the releases, telling of a newer one if `true`.
     LookForUpdates(bool),
     /// The pictures in view are asked for, as a list scrolls.

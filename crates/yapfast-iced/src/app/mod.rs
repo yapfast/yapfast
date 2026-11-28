@@ -306,7 +306,7 @@ impl App {
         let shell = crate::shell::Shell {
             zoom,
             own_title_bar: crate::window_bar::own(layout.system_title_bar),
-            bar_under_frame: !cfg!(test),
+            bar_under_frame: !cfg!(test) && layout.discord_bar.unwrap_or(true),
             frame: Size::new(width / zoom, height / zoom),
             ..Default::default()
         };

@@ -1,5 +1,5 @@
-//! Notifications: desktop notifications, what they show, and the
-//! taskbar's flash.
+//! Notifications: desktop notifications, what they show, and on Windows
+//! the taskbar's flash.
 
 use iced::Element;
 
@@ -23,7 +23,7 @@ impl<'a> Page<'a> {
             "Each Discord server's notification settings decide"
         };
         let words = prefs.notification_text.unwrap_or(true);
-        form::page([
+        let mut parts = vec![
             form::title(theme, "Notifications"),
             switch(
                 "Show desktop notifications",
@@ -41,12 +41,18 @@ impl<'a> Page<'a> {
             )
             .description("Off shows only who wrote and where, for a screen others can see.")
             .view(self.cx.look),
-            self.flip(
+        ];
+        // Only on Windows, as Discord's client offers it: on Linux an
+        // attention request can bring the window forward or switch the
+        // desktop to it, which a message mustn't.
+        if cfg!(windows) {
+            parts.push(self.flip(
                 "Flash the taskbar",
-                "For a message that notifies while Yapfast isn't in front. The window's title counts mentions and DMs waiting either way.",
+                "With a notification, until you come back to Yapfast. The window's title counts mentions and DMs waiting either way.",
                 prefs.flash_taskbar.unwrap_or(true),
                 Pref::FlashTaskbar,
-            ),
-        ])
+            ));
+        }
+        form::page(parts)
     }
 }

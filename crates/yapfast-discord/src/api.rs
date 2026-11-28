@@ -616,22 +616,7 @@ impl Api {
         if !uploads.is_empty() {
             body["attachments"] = attachments(uploads);
         }
-        if let Some(reply) = options.reply {
-            body["message_reference"] = json!({
-                "guild_id": guild,
-                "channel_id": channel,
-                "message_id": reply,
-                "type": 0,
-            });
-            // As Discord's client asks for a reply with its mention off:
-            // everyone the text mentions, but not the author replied to.
-            if !options.ping_reply {
-                body["allowed_mentions"] = json!({
-                    "parse": ["users", "roles", "everyone"],
-                    "replied_user": false,
-                });
-            }
-        }
+        reply_to(&mut body, guild, channel, &options);
         let path = format!("/channels/{channel}/messages");
         self.json(with_json(self.request(Method::POST, &path), &body))
             .await
@@ -647,10 +632,18 @@ impl Api {
     }
 
     /// Posts a sticker, a message with nothing else, as Discord's client
-    /// does when a sticker is clicked in its picker.
-    pub async fn send_sticker(&self, channel: &str, sticker: &str, nonce: &str) -> Result<Value> {
-        let mut body = message_body("", nonce);
+    /// does when a sticker is clicked in its picker: as a reply when
+    /// `options` names one, as its composer's send does.
+    pub async fn send_sticker(
+        &self,
+        guild: Option<&str>,
+        channel: &str,
+        sticker: &str,
+        options: Sending<'_>,
+    ) -> Result<Value> {
+        let mut body = message_body("", options.nonce);
         body["sticker_ids"] = json!([sticker]);
+        reply_to(&mut body, guild, channel, &options);
         let path = format!("/channels/{channel}/messages");
         self.json(with_json(self.request(Method::POST, &path), &body))
             .await
@@ -2766,6 +2759,31 @@ fn context(place: &str) -> String {
 fn encoded_context(context: &Value) -> String {
     use base64::Engine;
     base64::engine::general_purpose::STANDARD.encode(context.to_string())
+}
+
+/// Makes a message a reply when `options` names one, as Discord's client
+/// does for its composer's sends, text or sticker: the reference without
+/// a type (and without a server in a DM), and with the mention off, everyone the text mentions but not
+/// the author replied to.
+fn reply_to(body: &mut Value, guild: Option<&str>, channel: &str, options: &Sending<'_>) {
+    let Some(reply) = options.reply else {
+        return;
+    };
+    let mut reference = json!({
+        "channel_id": channel,
+        "message_id": reply,
+    });
+    // A DM's has no server, which the client leaves out.
+    if let Some(guild) = guild {
+        reference["guild_id"] = guild.into();
+    }
+    body["message_reference"] = reference;
+    if !options.ping_reply {
+        body["allowed_mentions"] = json!({
+            "parse": ["users", "roles", "everyone"],
+            "replied_user": false,
+        });
+    }
 }
 
 /// A new message's body as Discord's client sends it, before attachments

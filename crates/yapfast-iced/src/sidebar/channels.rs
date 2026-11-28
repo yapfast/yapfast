@@ -52,6 +52,49 @@ fn themed_count_pill<'a>(
     pill.style(move |_| rounded(ground, radius)).into()
 }
 
+/// Discord's pill on a capped voice channel's row: who is in it, then
+/// the limit on a stronger ground, each zero-padded to two digits, in the
+/// subtle ink whether or not the channel is full.
+fn limit_pill<'a>(theme: &crate::theme::Theme, users: usize, total: u8) -> Element<'a, Message> {
+    let ink = theme.secondary;
+    let part = |count: String, width: f32| {
+        let wide = count.chars().count() > 2;
+        container(
+            text(count)
+                .size(12)
+                .font(MEDIUM)
+                .color(ink)
+                .wrapping(text::Wrapping::None),
+        )
+        .padding([0.0, 4.0])
+        .width(if wide {
+            Length::Shrink
+        } else {
+            Length::Fixed(width)
+        })
+        .height(Length::Fill)
+        .align_x(Alignment::Center)
+        .align_y(Alignment::Center)
+    };
+    let total_ground = theme.active;
+    let total = part(format!("{total:02}"), 20.0).style(move |_| rounded(total_ground, 0.0));
+    let ground = theme.chat;
+    let line = theme.edge;
+    container(row![part(format!("{users:02}"), 28.0), total])
+        .height(20)
+        .clip(true)
+        .style(move |_| iced::widget::container::Style {
+            background: Some(ground.into()),
+            border: iced::Border {
+                color: line,
+                width: 1.0,
+                radius: 10.0.into(),
+            },
+            ..Default::default()
+        })
+        .into()
+}
+
 const THREAD_INDENT: f32 = 28.0;
 /// The stem's left edge within the row, aligned under the channel icon.
 const THREAD_STEM: f32 = 16.0;
@@ -1046,7 +1089,11 @@ impl<'a> super::View<'a> {
         // Set after the bar: a filling child would widen the column.
         let name = name.width(if hug { Length::Shrink } else { Length::Fill });
         face = face.push(name);
-        if let Some(started) = room.started {
+        // Discord's limit pill: who is in a capped channel against its
+        // limit, both zero-padded. A mention badge takes its place, and it
+        // takes the call's clock's.
+        let limit = room.voice_limit.filter(|_| room.badge.is_empty());
+        if let Some(started) = room.started.filter(|_| limit.is_none()) {
             let lasted = yapfast_core::clock::lasted(started, self.cx.minute);
             face = face.push(
                 text(lasted)
@@ -1055,7 +1102,9 @@ impl<'a> super::View<'a> {
                     .color(theme.muted),
             );
         }
-        if room.voice
+        if let Some(limit) = limit {
+            face = face.push(limit_pill(theme, room.people.len(), limit.get()));
+        } else if room.voice
             && let Some(meta) = list.map(|rows| &rows.meta)
             && !meta.voice.is_empty()
         {
