@@ -5322,6 +5322,23 @@ impl Application {
         None
     }
 
+    /// The server whose sticker this is, by its server id, when it is one
+    /// this account is in, as the snapshot lists every server's stickers; a
+    /// sticker's card names it. Discord's packs are nobody's.
+    pub fn sticker_server(&self, id: &str) -> Option<String> {
+        #[cfg(feature = "discord")]
+        if let Some(snapshot) = &self.discord {
+            return snapshot
+                .servers
+                .iter()
+                .find(|server| server.stickers.iter().any(|sticker| sticker.id == id))
+                .map(|server| discord::server_id(&server.id));
+        }
+        #[cfg(not(feature = "discord"))]
+        let _ = id;
+        None
+    }
+
     /// Every custom emoji of every server the account is in, by server, the
     /// room's own server first, each saying whether this account may use it in
     /// the room it is looking at. The picker shows all of them, the ones it may

@@ -263,7 +263,12 @@ out by the core's `emoji::card`): the emoji or sticker at 48 px,
 its name and what it is, and for one of a server's this account can reach
 the server it's from, whose card asks Discord how many are online there
 and what Discover says of it; a click on the server goes there. An emoji
-of a server out of reach says "Invite-Only Server" and no more. A Discord link this
+of a server out of reach says "Invite-Only Server" and no more. A
+sticker's card says what Discord's does: from this server or another of
+this account's (with "Get Nitro to use it everywhere." without Nitro), as
+the snapshot lists every server's stickers; else from the default pack it
+is in, by name; else from a server "either invite-only or unavailable"
+(Discord's client asks `GET /stickers/{id}` first; Yapfast doesn't). A Discord link this
 account can follow stays in the app, as the core's `discord_route` reads
 it: an invite opens its Join dialog, an app's authorization, a gift and
 an event their dialogs (see [dialogs](dialogs.md)), a server, channel or
