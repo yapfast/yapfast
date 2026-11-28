@@ -10,7 +10,23 @@ let
   native = import ./native.nix { inherit pkgs; };
   toolchain = pkgs.rust-bin.fromRustupToolchainFile ../rust-toolchain.toml;
   rustPlatform = pkgs.makeRustPlatform { cargo = toolchain; rustc = toolchain; };
+  llvmPackages = pkgs.llvmPackages_23;
   id = "io.github.yapfast.Yapfast";
+  # glibc 2.43 and 2.44 changed the default versions of these libm symbols.
+  # Tail-call their x86-64 compatibility versions to keep the AppImage's ABI floor.
+  libmSymbols = [ "acosf" "acoshf" "asinf" "atan2f" "cosh" "coshf" "log10f" "sinh" "sinhf" ];
+  libmCompat = pkgs.writeText "appimage-libm.S" (''
+    .text
+  '' + lib.concatMapStrings (symbol: ''
+    .symver compat_${symbol}, ${symbol}@GLIBC_2.2.5
+    .globl __wrap_${symbol}
+    .type __wrap_${symbol}, @function
+    __wrap_${symbol}:
+      jmp compat_${symbol}@PLT
+    .size __wrap_${symbol}, .-__wrap_${symbol}
+  '') libmSymbols + ''
+    .section .note.GNU-stack,"",@progbits
+  '');
 in
 rustPlatform.buildRustPackage {
   pname = "yapfast";
@@ -38,14 +54,20 @@ rustPlatform.buildRustPackage {
   buildNoDefaultFeatures = true;
   buildFeatures = features;
   nativeBuildInputs = with pkgs; [
-    pkg-config cmake llvmPackages_21.clang llvmPackages_21.llvm protobuf
+    pkg-config cmake llvmPackages.clang llvmPackages.llvm protobuf
     # Assembles x264's x86-64 code (vendor/x264-src).
     nasm
-    makeWrapper rustPlatform.bindgenHook
+    makeWrapper (rustPlatform.bindgenHook.override { inherit (llvmPackages) clang; })
   ];
   buildInputs = native.libraries;
+  # The AppImage links the native libraries selected by Cargo, including bundled AWS-LC.
+  dontCargoUseSystemLibs = true;
   # cmake is for crates' build scripts, not a configure step of its own.
   dontUseCmakeConfigure = true;
+  preBuild = lib.optionalString release ''
+    clang -c ${libmCompat} -o "$TMPDIR/appimage-libm.o"
+    export NIX_LDFLAGS="$NIX_LDFLAGS $TMPDIR/appimage-libm.o ${lib.concatMapStringsSep " " (symbol: "--wrap=${symbol}") libmSymbols} -lm"
+  '';
   env = {
     CC = "clang";
     CXX = "clang++";

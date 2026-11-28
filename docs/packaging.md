@@ -28,10 +28,12 @@ loads EGL, Vulkan, Wayland, X11 and PipeWire at runtime.
 
 The derivation fails if the binary links anything else, or asks for a glibc
 newer than 2.39 or a libstdc++ newer than GCC 14's. That covers Ubuntu 24.04,
-Fedora 40, Debian 13 and anything newer. nixpkgs' glibc is newer than that, so
-a nixpkgs update can raise what the binary asks for. Raise the floors in
-`nix/appimage.nix` only knowing which distributions that drops. Older ones,
-such as Ubuntu 22.04, would need a build against their own glibc.
+Fedora 40, Debian 13 and anything newer. The release build links the x86-64
+compatibility versions of the libm functions whose defaults changed in glibc
+2.43 and 2.44. A nixpkgs update can still raise what the binary asks for.
+Raise the floors in `nix/appimage.nix` only knowing which distributions that
+drops. Older ones, such as Ubuntu 22.04, would need a build against their own
+glibc.
 
 `scripts/package-linux.py`, which runs in the development shell, with
 squashfs-tools and zsync added from the shell's nixpkgs, adds the

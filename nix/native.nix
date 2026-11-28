@@ -15,12 +15,11 @@ rec {
   libraries = with pkgs; [
     alsa-lib libpulseaudio fontconfig freetype glib libxkbcommon openssl
     wayland libGL
-    xorg.libX11 xorg.libXcursor xorg.libXi xorg.libXrandr
-    xorg.libxcb
+    libx11 libxcursor libxi libxrandr libxcb
     # libwebrtc's screen capture loads these at runtime: PipeWire and GBM
     # for the screen sharing portal, the X extensions on X11.
     pipewire libdrm libgbm
-    xorg.libXfixes xorg.libXdamage xorg.libXcomposite xorg.libXext
+    libxfixes libxdamage libxcomposite libxext
   ];
   # What the binary loads at runtime, on the wrapper's library path: the
   # libraries, and libva, which FFmpeg's VA-API encoders load when a stream

@@ -235,7 +235,7 @@ target, cross-compiles with cargo-xwin and Clang, then packages the executable.
 The first run downloads the Microsoft CRT/SDK and compiles the C++ media
 bindings.
 
-The Windows Nix shell supplies the matching `webrtc-51ef663` archive, LLVM 21,
+The Windows Nix shell supplies the matching `webrtc-51ef663` archive, LLVM 23,
 cargo-xwin, CMake, Ninja, Protobuf, NASM and Wine. The executable links the C
 runtime statically (`+crt-static` in `scripts/release-env`), as WebRTC does,
 so it needs no separate Visual C++ runtime DLL.
