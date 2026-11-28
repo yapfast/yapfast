@@ -8,6 +8,7 @@ use crate::settings::Page;
 use crate::{
     app::Message,
     form::{self, switch},
+    i18n::tr,
 };
 
 impl<'a> Page<'a> {
@@ -15,35 +16,42 @@ impl<'a> Page<'a> {
         let theme = self.cx.look.theme;
         let prefs = &self.cx.layout.prefs;
         let on = prefs.notifications.unwrap_or(true);
-        let rules = if cfg!(feature = "matrix") && self.linked() {
-            "Each Discord server's notification settings and your Matrix notification rules decide"
+        let description = if cfg!(feature = "matrix") && self.linked() {
+            tr!(
+                self.cx.i18n,
+                "For new messages while Yapfast isn't in front. Each Discord server's notification settings and your Matrix notification rules decide which: usually DMs and mentions. Clicking one opens the conversation."
+            )
         } else if cfg!(feature = "matrix") {
-            "Your Matrix notification rules decide"
+            tr!(
+                self.cx.i18n,
+                "For new messages while Yapfast isn't in front. Your Matrix notification rules decide which: usually DMs and mentions. Clicking one opens the conversation."
+            )
         } else {
-            "Each Discord server's notification settings decide"
+            tr!(
+                self.cx.i18n,
+                "For new messages while Yapfast isn't in front. Each Discord server's notification settings decide which: usually DMs and mentions. Clicking one opens the conversation."
+            )
         };
         let words = prefs.notification_text.unwrap_or(true);
         form::page([
-            form::title(theme, "Notifications"),
+            form::title(theme, tr!(self.cx.i18n, "Notifications")),
             switch(
-                "Show desktop notifications",
+                tr!(self.cx.i18n, "Show desktop notifications"),
                 on,
                 Some(pref(Pref::Notifications(!on))),
             )
-            .description(format!(
-                "For new messages while Yapfast isn't in front. {rules} which: usually DMs and mentions. Clicking one opens the conversation."
-            ))
+            .description(description)
             .view(self.cx.look),
             switch(
-                "Show what messages say",
+                tr!(self.cx.i18n, "Show what messages say"),
                 words,
                 on.then(|| pref(Pref::NotificationText(!words))),
             )
-            .description("Off shows only who wrote and where, for a screen others can see.")
+            .description(tr!(self.cx.i18n, "Off shows only who wrote and where, for a screen others can see."))
             .view(self.cx.look),
             self.flip(
-                "Flash the taskbar",
-                "For a message that notifies while Yapfast isn't in front. The window's title counts mentions and DMs waiting either way.",
+                tr!(self.cx.i18n, "Flash the taskbar"),
+                tr!(self.cx.i18n, "For a message that notifies while Yapfast isn't in front. The window's title counts mentions and DMs waiting either way."),
                 prefs.flash_taskbar.unwrap_or(true),
                 Pref::FlashTaskbar,
             ),

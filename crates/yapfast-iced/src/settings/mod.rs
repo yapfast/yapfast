@@ -47,7 +47,7 @@ use crate::{
     desktop::Autostart,
     fonts::BOLD,
     form,
-    i18n::{I18n, tr_mark},
+    i18n::{I18n, tr, tr_mark},
     pictures::Icon,
     slot::{Closes, Why},
     style::scrollbar,
@@ -123,30 +123,25 @@ impl Section {
     /// The English source string for the section's title.
     fn title(self) -> &'static str {
         match self {
-            Section::Account => "My Account",
-            Section::Voice => "Voice & Video",
-            Section::Messages => "Messages",
-            Section::Accessibility => "Accessibility",
-            Section::Notifications => "Notifications",
-            Section::Discord => "Discord",
-            Section::Sounds => "Sounds",
-            Section::Advanced => "Advanced",
+            Section::Account => tr_mark!("My Account"),
+            Section::Voice => tr_mark!("Voice & Video"),
+            Section::Messages => tr_mark!("Messages"),
+            Section::Accessibility => tr_mark!("Accessibility"),
+            Section::Notifications => tr_mark!("Notifications"),
+            Section::Discord => tr_mark!("Discord"),
+            Section::Sounds => tr_mark!("Sounds"),
+            Section::Advanced => tr_mark!("Advanced"),
             Section::LanguageTime => tr_mark!("Language & Time"),
-            Section::Appearance => "Appearance",
-            Section::Themes => "Themes",
-            Section::Games => "Game Activity",
-            Section::Keybinds => "Keybinds",
-            Section::About => "About",
+            Section::Appearance => tr_mark!("Appearance"),
+            Section::Themes => tr_mark!("Themes"),
+            Section::Games => tr_mark!("Game Activity"),
+            Section::Keybinds => tr_mark!("Keybinds"),
+            Section::About => tr_mark!("About"),
         }
     }
 
     fn localized_title(self, i18n: &I18n) -> &str {
-        let title = self.title();
-        if self == Section::LanguageTime {
-            i18n.text(title)
-        } else {
-            title
-        }
+        i18n.text(self.title())
     }
 
     fn icon(self) -> Icon {
@@ -172,9 +167,9 @@ impl Section {
 /// The column's groups and their sections, as Discord's settings group
 /// them.
 const GROUPS: [(&str, &[Section]); 3] = [
-    ("Account", &[Section::Account]),
+    (tr_mark!("Account"), &[Section::Account]),
     (
-        "Experience",
+        tr_mark!("Experience"),
         &[
             Section::Voice,
             Section::Messages,
@@ -185,7 +180,7 @@ const GROUPS: [(&str, &[Section]); 3] = [
         ],
     ),
     (
-        "App Settings",
+        tr_mark!("App Settings"),
         &[
             Section::Discord,
             Section::Games,
@@ -596,7 +591,7 @@ impl<'a> Page<'a> {
                     .look
                     .icon_button(
                         Icon::X,
-                        "Close Settings",
+                        tr!(self.cx.i18n, "Close Settings"),
                         crate::app::settings(Event::Close)
                     )
                     .size(32.0, 18)
@@ -735,7 +730,7 @@ impl<'a> Page<'a> {
             names = names.push(
                 button(
                     row![
-                        text("Edit Profile").size(13),
+                        text(tr!(self.cx.i18n, "Edit Profile")).size(13),
                         self.cx.look.glyph(Icon::Pencil, 12, theme.muted)
                     ]
                     .spacing(4)
@@ -764,7 +759,7 @@ impl<'a> Page<'a> {
             controls::field(
                 theme,
                 SEARCH,
-                "Search settings",
+                tr!(self.cx.i18n, "Search settings"),
                 &settings.query,
                 false,
                 true,
@@ -779,7 +774,7 @@ impl<'a> Page<'a> {
         for (index, (group, sections)) in GROUPS.iter().enumerate() {
             if query.is_empty() {
                 entries = entries.push(
-                    container(text(*group).size(12).color(theme.muted))
+                    container(text(self.cx.i18n.text(group)).size(12).color(theme.muted))
                         .padding(iced::Padding {
                             top: if index == 0 { 0.0 } else { 16.0 },
                             left: 8.0,

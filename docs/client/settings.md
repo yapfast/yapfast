@@ -119,9 +119,10 @@ recording. Each change is kept at once in
   supported desktop language at startup, matching regional tags to their
   base language (for example, `de-AT` to `de`). If no supported language is
   available, Yapfast uses English. An explicit choice is saved as a
-  language tag in `layout.json`. Language & Time updates immediately, and
-  its translated name appears in Settings navigation and search. Other
-  screens use their English source text.
+  language tag in `layout.json`. Settings navigation and the Language &
+  Time, Advanced, Messages, Notifications and Accessibility pages update immediately.
+  Search matches translated section names. Other screens use their
+  English source text.
 
   Time format offers Auto, 12-hour and 24-hour. Auto uses the system's
   regional time setting at startup and falls back to 24-hour if it is

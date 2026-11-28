@@ -24,3 +24,273 @@ msgstr "12-Stunden-Format"
 
 msgid "24-hour"
 msgstr "24-Stunden-Format"
+
+msgid "Search settings"
+msgstr "Einstellungen durchsuchen"
+
+msgid "Close Settings"
+msgstr "Einstellungen schließen"
+
+msgid "Edit Profile"
+msgstr "Profil bearbeiten"
+
+msgid "Account"
+msgstr "Konto"
+
+msgid "Experience"
+msgstr "Benutzereinstellungen"
+
+msgid "App Settings"
+msgstr "App-Einstellungen"
+
+msgid "My Account"
+msgstr "Mein Konto"
+
+msgid "Voice & Video"
+msgstr "Sprache & Video"
+
+msgid "Messages"
+msgstr "Nachrichten"
+
+msgid "Accessibility"
+msgstr "Barrierefreiheit"
+
+msgid "Notifications"
+msgstr "Benachrichtigungen"
+
+msgid "Discord"
+msgstr "Discord"
+
+msgid "Sounds"
+msgstr "Töne"
+
+msgid "Advanced"
+msgstr "Erweitert"
+
+msgid "Appearance"
+msgstr "Erscheinungsbild"
+
+msgid "Themes"
+msgstr "Designs"
+
+msgid "Game Activity"
+msgstr "Spieleaktivität"
+
+msgid "Keybinds"
+msgstr "Tastenkürzel"
+
+msgid "About"
+msgstr "Über Yapfast"
+
+msgid "Automatically open Yapfast when your computer starts up"
+msgstr "Yapfast bei der Anmeldung automatisch starten"
+
+msgid "Start Yapfast minimized"
+msgstr "Yapfast minimiert starten"
+
+msgid "Start Yapfast in the background, out of your way."
+msgstr "Yapfast startet im Hintergrund."
+
+msgid "Open Discord links in Yapfast"
+msgstr "Discord-Links in Yapfast öffnen"
+
+msgid "discord:// links from other apps and shortcuts open here instead of Discord. Turning it off gives them back to the app that had them."
+msgstr "discord://-Links aus anderen Apps und Verknüpfungen werden in Yapfast geöffnet. Ist die Einstellung aus, öffnet sie wieder die zuvor zuständige App."
+
+msgid "Close to tray"
+msgstr "Beim Schließen im Infobereich behalten"
+
+msgid "Closing the window keeps Yapfast running in the system tray, with any call. Quit from the tray icon's menu."
+msgstr "Wenn du das Fenster schließt, läuft Yapfast im Infobereich weiter. Anrufe bleiben verbunden. Über das Symbolmenü kannst du Yapfast beenden."
+
+msgid "No system tray is running, so closing the window quits Yapfast."
+msgstr "Es ist kein Infobereich verfügbar, daher wird Yapfast beim Schließen des Fensters beendet."
+
+msgid "Allow multiple windows"
+msgstr "Mehrere Fenster zulassen"
+
+msgid "Starting Yapfast while it runs opens another Yapfast, with its own window and tray icon. Off, it brings the open window forward."
+msgstr "Wenn Yapfast bereits läuft, öffnet ein weiterer Start ein neues Fenster mit eigenem Symbol im Infobereich. Ist die Einstellung aus, wird das offene Fenster in den Vordergrund geholt."
+
+msgid "Render with the GPU"
+msgstr "Oberfläche mit der GPU zeichnen"
+
+msgid "Hardware acceleration. Off, Yapfast draws on the processor, which uses about half the memory."
+msgstr "Hardwarebeschleunigung für die Oberfläche. Ist sie aus, zeichnet Yapfast mit dem Prozessor und braucht etwa halb so viel Arbeitsspeicher."
+
+msgid "Encode streams with the GPU"
+msgstr "Streams mit der GPU kodieren"
+
+msgid "Screen sharing uses the graphics card's video encoder, which takes almost no processor time and looks better at low bitrates. Off, or without one, Yapfast encodes on the processor."
+msgstr "Die Bildschirmübertragung nutzt den Videoencoder der Grafikkarte. Das entlastet den Prozessor und verbessert die Qualität bei niedrigen Bitraten. Ohne verfügbaren Encoder oder bei ausgeschalteter Einstellung kodiert Yapfast mit dem Prozessor."
+
+msgid "Developer Mode"
+msgstr "Entwicklermodus"
+
+msgid "Menus offer Copy ID for servers, channels and people, which helps when you write apps that use the Discord API."
+msgstr "In den Menüs für Server, Kanäle und Personen findest du „ID kopieren“. Das hilft bei der Entwicklung von Apps für die Discord-API."
+
+msgid "Icons from Solar by 480 Design (CC BY 4.0), many of them adapted, and from Lucide (ISC)."
+msgstr "Symbole aus Solar von 480 Design (CC BY 4.0), viele davon angepasst, sowie aus Lucide (ISC)."
+
+msgid "Yapfast switches to the GPU when it restarts. Restarting leaves any call."
+msgstr "Nach dem Neustart verwendet Yapfast die GPU. Dabei verlässt du den laufenden Anruf."
+
+msgid "Yapfast switches to the processor when it restarts. Restarting leaves any call."
+msgstr "Nach dem Neustart verwendet Yapfast den Prozessor. Dabei verlässt du den laufenden Anruf."
+
+msgid "Restart Yapfast"
+msgstr "Yapfast neu starten"
+
+msgid "Show desktop notifications"
+msgstr "Desktop-Benachrichtigungen anzeigen"
+
+msgid "Show what messages say"
+msgstr "Nachrichtentext anzeigen"
+
+msgid "Off shows only who wrote and where, for a screen others can see."
+msgstr "Ist die Option aus, wird nur angezeigt, wer wo geschrieben hat."
+
+msgid "Flash the taskbar"
+msgstr "In der Taskleiste blinken"
+
+msgid "For a message that notifies while Yapfast isn't in front. The window's title counts mentions and DMs waiting either way."
+msgstr "Bei einer Nachricht, die eine Benachrichtigung auslöst, während Yapfast im Hintergrund ist. Der Fenstertitel zählt Erwähnungen und Direktnachrichten in beiden Fällen."
+
+msgid "For new messages while Yapfast isn't in front. Each Discord server's notification settings and your Matrix notification rules decide which: usually DMs and mentions. Clicking one opens the conversation."
+msgstr "Für neue Nachrichten, während Yapfast im Hintergrund ist. Die Benachrichtigungseinstellungen der Discord-Server und deine Matrix-Regeln bestimmen, welche Nachrichten eine Benachrichtigung auslösen. Meist sind es Direktnachrichten und Erwähnungen. Ein Klick öffnet die Unterhaltung."
+
+msgid "For new messages while Yapfast isn't in front. Your Matrix notification rules decide which: usually DMs and mentions. Clicking one opens the conversation."
+msgstr "Für neue Nachrichten, während Yapfast im Hintergrund ist. Deine Matrix-Benachrichtigungsregeln bestimmen, welche Nachrichten eine Benachrichtigung auslösen. Meist sind es Direktnachrichten und Erwähnungen. Ein Klick öffnet die Unterhaltung."
+
+msgid "For new messages while Yapfast isn't in front. Each Discord server's notification settings decide which: usually DMs and mentions. Clicking one opens the conversation."
+msgstr "Für neue Nachrichten, während Yapfast im Hintergrund ist. Die Benachrichtigungseinstellungen jedes Discord-Servers bestimmen, welche Nachrichten eine Benachrichtigung auslösen. Meist sind es Direktnachrichten und Erwähnungen. Ein Klick öffnet die Unterhaltung."
+
+msgid "Thinking co-op after nine, if people are up for it."
+msgstr "Hat jemand Lust, nach neun zusammen zu spielen?"
+
+msgid "CLOCK"
+msgstr "UHRZEIT"
+
+msgid "Show seconds"
+msgstr "Sekunden anzeigen"
+
+msgid "Message times show them, as 21:41:05."
+msgstr "Nachrichtenzeiten enthalten Sekunden, etwa 21:41:05."
+
+msgid "DATE FORMAT"
+msgstr "DATUMSFORMAT"
+
+msgid "Day/Month/Year"
+msgstr "Tag/Monat/Jahr"
+
+msgid "Month/Day/Year"
+msgstr "Monat/Tag/Jahr"
+
+msgid "Year-Month-Day"
+msgstr "Jahr-Monat-Tag"
+
+msgid "Show link previews"
+msgstr "Linkvorschauen anzeigen"
+
+msgid "Cards for links, videos and bots under messages. Linked pictures still show."
+msgstr "Karten für Links, Videos und Bots unter Nachrichten. Verlinkte Bilder bleiben sichtbar."
+
+msgid "Collapse long messages"
+msgstr "Lange Nachrichten einklappen"
+
+msgid "Long messages and code show their first lines, with Show more to see the rest."
+msgstr "Bei langen Nachrichten und Code werden die ersten Zeilen angezeigt. Über „Mehr anzeigen“ erscheint der Rest."
+
+msgid "Show boost gems"
+msgstr "Boost-Abzeichen anzeigen"
+
+msgid "A gem by the name of each member boosting their Discord server, in the member list."
+msgstr "Neben Mitgliedern, die ihren Discord-Server boosten, erscheint in der Mitgliederliste ein Abzeichen."
+
+msgid "Let others see when you're typing"
+msgstr "Anderen anzeigen, wenn du tippst"
+
+msgid "Mention people you reply to"
+msgstr "Personen erwähnen, denen du antwortest"
+
+msgid "They get notified of your reply. Switch it for one reply with @ On on the reply bar."
+msgstr "Sie werden über deine Antwort benachrichtigt. Mit @ in der Antwortleiste kannst du das für einzelne Antworten umschalten."
+
+msgid "Remove tracking from links you send"
+msgstr "Tracking-Parameter aus gesendeten Links entfernen"
+
+msgid "Takes out tags like utm_source and fbclid, and share ids from YouTube, Spotify and X. The links still go to the same page."
+msgstr "Entfernt Parameter wie utm_source und fbclid sowie Freigabe-IDs von YouTube, Spotify und X. Die Links führen weiterhin zur selben Seite."
+
+msgid "Peek at channels"
+msgstr "Vorschau auf Kanäle anzeigen"
+
+msgid "Hold Alt over a channel or DM in the list to see its newest messages without opening it or marking it read."
+msgstr "Halte Alt über einem Kanal oder Direktchat gedrückt, um die neuesten Nachrichten zu sehen, ohne ihn zu öffnen oder als gelesen zu markieren."
+
+msgid "Search DMs with the quick switcher"
+msgstr "Direktchats über die Schnellauswahl suchen"
+
+msgid "The box at the top of the DM list opens the quick switcher, as Discord's \"Find or start a conversation\" does, instead of filtering the list."
+msgstr "Das Feld über der Direktchatliste öffnet wie „Unterhaltung suchen oder beginnen“ in Discord die Schnellauswahl."
+
+msgid "Discord and Matrix show \"typing...\" while you write. Others still show here when they type."
+msgstr "Discord und Matrix zeigen anderen an, wenn du tippst. Du siehst weiterhin, wenn andere tippen."
+
+msgid "Matrix shows \"typing...\" while you write. Others still show here when they type."
+msgstr "Matrix zeigt anderen an, wenn du tippst. Du siehst weiterhin, wenn andere tippen."
+
+msgid "Discord shows \"typing...\" while you write. Others still show here when they type."
+msgstr "Discord zeigt anderen an, wenn du tippst. Du siehst weiterhin, wenn andere tippen."
+
+msgid "Preview"
+msgstr "Vorschau"
+
+msgid "what happened to all the beans"
+msgstr "wo sind all die Bohnen hin"
+
+msgid "here's a link "
+msgstr "hier ist ein Link "
+
+msgid "Text size in chat"
+msgstr "Textgröße im Chat"
+
+msgid "PLAY GIFS, EMOJI AND STICKERS"
+msgstr "GIFS, EMOJIS UND STICKER ABSPIELEN"
+
+msgid "While Yapfast is focused"
+msgstr "Wenn Yapfast im Fokus ist"
+
+msgid "Always"
+msgstr "Immer"
+
+msgid "Never"
+msgstr "Nie"
+
+msgid "This setting has been automatically disabled because of your Reduced Motion setting."
+msgstr "Diese Einstellung wurde automatisch deaktiviert, weil Bewegungen reduziert werden."
+
+msgid "TEXT READABILITY"
+msgstr "LESBARKEIT"
+
+msgid "Adjust the size of the chat font."
+msgstr "Passt die Schriftgröße im Chat an."
+
+msgid "SCROLL SPEED"
+msgstr "SCROLLGESCHWINDIGKEIT"
+
+msgid "REDUCED MOTION"
+msgstr "BEWEGUNGEN REDUZIEREN"
+
+msgid "Enable Reduced Motion"
+msgstr "Bewegungen reduzieren"
+
+msgid "Reduce the amount and intensity of animations, hover effects, and other moving effects: themes' animations stay still, and GIFs, emoji and stickers stop playing."
+msgstr "Reduziert Animationen und Hover-Effekte. Animationen in Designs, GIFs, Emojis und Sticker bleiben stehen."
+
+msgid "Sync with computer setting"
+msgstr "Systemeinstellung übernehmen"
+
+msgid "Reduced motion follows whether your desktop turns its animations off."
+msgstr "Die Einstellung folgt der Animationsoption deines Desktops."

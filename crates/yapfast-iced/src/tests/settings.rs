@@ -51,6 +51,7 @@ fn interface_language_changes_live_and_survives_restart() {
     assert_eq!(stored(&folder)["language"], "ru");
 
     open(&mut app, Section::Advanced);
+    assert!(shows(&app, "Расширенные"));
     let _ = app.update(crate::app::settings(Event::Search("язык".into())));
     assert!(shows(&app, "Язык и время"));
     assert!(!shows(&app, "Appearance"));
