@@ -160,7 +160,9 @@ member list, the DMs, and the lists still to come build on it.
   `Unsaved` bar offers Reset and Save Changes, which waits while a text is
   too long or a picture is read. Escape ends the editing, closes what's
   open, then the editor.
-- The friends list (`friends/`, the Requests screen in `friends/requests.rs`), from Friends on the DM home: the
+- The friends list (`friends/`, the Requests screen in
+  `friends/requests.rs`) opens on the Online tab when Discord starts on
+  the DM home. It can also be opened from Friends in the sidebar. The
   header's Online, All and Pending tabs (Pending goes to Requests), Add Friend, which
   takes the list's place with Discord's Add Friend page (below), and at its end a button for a
   new group DM, which opens the same chooser as a new message; under it,
@@ -171,7 +173,7 @@ member list, the DMs, and the lists still to come build on it.
   their avatar decoration (animated while pointed at), ruled apart from 6 px in to
   20 px short of the right, with a message button and a kebab that opens
   their menu; a click opens their DM, a right click their menu. Only
-  the rows in view are built. With the conversation at least 1000 px wide,
+  the rows in view are built. With the conversation at least 720 px wide,
   Active Now (`active_now.rs`) stands beside it: friends together in a
   voice channel, in one game party, or each doing something Discord can
   name, a card each, made as Discord's `NowPlayingViewStore` makes them,

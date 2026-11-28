@@ -27,9 +27,10 @@ use crate::{
     widgets::Pic,
 };
 
-/// The conversation's width from which Active Now shows, and its own.
-pub const ROOM: f32 = 1000.0;
-pub const WIDTH: f32 = 360.0;
+const MIN_WIDTH: f32 = 300.0;
+const MAX_WIDTH: f32 = 360.0;
+/// Leave room for the friends list and its row actions.
+const LIST_WIDTH: f32 = 420.0;
 /// The most faces a row shows before "+N".
 const FACES: usize = 3;
 /// Xbox's application, whose games Discord tells apart by name.
@@ -548,7 +549,7 @@ pub fn view<'a>(ctx: crate::ctx::Ctx<'a>) -> Element<'a, Message> {
     row![
         bar(line, 1, Length::Fill),
         container(page)
-            .width(WIDTH - 1.0)
+            .width(available_width(ctx).min(MAX_WIDTH) - 1.0)
             .height(Length::Fill)
             .style(move |_| rounded(panel, 0))
     ]
@@ -771,7 +772,11 @@ fn faces_row<'a>(
 /// Whether the Friends screen is wide enough for the column: narrower,
 /// it isn't drawn, so its cards aren't made, timed or fetched for.
 pub fn active_now_fits(ctx: crate::ctx::Ctx<'_>) -> bool {
-    ctx.look.window.width - crate::conversation::navigation_ctx(ctx) >= ROOM
+    available_width(ctx) >= MIN_WIDTH
+}
+
+fn available_width(ctx: crate::ctx::Ctx<'_>) -> f32 {
+    ctx.look.window.width - crate::conversation::navigation_ctx(ctx) - LIST_WIDTH
 }
 
 #[cfg(test)]

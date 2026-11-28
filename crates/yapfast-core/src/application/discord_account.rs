@@ -555,6 +555,16 @@ impl Application {
             });
         }
         self.state.discord_linked = true;
+        // Set the initial destination before the room index can select a DM.
+        if self.state.discord_user.is_none()
+            && snapshot.user_id.is_some()
+            && self.state.navigation == Navigation::DirectMessages
+            && self.state.selected.is_none()
+            && self.state.dm_screen.is_none()
+            && self.pending_open.is_none()
+        {
+            self.state.dm_screen = Some(DmScreen::Friends);
+        }
         if self.state.discord_user != snapshot.user_id {
             self.forget_activity_links();
         }

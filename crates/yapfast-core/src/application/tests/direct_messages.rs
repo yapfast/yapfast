@@ -314,7 +314,15 @@ fn discord_friends_are_listed_and_messaged() {
         ..Default::default()
     };
     let mut app = Application::default();
-    app.apply(discord_event(snapshot(&[("30", "2")])));
+    let effects = app.apply(discord_event(snapshot(&[("30", "2")])));
+    assert_eq!(app.state.dm_screen, Some(DmScreen::Friends));
+    assert_eq!(app.state.selected, None);
+    assert!(
+        app.state
+            .rooms
+            .iter()
+            .any(|room| room.id == "discord:@me:30")
+    );
     assert_eq!(
         app.state.friends[0],
         chat::Friend {
@@ -330,8 +338,6 @@ fn discord_friends_are_listed_and_messaged() {
             style: None,
         }
     );
-    let effects = app.dispatch(Action::OpenDmScreen(DmScreen::Friends));
-    assert_eq!(app.state.selected, None);
     assert!(
         !effects.iter().any(|effect| matches!(
             effect,
@@ -361,6 +367,7 @@ fn discord_friends_are_listed_and_messaged() {
 
     // A friend with a DM opens it; one without has it started.
     app.dispatch(Action::MessagePerson("2".into()));
+    app.apply(discord_event(snapshot(&[("30", "2")])));
     assert_eq!(app.state.selected.as_deref(), Some("discord:@me:30"));
     assert_eq!(app.state.dm_screen, None);
     app.dispatch(Action::OpenDmScreen(DmScreen::Friends));
