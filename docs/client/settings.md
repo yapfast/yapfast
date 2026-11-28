@@ -96,7 +96,10 @@ recording. Each change is kept at once in
   15 px (`message::line_height`), kept as `chat_text_size` when it's let
   go. 15 px is the default, as Messages' Default was, where Discord's is
   16; a layout from before keeps its Small (14), Default or Large (18)
-  from `text_size`. Then Reduced Motion: Enable Reduced Motion, the
+  from `text_size`. Then Scroll Speed, which Discord's client hasn't: how
+  far the mouse wheel or touchpad moves lists and message fields, 50% to
+  300% (`flick::set_scroll_speed`), 100% by default and kept as
+  `scroll_speed`. Then Reduced Motion: Enable Reduced Motion, the
   `reduce_motion` the Themes page's switch keeps too, which stills
   installed themes' animations, effects, hover motion and transitions
   ([themes](../themes.md)) and, as Discord's client overrides its
@@ -113,15 +116,24 @@ recording. Each change is kept at once in
   Visual Density, Color & Contrast, Always underline links, its separate
   GIF, emoji and sticker switches and Minimum notification duration aren't
   there; its Display Name Styles is Appearance's Show name styles.
-- Notifications, Sounds (the set, which plays a sound when chosen, the
-  volume, and each sound's own with its play button) and Advanced.
+- Notifications, Sounds and Advanced. Sounds has the sound set (which
+  plays a sound when chosen), Event volume, each sound's own volume with
+  its play button, and Custom sound set, off until turned on. With it on,
+  the incoming and outgoing DM call tones and each sound get a menu:
+  Default (the theme's sound, the set's or the call tone), Custom to pick a
+  file, and Uploaded file once one is picked, with a button to remove it.
+  The files are WAV, Ogg, Opus or MP3, up to 1 MiB and four seconds, six
+  for call tones, kept decoded on this device and loaded only while the
+  switch is on; turning it off keeps them and the choices.
   Advanced holds Discord's two startup switches on Windows and Linux
   outside the preview: Automatically open Yapfast when your computer starts
   up, and Start Yapfast minimized (to the tray), off until chosen and greyed
   out, shown off, while the first is off. Advanced also holds Open Discord
   links in Yapfast (outside the preview), Close to tray, saying where
   there's no tray, and the renderer's switch: while it differs from the
-  renderer drawing, when it takes effect and Restart Yapfast.
+  renderer drawing, when it takes effect and Restart Yapfast. Enhanced
+  live preview quality lifts the local preview's 720p and 30 fps caps for the
+  next stream, up to its own size and frame rate.
 - Appearance (`appearance.rs`): each theme as a small window in its own
   colours, as many 150 px or wider across as fit; a click shows one and
   keeps it. New theme opens the editor on a copy of the theme shown (Start

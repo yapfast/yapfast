@@ -66,6 +66,18 @@ copying them.
   /guilds/{id}/members/{user}` with `communication_disabled_until`. Someone
   timed out is offered Remove timeout instead, which sends null, and the
   member list marks them with a red clock beside their name.
+- Their messages carry a red clock before their name too, but only for an
+  account with Moderate Members in the server (not the channel) that
+  outranks them, as Discord's client asks before it draws one
+  (`canManageUser(MODERATE_MEMBERS, author, guild)` in its message header):
+  never on the owner, oneself, or someone whose highest role is as high.
+  Its tooltip reads "This is only visible to moderators and indicates this
+  user is timed out." The open channel works the permission out once a
+  publish (`Rendering::moderates`), and looks an author's roles up only
+  while the names say they're timed out (`shown_timeout`); a member update
+  that starts or ends a timeout changes the names' version, so the
+  channel's messages render again. The end itself wakes nothing: the row
+  checks it when it's drawn, as Discord's client checks it when it renders.
 - Kick needs Kick Members and outranking them: a confirmation with a reason,
   then `DELETE /guilds/{id}/members/{user}`.
 - Ban needs Ban Members and outranking them: how far back their messages go
@@ -629,15 +641,18 @@ message, or by when they were made if the forum sorts by creation, then
 "Older posts", the archived ones by latest message, then what a search of
 their titles finds while one shows. Each card shows, as Discord's list
 layout does: a pin for a pinned post and its first three tags, "+N" for
-more; its title, bright when the account opened it and has messages to
-read there, and "NEW" for a post made since the forum was last read that
-the account never opened (it has no read state of its own); the first
-message's author in their role colour and its text, or "Original message
-was deleted"; the reaction most given, with super reactions, or the
+more; its title and first message's author and preview, bright only for
+an active post with messages to read (one never opened has them all), so
+muted for a read post and for every archived one; "NEW" for a post made
+since the forum was last read that has no read state of its own; the
+reaction most given, with super reactions, or the
 forum's default reaction without a count; the replies; how long ago it was
 last active, or made; and its first picture, a 72px thumbnail from a file
 or an embed. Clicking a card opens the post beside the forum, as Discord's
 does, and Shift-click in its place.
+
+The author keeps their role colour on read cards too. A deleted first
+message shows "Original message was deleted" in the preview.
 
 First messages, as Discord's client gets them: an archived page or a
 search brings its posts' `first_messages`; the active posts' come from

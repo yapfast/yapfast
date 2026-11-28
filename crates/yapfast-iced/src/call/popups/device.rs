@@ -11,6 +11,7 @@ use yapfast_core::{
     meter::InputMeter,
     noise::Suppressor,
     voice::{self},
+    volume::MAX_PERCENT,
 };
 
 use crate::call::Event;
@@ -110,7 +111,7 @@ pub(super) fn device_label(name: &str) -> String {
 /// A device menu's volume: how loud calls send the microphone or play,
 /// kept as the drag lets go.
 pub(in crate::call) fn device_volume(app: &mut App, input: bool, value: u32, done: bool) {
-    let value = value.min(200) as u8;
+    let value = value.min(u32::from(MAX_PERCENT)) as u16;
     let voice = &mut app.layout.voice;
     let (kept, key) = if input {
         (&mut voice.microphone_volume, "microphone_volume")
@@ -199,9 +200,12 @@ pub(super) fn device_menu<'a>(ctx: crate::ctx::Ctx<'a>, input: bool) -> Element<
     let volume = u32::from(volume);
     menu = menu.push(separator(theme)).push(
         container(
-            controls::slider(format!("{kind} Volume"), volume, 200, move |value| {
-                Message::Call(Event::DeviceVolume(input, value, false))
-            })
+            controls::slider(
+                format!("{kind} Volume"),
+                volume,
+                u32::from(MAX_PERCENT),
+                move |value| Message::Call(Event::DeviceVolume(input, value, false)),
+            )
             .on_release(Message::Call(Event::DeviceVolume(input, volume, true)))
             .view(theme),
         )

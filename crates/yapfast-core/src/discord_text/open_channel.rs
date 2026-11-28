@@ -161,6 +161,10 @@ pub struct OpenChannel {
     /// and show again when the window reaches them or on returning to the
     /// present, without asking Discord again.
     pub(super) latest: Option<Run>,
+    /// The window is the oldest of the messages that showed, cut from those
+    /// after it as it was scrolled up: it runs straight into
+    /// [`Self::latest`], and goes back with them ([`Self::rejoin`]).
+    cut: bool,
     pub(super) pending: Vec<Pending>,
     /// Nonces of messages sent from here, which keep their row as they arrive.
     pub(super) sent: HashSet<String>,
@@ -260,6 +264,7 @@ impl OpenChannel {
             members_of: channel.to_owned(),
             shown: Run::default(),
             latest: None,
+            cut: false,
             pending: Vec::new(),
             sent: HashSet::new(),
             deleted: HashSet::new(),
@@ -378,12 +383,30 @@ impl OpenChannel {
     /// Shows the channel's newest messages again in place of a window, as
     /// they were kept. A window on its way is dropped.
     pub fn present(&mut self) {
-        if let Some(latest) = self.latest.take() {
+        let window = std::mem::take(&mut self.shown);
+        if let Some(latest) = self.rejoin(window) {
             self.shown = latest;
             self.replaced();
         } else if self.focusing {
             self.replaced();
         }
+    }
+
+    /// Takes the newest messages kept behind `window`: a window cut from
+    /// them goes back in front of them, the newest a closed channel keeps
+    /// of both. Without a window, `window` is what shows, and stays.
+    fn rejoin(&mut self, window: Run) -> Option<Run> {
+        let Some(mut latest) = self.latest.take() else {
+            self.shown = window;
+            return None;
+        };
+        if std::mem::take(&mut self.cut) {
+            latest.complete = window.complete;
+            latest.hidden = window.hidden;
+            latest.messages.extend(window.messages);
+            latest.keep_newest(KEPT_MESSAGES);
+        }
+        Some(latest)
     }
 
     /// What shows is replaced: pages on their way are for what showed before.
@@ -478,6 +501,22 @@ impl OpenChannel {
                 for message in page.messages {
                     self.insert(message);
                 }
+                // Scrolled up past what it keeps, the timeline becomes a
+                // window of its oldest messages, as Discord's client's does
+                // past 120: those after them are kept behind it, following
+                // live events, and show again as it's scrolled down or Jump
+                // to present is clicked, which shows now.
+                if !self.detached()
+                    && let Some(&cut) = self.shown.messages.keys().nth(KEPT_MESSAGES)
+                {
+                    let mut newest = Run {
+                        messages: self.shown.messages.split_off(&cut),
+                        ..Run::default()
+                    };
+                    newest.keep_newest(KEPT_MESSAGES);
+                    self.latest = Some(newest);
+                    self.cut = true;
+                }
                 if self.detached() {
                     while self.shown.messages.len() > KEPT_MESSAGES {
                         self.shown.messages.pop_last();
@@ -499,9 +538,10 @@ impl OpenChannel {
             Load::Around(_) => {
                 self.focusing = false;
                 let shown = std::mem::take(&mut self.shown);
-                if self.latest.is_none() {
-                    self.latest = Some(shown);
-                }
+                self.latest = Some(
+                    self.rejoin(shown)
+                        .unwrap_or_else(|| std::mem::take(&mut self.shown)),
+                );
                 self.shown.started(&Page {
                     messages: vec![],
                     ..page
@@ -538,6 +578,7 @@ impl OpenChannel {
     /// The window reaches the present: the newest messages kept join it,
     /// newer as they are for following live events.
     fn attach(&mut self) {
+        self.cut = false;
         if let Some(latest) = self.latest.take() {
             for (order, message) in latest.messages {
                 self.rendered.remove(&order);
@@ -1553,6 +1594,13 @@ impl OpenChannel {
                     server.deletes(channel, &me, &server.marks.roles)
                 })
         });
+        // In the server, not the channel, as Discord's client asks before it
+        // marks a timed out author (canManageUser).
+        let moderates = server.as_ref().is_some_and(|server| {
+            server.server_permissions(&me, &server.marks.roles)
+                & yapfast_discord::ready::permission::MODERATE_MEMBERS
+                != 0
+        });
         let rendering = Rendering {
             names: discord.names_version(),
             me: me.clone(),
@@ -1562,6 +1610,7 @@ impl OpenChannel {
             may_pin,
             may_forward,
             deletes,
+            moderates,
         };
         if !rendering.alike(&self.rendered_with) {
             self.rendered.clear();
@@ -1661,6 +1710,7 @@ impl OpenChannel {
                         url: None,
                         spoiler: file.spoiler,
                         video: false,
+                        audio: false,
                         description: None,
                     })
                     .collect(),
@@ -1744,6 +1794,7 @@ impl OpenChannel {
                     },
                     spoiler: attachment.spoiler,
                     video: attachment.video_url.is_some(),
+                    audio: attachment.audio,
                     gif: super::gifs::favorite_gif(attachment),
                     url: Some(
                         attachment
@@ -1845,7 +1896,21 @@ impl OpenChannel {
                         .joined_at(&self.guild, &message.author_id)
                         .is_some_and(|joined| now.saturating_sub(joined) < NEW_MEMBER_MS)
             },
+            author_timed_out_until: self.moderated_timeout(
+                discord,
+                server.zip(marks),
+                me,
+                &message.author_id,
+            ),
             forwarded: message.forwarded,
+            forward_origin: message.forward_origin.as_ref().map(|origin| {
+                let guild = origin.guild_id.as_deref().unwrap_or(discord::DM_GUILD);
+                crate::chat::ForwardOrigin {
+                    room: discord::room_id(guild, &origin.channel_id),
+                    item: format!("d:{}", origin.message_id),
+                    timestamp: origin.timestamp,
+                }
+            }),
             body,
             formatted: ordinary,
             time: crate::clock::time(timestamp),
@@ -1885,6 +1950,30 @@ impl OpenChannel {
             voice: chat_voice(message),
             notice: chat_notice(message),
         }
+    }
+
+    /// When `author`'s timeout ends, for an account that may time them out;
+    /// see [`shown_timeout`]. Their roles are looked up only while they're
+    /// timed out.
+    fn moderated_timeout(
+        &self,
+        discord: &Discord,
+        server: Option<(
+            &yapfast_discord::ready::Server,
+            &yapfast_discord::marked::ServerMarks,
+        )>,
+        me: &str,
+        author: &str,
+    ) -> Option<u64> {
+        let (server, marks) = server.filter(|_| self.rendered_with.moderates)?;
+        let until = discord.timed_out_until(&self.guild, author)?;
+        let roles = discord.roles(&self.guild, author);
+        shown_timeout(
+            server,
+            (me, marks.roles.as_slice()),
+            (author, &roles[..]),
+            until,
+        )
     }
 
     /// Whether the list of accounts whose messages are collapsed changed.
@@ -1955,6 +2044,22 @@ impl OpenChannel {
     }
 }
 
+/// When `author`, holding their roles and timed out `until`, has their
+/// timeout shown to `me`, holding its roles, which has Moderate Members in
+/// the server ([`Rendering::moderates`]): only when it outranks them, as
+/// Discord's client asks (canManageUser), so never on the owner, on itself
+/// or on someone whose highest role is as high.
+pub(super) fn shown_timeout(
+    server: &yapfast_discord::ready::Server,
+    (me, my_roles): (&str, &[String]),
+    (author, roles): (&str, &[String]),
+    until: u64,
+) -> Option<u64> {
+    server
+        .outranks(me, my_roles, author, roles)
+        .then_some(until)
+}
+
 /// What rendering a message depends on besides the message and its
 /// previews: the names known, who this account is and blocks, the server's
 /// roles and channels, which mentions show by name, and this account's roles
@@ -1972,6 +2077,9 @@ pub(super) struct Rendering {
     pub(super) may_forward: bool,
     /// Whose messages this account may delete here.
     pub(super) deletes: Deletes,
+    /// This account has Moderate Members in the server, so its messages
+    /// show whom it outranks timed out.
+    pub(super) moderates: bool,
 }
 
 impl Rendering {
@@ -1994,6 +2102,10 @@ impl Rendering {
                     || (one.role_names == other.role_names
                         && one.role_colors == other.role_colors
                         && channels(one).eq(channels(other))))
+                    // Whom this account outranks, for the timeout clock.
+                    && (Arc::ptr_eq(&one.server, &other.server)
+                        || (one.role_positions == other.role_positions
+                            && one.owner_id == other.owner_id))
                     && (Arc::ptr_eq(marks, others)
                         || (marks.roles == others.roles
                             && marks.suppress_everyone == others.suppress_everyone
@@ -2008,6 +2120,7 @@ impl Rendering {
             && self.may_pin == other.may_pin
             && self.may_forward == other.may_forward
             && self.deletes == other.deletes
+            && self.moderates == other.moderates
             && server
     }
 }

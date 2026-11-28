@@ -17,11 +17,14 @@ use std::{
 
 use tokio::sync::watch;
 
-/// Twice as loud, as Discord allows.
-pub const MAX: f32 = 2.0;
+/// Highest percentage on a call volume slider.
+pub const MAX_PERCENT: u16 = 400;
 
-/// The gain of a slider at `value`, from 0 to 200, as Discord's volume
-/// sliders map it: below 100 on a power curve, `(value / 100)^2.8`, so 50 is
+/// Maximum gain, about +18 dB at 400%.
+pub const MAX: f32 = 7.943283;
+
+/// The gain of a slider at `value`, extending Discord's volume curve to 400.
+/// Below 100 on a power curve, `(value / 100)^2.8`, so 50 is
 /// about -17 dB; above it 6 dB more for each 100, so 200 is about twice as
 /// loud. A linear slider made everything loud: 40 on Discord's is 0.077, not
 /// 0.4.
@@ -191,14 +194,14 @@ mod tests {
     fn remembers_each_persons_voice_and_stream() {
         let mut changes = changes();
         set(Kind::Voice, "volume-test-1", 0.5);
-        set(Kind::Stream, "volume-test-1", 3.0);
+        set(Kind::Stream, "volume-test-1", from_slider(400.0));
         assert!(changes.has_changed().unwrap());
         changes.mark_unchanged();
         assert_eq!(get(Kind::Voice, "volume-test-1"), 0.5);
         assert_eq!(
             get(Kind::Stream, "volume-test-1"),
-            MAX,
-            "at most twice as loud"
+            from_slider(400.0),
+            "the full stream boost is kept"
         );
         assert_eq!(
             get(Kind::Voice, "volume-test-2"),
@@ -267,7 +270,7 @@ mod tests {
         assert!(close(from_slider(50.0), 0.143), "about -17 dB");
         assert!(close(from_slider(40.0), 0.077));
         assert!(close(from_slider(200.0), 1.995), "6 dB louder");
-        for value in [1.0, 18.0, 40.0, 99.0, 100.0, 150.0, 200.0] {
+        for value in [1.0, 18.0, 40.0, 99.0, 100.0, 150.0, 200.0, 400.0] {
             assert!(close(to_slider(from_slider(value)), value), "{value}");
         }
         // A stream's default shows at about 54, as on Discord.

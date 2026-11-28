@@ -386,6 +386,7 @@ fn a_pictures_menu_in_the_thread_beside_opens_with_its_messages_rows() {
             placement: yapfast_core::chat::Placement::Message,
             spoiler: false,
             video: false,
+            audio: false,
             gif: None,
             url: Some("https://example.com/map.png".into()),
             description: None,

@@ -170,11 +170,17 @@ camera in a call still resends at once. An RTCP sender report goes out every
 second.
 
 Before sharing, the share button's menu picks a resolution and a frame rate, as
-Discord's client asks for them: 720p, 1080p or the screen's own size (up to
-4K), at 15, 30 or 60 fps. Its "Higher quality" checkbox, which Discord's client
-doesn't have, has x264 work harder on each frame. Yapfast remembers the choice
-beside the chosen audio devices (`devices.json`), and starts at 1080p30 without
-it. The menu lists every screen, window and camera, and is never taller than
+Discord's client asks for them: 720p, 1080p, 1440p or the screen's own size
+(Source, up to 4K), at 15, 30 or 60 fps. It adds 480p, which Discord's client
+keeps for its mobile performance preset. A resolution taller than the screen
+picked is disabled, as scaling never enlarges, and a remembered one that is
+shares at Source for that stream. Its "Higher quality" checkbox, which
+Discord's client doesn't have, has the encoder work harder on each frame: x264
+with "Encode streams with the GPU" off, and with it on the GPU's encoder, or
+x264 where the GPU has none. Yapfast remembers the choice, the checkbox apart
+for each, beside the chosen audio devices (`devices.json`), and starts at
+1080p30 with both off.
+The menu lists every screen, window and camera, and is never taller than
 the window: where they don't all fit, as with many windows open or the window
 short or zoomed, they scroll above the settings and Go Live, which stay in
 view. Each setting is one row naming what's chosen, whose choices open beside
@@ -187,10 +193,16 @@ and 9 Mbit/s above, the cap op 12 announces, with the frame rate as its
 trials 1080p30 at 3.5 or 5 Mbit/s for them. The worker converts captured
 frames to I420 with libyuv, scales them with libyuv's filtering scaler, and
 encodes those; the preview is the same picture scaled down to the size the
-window draws it, at most 720p. The window takes preview frames only while
-the preview is on screen, and once one has waited untaken for a quarter of a
-second the worker makes no more until it's taken, so a share hidden behind a
-game costs no preview.
+window draws it, at most 720p and 30 fps, or up to the stream's size and frame
+rate with "Enhanced live preview quality" in Settings, Advanced. The window
+takes preview frames only while the preview is on screen, and once one has
+waited untaken for a quarter of a second the worker makes no more until it's
+taken, so a share hidden behind a game costs no preview. The window also
+pauses it at once when its tile leaves the view, and while the window isn't
+focused, as Discord's client does by default
+(`pauseSelfStreamPreviewWhenUnfocused`): the tile keeps its last picture under
+Discord's "Your stream is still running!" and "We’ve paused this preview to
+save your resources." Discord's thumbnails go on being made.
 
 Under the cap, the bitrate follows what the sender's uplink carries
 (`yapfast_discord::congestion`). Sending more than it carries fills its
@@ -462,8 +474,10 @@ asked, and variable bitrate capped at the target over half a second, which
 leaves a calm screen below the cap rather than padding it. NVENC, AMF and
 VA-API change their bitrate as they run, without the IDR frame FFmpeg would
 insert, with a patch to FFmpeg for each (AMF's sets the target, peak and buffer
-on the running encoder). "Higher quality" changes nothing on the GPU: NVENC's
-slowest preset looked no better than p4.
+on the running encoder). "Higher quality" asks NVENC for p5, AMF for its
+quality preset and VA-API for compression level 1, and opens the usual preset
+where that fails. NVENC's slowest preset looked no better than p4; p5 hasn't
+been compared.
 
 Where the GPU's encoder encodes AV1 or H265, the stream offers them too,
 first, AV1 before H265, as Discord's client orders them: each looks better

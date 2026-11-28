@@ -16,6 +16,7 @@ fn videos_play_in_the_open_room_until_it_closes() {
         gif: None,
         spoiler: false,
         video,
+        audio: name.ends_with(".wav"),
         url: None,
         description: None,
     };
@@ -24,7 +25,11 @@ fn videos_play_in_the_open_room_until_it_closes() {
         messages: timeline(vec![ChatMessage {
             id: "m".into(),
             item: "e:m".into(),
-            attachments: vec![file("notes.txt", false), file("clip.mp4", true)],
+            attachments: vec![
+                file("notes.txt", false),
+                file("clip.mp4", true),
+                file("take.wav", false),
+            ],
             ..Default::default()
         }]),
     });
@@ -39,11 +44,20 @@ fn videos_play_in_the_open_room_until_it_closes() {
         app.dispatch(play(1)).as_slice(),
         [Effect::Backend(Command::PlayVideo { room, index: 1, width: 720, .. })] if room == "dm"
     ));
+    assert!(
+        matches!(
+            app.dispatch(play(2)).as_slice(),
+            [Effect::Backend(Command::PlayVideo { index: 2, .. })]
+        ),
+        "a sound file plays as a video does"
+    );
     let video = |room: &str| chat::Video {
         room: room.into(),
         item: "e:m".into(),
         index: 1,
+        audio: false,
         frames: None,
+        played_ms: None,
         duration_ms: Some(6000),
         size: Some((480, 270)),
         loading: false,
@@ -205,6 +219,7 @@ fn the_viewer_steps_through_a_messages_images() {
         gif: None,
         spoiler: false,
         video: false,
+        audio: false,
         url: None,
         description: None,
     };
@@ -287,6 +302,7 @@ fn a_picture_with_an_address_is_copied_to_the_clipboard() {
         gif: None,
         spoiler: false,
         video: false,
+        audio: false,
         url: url.map(Into::into),
         description: None,
     };

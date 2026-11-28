@@ -109,8 +109,14 @@ own, which a stream hands to the event loop as messages; nothing polls.
   front (`App::reads`), said with each of the timeline's reports and as
   the focus changes, so what comes while Yapfast is behind stays unread.
 - New messages: a sound unless it's
-  the conversation in front; while Yapfast isn't in front the taskbar
-  flashes and a notification shows, as the settings allow. A click on the
+  the conversation in front; while Yapfast isn't in front a notification
+  shows, as the settings allow, and on Windows the taskbar flashes with
+  it ("Flash the taskbar", on by default), as Discord's client flashes
+  only on Windows and only with a notification. Linux asks the desktop
+  for nothing: on Wayland winit's `request_user_attention` is an
+  xdg-activation `activate`, which a compositor set to honour them
+  (Hyprland's `misc:focus_on_activate`, sway's focus) answers by focusing
+  the window and switching to its workspace. A click on the
   notification opens its conversation, closing Settings, and brings the
   window back.
   On Windows the taskbar icon counts the mentions and unread DMs that
@@ -146,7 +152,9 @@ own, which a stream hands to the event loop as messages; nothing polls.
   bar still shows, as Discord's client always has one, with Back, Forward,
   the place, Inbox and Help but without the window's buttons, and it
   neither moves nor resizes the window (`Shell::bar_under_frame`; the tests
-  lay the window out without it unless one asks). It goes while the
+  lay the window out without it unless one asks). Appearance's "Show
+  Discord's bar under it", on by default, turns it off there
+  (`window_bar::show_under_frame`, `discord_bar` in `layout.json`). It goes while the
   window or a video is full screen. The content under it is laid out in
   the room below (`widgets::Below`), so overlays placed by the layout's
   sums or at the pointer needn't know it's there, and `App::window` is

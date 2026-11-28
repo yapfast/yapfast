@@ -912,6 +912,47 @@ fn voice_server(app: &mut App) {
     });
 }
 
+/// A capped voice channel's row shows Discord's pill: who is in it against
+/// its limit, zero-padded, kept up as people leave; not on the open channel,
+/// nor where this account may not connect, and a mention badge takes its
+/// place.
+#[test]
+fn a_capped_voice_channel_shows_its_limit_pill() {
+    let (mut app, _folder) = preview();
+    voice_server(&mut app);
+    let set_lounge = |app: &mut App, set: fn(&mut yapfast_core::chat::ChatRoom)| {
+        change(app, |state| {
+            let lounge = state
+                .rooms
+                .iter_mut()
+                .find(|room| room.id == "lounge")
+                .expect("Lounge");
+            set(Arc::make_mut(lounge));
+        });
+    };
+    assert!(!shows(&app, "07"));
+    set_lounge(&mut app, |lounge| {
+        lounge.voice_limit = std::num::NonZeroU8::new(7);
+    });
+    assert!(shows(&app, "02") && shows(&app, "07"));
+    set_lounge(&mut app, |lounge| lounge.people.clear());
+    assert!(shows(&app, "00") && !shows(&app, "02"));
+    set_lounge(&mut app, |lounge| lounge.join_locked = true);
+    assert!(
+        !shows(&app, "07"),
+        "no pill where this account may not connect"
+    );
+    set_lounge(&mut app, |lounge| {
+        lounge.join_locked = false;
+        lounge.mentions = 3;
+    });
+    assert!(!shows(&app, "07"), "a mention badge takes the pill's place");
+    set_lounge(&mut app, |lounge| lounge.mentions = 0);
+    assert!(shows(&app, "07"));
+    change(&mut app, |state| state.selected = Some("lounge".into()));
+    assert!(!shows(&app, "07"), "no pill on the open channel");
+}
+
 /// A voice channel hidden from this account, listed with Show channels you
 /// can't access, shows who is in it under its lock, as other voice channels
 /// do, and a click on it joins nothing.
@@ -1305,6 +1346,58 @@ fn group_dm_icons_render_placeholder_and_overlapping_pair_with_cutout() {
         (60..=100).contains(&front[0]),
         "expected darker front avatar, got {front:?}"
     );
+}
+
+#[test]
+fn a_servers_tooltip_says_its_invites_are_paused_to_one_who_may_manage_it() {
+    use crate::rail::Event;
+    use iced::{Point, Rectangle, Size};
+    let (mut app, _folder) = preview();
+    // Below where a plain tooltip reaches: it is 32 px tall, centred on
+    // the tile, and its shadow 12 px past that. The paused line under the
+    // name makes it taller.
+    let below_name = |tile: Point| {
+        Rectangle::new(
+            Point::new(tile.x + 44.0, tile.y + 33.0),
+            Size::new(160.0, 4.0),
+        )
+    };
+    let tip_reaches_lower = |app: &mut App| {
+        let _ = app.update(Message::Rail(Event::Point("coop".into(), true)));
+        let mut drawn = false;
+        interact(app, |ui| {
+            let at = ui
+                .find("CC")
+                .expect("Co-op crew's tile")
+                .visible_bounds()
+                .expect("in view")
+                .center();
+            drawn = super::hover_draws(ui, at, below_name(at));
+        });
+        drawn
+    };
+    let pause = |app: &mut App, until: Option<u64>| {
+        change(app, |state| {
+            let coop = state
+                .servers
+                .iter_mut()
+                .find(|server| server.id == "coop")
+                .expect("Co-op crew");
+            Arc::make_mut(coop).invites_paused_until = until;
+        });
+    };
+    assert!(!tip_reaches_lower(&mut app), "its name alone");
+    // The core says when they resume only to one who may Manage Server.
+    let now = super::now_ms() / 1000;
+    pause(&mut app, Some(now + 600));
+    assert!(
+        tip_reaches_lower(&mut app),
+        "Invites paused for this server"
+    );
+    pause(&mut app, Some(u64::MAX));
+    assert!(tip_reaches_lower(&mut app), "paused with no end");
+    pause(&mut app, Some(now - 600));
+    assert!(!tip_reaches_lower(&mut app), "resumed");
 }
 
 #[test]

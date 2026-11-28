@@ -282,7 +282,12 @@ then sends `PUT /guilds/{id}/incident-actions` with
 `invites_disabled_until` and `dms_disabled_until`, the same time that many
 hours on, or `null`, and `lockdown_duration_hours`. Invites are paused
 while the server's `incidents_data` says so, or it has `INVITES_DISABLED`;
-their rows dim. GUILD_UPDATE keeps it current. The questions Discord's
+their rows dim. GUILD_UPDATE keeps it current. The server's guild object
+from READY, GUILD_CREATE or GUILD_UPDATE carries both
+(`Server::invites_paused`), and for an account that may Manage Server
+its rail tooltip says "Invites paused for this server" under its name,
+as Discord's (module 347951); see
+[navigation](../client/navigation.md). The questions Discord's
 client asks after resuming go only to its analytics, and are left out.
 
 ## Safety Setup

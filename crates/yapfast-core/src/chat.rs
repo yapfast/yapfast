@@ -85,6 +85,8 @@ pub struct ChatRoom {
     pub name: String,
     pub direct: bool,
     pub voice: bool,
+    /// Maximum participants in a capped Discord voice channel.
+    pub voice_limit: Option<std::num::NonZeroU8>,
     pub encrypted: bool,
     pub members: u64,
     pub unread: u64,
@@ -565,6 +567,11 @@ pub struct ChatServer {
     pub banner: Option<String>,
     /// Verified or partnered, which its name carries a tick for.
     pub verified: bool,
+    /// When its paused invites resume, in Unix seconds ([`u64::MAX`] for
+    /// no end), for an account that may Manage Server, which its rail
+    /// tooltip tells while they're paused, as Discord's does. None for
+    /// anyone else, or invites that aren't paused.
+    pub invites_paused_until: Option<u64>,
     /// Its scheduled events that haven't ended, soonest first, which its
     /// channel list counts in an "N Events" row.
     pub events: Vec<ServerEvent>,
@@ -1839,6 +1846,9 @@ pub struct Attachment {
     /// A video that plays in place of its picture, which is its poster:
     /// [`Command::PlayVideo`].
     pub video: bool,
+    /// A sound file, such as an MP3 or a WAV, that plays in its card as a
+    /// video without pictures: [`Command::PlayVideo`].
+    pub audio: bool,
     /// A GIF that can be a favourite: a linked one, or an attached `.gif`.
     pub gif: Option<Gif>,
     /// Its address on the web, which Copy Link and Open Link give, and from
@@ -1876,8 +1886,14 @@ pub struct Video {
     pub item: String,
     /// Its attachment's index in the item's attachments.
     pub index: usize,
+    /// A sound file, which has no pictures: its time comes as `played_ms`
+    /// rather than with its frames.
+    pub audio: bool,
     /// Its pictures, while it plays.
     pub frames: Option<Arc<crate::frames::Frames>>,
+    /// How far a sound file has played, in milliseconds, as its worker
+    /// says a few times a second.
+    pub played_ms: Option<u64>,
     /// How long it plays, once the file says.
     pub duration_ms: Option<u64>,
     /// Its pictures' full width and height, once its file opens.
@@ -2073,6 +2089,17 @@ pub enum ButtonStyle {
     Premium,
 }
 
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct ForwardOrigin {
+    /// The conversation the original message was sent in (its room id).
+    pub room: String,
+    /// The original message's timeline item (`d:{id}` on Discord).
+    pub item: String,
+    /// When the original message was sent, in seconds since the Unix epoch;
+    /// zero when unknown.
+    pub timestamp: u64,
+}
+
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct ChatMessage {
     /// Stable row key across the local echo and its remote event.
@@ -2110,9 +2137,17 @@ pub struct ChatMessage {
     pub tag: Option<ServerTag>,
     /// Forwarded on Discord: its body, files and embeds are the original's.
     pub forwarded: bool,
+    /// Where a forwarded message came from, when known, so the timeline can
+    /// show its source and jump to the original.
+    pub forward_origin: Option<ForwardOrigin>,
     /// The author joined the server in the last week, which Discord marks
     /// by their name as a new member.
     pub new_member: bool,
+    /// When the author's Discord timeout ends, in Unix milliseconds, for an
+    /// account that may time them out: Moderate Members and a higher role,
+    /// as Discord's client asks before it marks their name with a clock.
+    /// None for anyone else; it may have ended since.
+    pub author_timed_out_until: Option<u64>,
     pub body: String,
     /// The body is Markdown source whose sender also sent formatting.
     pub formatted: bool,
@@ -2980,10 +3015,14 @@ pub enum DiscordCommand {
         url: String,
     },
     /// Post sticker `id` in `room` as a message of its own, as Discord's
-    /// client does; the gateway shows it.
+    /// client does, as a reply to timeline item `reply` when the composer
+    /// replies to one (`quiet_reply`: without notifying its author); the
+    /// gateway shows it.
     SendSticker {
         room: String,
         id: String,
+        reply: Option<String>,
+        quiet_reply: bool,
     },
     /// The members of a Discord role in the room's server, as far as they're known;
     /// [`Event::RoleMembers`] follows.

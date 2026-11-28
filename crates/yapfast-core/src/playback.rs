@@ -1,7 +1,7 @@
 //! The video playing in the conversation view: its file downloading to disk,
 //! the worker playing it as it does ([`crate::video_player`]), and what the
-//! UI shows of it. One plays at a time; dropping it stops it and deletes
-//! the file.
+//! UI shows of it. A sound file plays the same way, with no pictures. One
+//! plays at a time; dropping it stops it and deletes the file.
 //!
 //! The file downloads in parts, with HTTP Range requests, as a browser
 //! plays a video: from its start, and from wherever the worker waits for
@@ -45,6 +45,8 @@ const TELL_BYTES: u64 = 1 << 20;
 
 pub struct Playback {
     pub video: Video,
+    /// The worker's pictures, which a sound file's video leaves out.
+    frames: Arc<crate::frames::Frames>,
     worker: Worker,
     reports: Option<UnboundedReceiver<Report>>,
     /// What the download tells the worker: bytes arrived, then the end.
@@ -63,8 +65,9 @@ pub enum Wake {
 
 impl Playback {
     /// Starts downloading a video into a file in `directory`, and playing it
-    /// as it arrives. `fetch(from, to)` asks for its bytes from `from`, up
-    /// to `to` when given. `size` is the file's, when known before.
+    /// as it arrives, its pictures fitting `frame`; with no `frame`, a sound
+    /// file. `fetch(from, to)` asks for its bytes from `from`, up to `to`
+    /// when given. `size` is the file's, when known before.
     #[allow(
         clippy::too_many_arguments,
         reason = "the video, where it goes, and the callbacks that fetch and show it"
@@ -73,7 +76,7 @@ impl Playback {
         video: Video,
         directory: &Path,
         size: Option<u64>,
-        frame: (u32, u32),
+        frame: Option<(u32, u32)>,
         speakers: Option<String>,
         fetch: F,
     ) -> Result<Self>
@@ -91,6 +94,7 @@ impl Playback {
         let (handle, path) = file.into_parts();
         let (worker, frames, reports) =
             Worker::play(path.to_path_buf(), size, frame, speakers, gain(&video))?;
+        let frames = Arc::new(frames);
         let (tell, arrivals) = mpsc::unbounded_channel();
         let (needs, needed) = mpsc::unbounded_channel();
         let download = tokio::spawn(async move {
@@ -113,9 +117,11 @@ impl Playback {
         });
         Ok(Self {
             video: Video {
-                frames: Some(Arc::new(frames)),
+                audio: frame.is_none(),
+                frames: frame.is_some().then(|| frames.clone()),
                 ..video
             },
+            frames,
             worker,
             reports: Some(reports),
             arrivals: Some(arrivals),
@@ -143,10 +149,9 @@ impl Playback {
             Wake::Report(Some(Report::Needs { at })) => {
                 let _ = self.needs.send(at);
             }
-            Wake::Report(Some(Report::Ready)) => {
-                if let Some(frames) = &self.video.frames {
-                    frames.unlink();
-                }
+            Wake::Report(Some(Report::Ready)) => self.frames.unlink(),
+            Wake::Report(Some(Report::Played { time_ms })) => {
+                self.video.played_ms = Some(time_ms);
             }
             Wake::Report(Some(Report::Opened {
                 duration_ms,
@@ -207,6 +212,9 @@ impl Playback {
             }
             VideoCommand::Seek(time_ms) => {
                 self.video.ended = false;
+                if self.video.audio {
+                    self.video.played_ms = Some(time_ms);
+                }
                 Control::Seek(time_ms)
             }
             // Pictures larger than the frames file holds wouldn't show.
@@ -551,7 +559,9 @@ mod tests {
             room: "r".into(),
             item: "i".into(),
             index: 0,
+            audio: false,
             frames: None,
+            played_ms: None,
             duration_ms: None,
             size: None,
             loading: false,

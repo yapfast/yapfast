@@ -129,7 +129,7 @@ static int open_vaapi(struct yapfast_hwenc *h, AVCodecContext *codec, struct va_
 
 static int open_encoder(struct yapfast_hwenc *h, const AVCodec *found, struct va_device device,
                         unsigned codec_id, unsigned width, unsigned height, unsigned fps,
-                        unsigned kbps) {
+                        unsigned kbps, unsigned high_quality) {
   int vaapi = device.path != NULL, amf = strstr(found->name, "_amf") != NULL;
   AVCodecContext *codec = h->codec = avcodec_alloc_context3(found);
   if (!codec) return AVERROR(ENOMEM);
@@ -151,6 +151,7 @@ static int open_encoder(struct yapfast_hwenc *h, const AVCodec *found, struct va
   void *options = codec->priv_data;
   int ret = 0;
   if (vaapi) {
+    if (high_quality) codec->compression_level = 1;
     av_opt_set(options, "rc_mode", "VBR", 0);
     av_opt_set_int(options, "async_depth", 1, 0);
     ret = open_vaapi(h, codec, device);
@@ -159,7 +160,7 @@ static int open_encoder(struct yapfast_hwenc *h, const AVCodec *found, struct va
     /* Or FFmpeg holds each frame's packet back until the next frame. */
     codec->flags |= AV_CODEC_FLAG_LOW_DELAY;
     av_opt_set(options, "usage", "lowlatency", 0);
-    av_opt_set(options, "quality", "balanced", 0);
+    av_opt_set(options, "quality", high_quality ? "quality" : "balanced", 0);
     av_opt_set(options, "rc", "vbr_peak", 0);
     av_opt_set_int(options, "enforce_hrd", 1, 0);
     av_opt_set_int(options, "filler_data", 0, 0);
@@ -181,7 +182,7 @@ static int open_encoder(struct yapfast_hwenc *h, const AVCodec *found, struct va
     }
     h->poll = 1;
   } else {
-    av_opt_set(options, "preset", "p4", 0);
+    av_opt_set(options, "preset", high_quality ? "p5" : "p4", 0);
     av_opt_set(options, "tune", "ll", 0);
     av_opt_set(options, "rc", "vbr", 0);
     av_opt_set_int(options, "zerolatency", 1, 0);
@@ -240,7 +241,7 @@ static void kernel_driver(int n, char *name, size_t size) {
 }
 
 struct opening {
-  unsigned codec_id, width, height, fps, kbps;
+  unsigned codec_id, width, height, fps, kbps, high_quality;
   char *report;
   size_t report_size, used;
 };
@@ -258,7 +259,13 @@ static struct yapfast_hwenc *try_open(struct opening *o, const AVCodec *found,
   struct yapfast_hwenc *h = av_mallocz(sizeof *h);
   if (!h) return NULL;
   first_error[0] = 0;
-  int ret = open_encoder(h, found, device, o->codec_id, o->width, o->height, o->fps, o->kbps);
+  int ret = open_encoder(h, found, device, o->codec_id, o->width, o->height, o->fps, o->kbps,
+                         o->high_quality);
+  if (ret < 0 && o->high_quality) {
+    close_encoder(h);
+    first_error[0] = 0;
+    ret = open_encoder(h, found, device, o->codec_id, o->width, o->height, o->fps, o->kbps, 0);
+  }
   if (ret >= 0) {
     snprintf(o->report, o->report_size, "%s", label);
     return h;
@@ -276,13 +283,13 @@ static struct yapfast_hwenc *try_open(struct opening *o, const AVCodec *found,
  * that has a driver for it, and writes its name to `report`, or each one's
  * failure when none does. */
 struct yapfast_hwenc *yapfast_hwenc_new(unsigned codec_id, unsigned width, unsigned height,
-                                        unsigned fps, unsigned kbps, char *report,
+                                        unsigned fps, unsigned kbps, unsigned high_quality, char *report,
                                         size_t report_size) {
   if (report_size) report[0] = 0;
   if (codec_id > CODEC_AV1) return NULL;
   av_log_set_level(AV_LOG_ERROR);
   av_log_set_callback(keep_error);
-  struct opening o = {codec_id, width, height, fps, kbps, report, report_size, 0};
+  struct opening o = {codec_id, width, height, fps, kbps, high_quality, report, report_size, 0};
   for (const char *const *name = ENCODERS[codec_id]; *name; name++) {
     const AVCodec *found = avcodec_find_encoder_by_name(*name);
     if (!found) continue;

@@ -367,6 +367,21 @@ Yapfast is back, rather than showing an error.
   squared, so its middle sounds about half as loud. Turning it to nothing
   mutes, and unmuting brings back the level it had. The next video plays as
   loud, until Yapfast closes.
+- Attached sound files play in their cards, as Discord's audio player has
+  them: a file whose name ends `.mp3`, `.m4a`, `.ogg`, `.opus`, `.wav` or
+  `.flac`, in any case, and that has no picture's width and height, which is
+  Discord's client's own test (`plays_as_audio` in `yapfast-discord`). The
+  card is the file's, with a note for its icon, over the controls of a video
+  without full screen: Play, its time, the track to move through it, and
+  the mute with its volume, which a video's sets too. It plays as a video
+  does, from the file's own `url`: the same download in parts into
+  `discord-videos/`, the same worker, and one at a time, so it stops a
+  video and a video stops it. The worker opens only the file's sound
+  (`Job::Play` with `audio`), plays it on the call's speakers, and reports
+  its clock's time four times a second and after a move
+  (`Report::Played`), as it has no pictures to carry it. It needs the
+  speakers: without them it stops and says so. FFmpeg's MP3, AAC, FLAC,
+  Ogg (Vorbis and Opus) and WAV (PCM, A-law and mu-law) readers play them.
 - A voice message, a message flagged `IS_VOICE_MESSAGE` (`1 << 13`) whose
   only attachment is its Ogg Opus recording, shows as a pill instead of a file
   card, mixing Discord's phone and desktop players: a round button that plays
@@ -424,7 +439,9 @@ Yapfast is back, rather than showing an error.
   a reply
   or a notification reads "(spoiler)". Attachments named `SPOILER_...` or
   flagged as spoilers, and pictures linked inside a spoiler, show blurred with
-  a "Spoiler" label until clicked. Revealing lasts while Yapfast runs. The eye
+  a "Spoiler" label until clicked. A spoiler uncovered stays so while its
+  channel is open, and covers again once another opens, as Discord's
+  client's do: it keeps the reveal only in the message on screen. The eye
   on a file waiting in the composer marks it as a spoiler, which blurs its
   thumbnail; Yapfast uploads it as `SPOILER_` and its name, as Discord's client
   does. Matrix has no spoiler for a file, so its rooms don't offer the eye.
@@ -1086,8 +1103,11 @@ the width is the same for all three tabs and comes back at the next start
   scrolls out of sight.
 - A click sends `POST /channels/{id}/messages` with `sticker_ids`, a message of
   the sticker alone as Discord's client sends it; the gateway's MESSAGE_CREATE
-  shows it, as it shows a poll. A sticker that couldn't be sent says why in
-  the channel.
+  shows it, as it shows a poll. While the composer replies, it goes as the
+  reply, with the same `message_reference` and, with the mention off,
+  `allowed_mentions` a text reply has, and the reply bar goes once Discord
+  took it, as Discord's client sends it through its composer's send. A
+  sticker that couldn't be sent says why in the channel.
 - Discord's default packs are anyone's to send, and the open server's own
   stickers too; another server's, and every server's in a DM, need Nitro and
   show greyed with a lock until then, as Discord's client has them
@@ -1129,6 +1149,13 @@ window goes. Leaving the channel lets the window go too, and only the
 newest go to disk. Pages loading for a window that a newer jump or the
 present replaced are dropped when they come.
 
+Scrolling up by hand makes a window too, as Discord's client does once it
+holds more than 120 messages: past the 200 a channel keeps, an earlier page
+leaves the oldest 200 showing as a window, and those after them wait beside
+it as above, so the pill shows. Scrolling down loads them back a page at a
+time; Jump to present, or leaving the channel, shows the newest 200 of the
+window and those beside it together, without asking Discord.
+
 The window holds what was asked for, not every page between it and the
 present. Growing upwards past 200 messages, it lets go of its newest,
 below the screen, which load again; growing downwards it keeps its oldest,
@@ -1156,6 +1183,17 @@ each conversation the forward reached. A slowmode channel this account
 doesn't bypass gets the forward alone, as the dialog warns, since the
 second message would wait out the slowmode. `@silent` at the start of the
 message added notifies nobody of either.
+
+Under a forward, a footer says where the original came from, as Discord's
+client words it: from a channel of the same server, its name (`#general`,
+a thread's in quotes); from another server this account is in, or a
+channel of this one it doesn't list, that server's icon and name. Then `•`
+and when the original was sent, from its id's snowflake: the time today,
+`Yesterday at …`, the weekday within the week before, the date alone
+beyond. Clicking it opens the original's conversation at it; one that
+isn't listed is asked for, as a link to a thread is. A forward from a DM,
+or from a listed channel of the same server this account can't read, has
+no footer.
 
 Messages forward as Discord's client allows: those written, by a person or
 an app's command, with no poll, call or activity, and none of the flags it

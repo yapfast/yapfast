@@ -83,7 +83,13 @@ author who joined the server in the last week (`new_member`; not a bot, not
 one who left and came back, and not in a server itself under a week old, as
 Discord's client marks them), and, in a forum post, an "OP" tag for the
 post's author unless the APP tag is there; a reply's line quotes the
-author's tag a little smaller. A notice shows its icon in place of the avatar
+author's tag a little smaller. Before the name, a red clock marks an
+author who is timed out, only for an account that may time them out
+(`author_timed_out_until`, which the core sets; see
+[servers](../discord/servers.md#a-server-members-menu)); its tooltip reads "This is
+only visible to moderators and indicates this user is timed out." The row
+checks the end when it's drawn, as Discord's client checks it when it
+renders, so nothing wakes for it. A notice shows its icon in place of the avatar
 and its words in Discord's wording. An app's answer still to come says
 "{app} is thinking…", and "The application did not respond" once it's 15
 minutes old.
@@ -163,13 +169,24 @@ slash command, where one may write, is written in the composer
   in: its shares show once this account voted or it closed, and its foot
   says "View original message to interact", or the votes and "Poll
   closed"; a click on it goes to the card.
+- A sound file (`playback::audio_card`) shows as a file's card with a note
+  for its icon over a video's controls, on Discord's black at 40 % with
+  rounded corners, without full screen. Until it plays they hold Play and
+  "0:00"; Play plays it as a video (`Clip::Play`). A video's and a sound
+  file's volume slider, like a voice message's, rises from the mute in a
+  `Popover`, in iced's overlay layer, so it takes presses before what it
+  covers, such as the card's Save, and hides the pointer from it, its
+  padding too. Its time is the core's
+  (`Video::played_ms`), not a frame's, and why it stopped shows in place of
+  its time, with Play to try again.
 - A voice message (`playback.rs`) plays and pauses from its button; its
   waveform fills as it plays, and a press or a drag on it moves there
   (pausing while held); its time counts down. While the pointer is on it,
   or always with animations off, its speed and mute show; on the mute,
   the volume opens over it, an upright slider 120 px tall that the wheel
-  turns 5 % a step, staying while the pointer is on either (a
-  `widgets::Corner` made `free` to be wider than the button). Pressing
+  turns 5 % a step, staying while the pointer is on either (a `Popover`
+  `centred` on the button, in iced's overlay layer, so a press on it isn't
+  the text's under it). Pressing
   the slider takes the keys from the fields, once a press; while it's open, keys no
   field took turn it (`playback::voice_key`: Up and Down 5 %, Page Up and
   Page Down 20 %) or close it (Escape). The core plays it.
@@ -251,7 +268,12 @@ out by the core's `emoji::card`): the emoji or sticker at 48 px,
 its name and what it is, and for one of a server's this account can reach
 the server it's from, whose card asks Discord how many are online there
 and what Discover says of it; a click on the server goes there. An emoji
-of a server out of reach says "Invite-Only Server" and no more. A Discord link this
+of a server out of reach says "Invite-Only Server" and no more. A
+sticker's card says what Discord's does: from this server or another of
+this account's (with "Get Nitro to use it everywhere." without Nitro), as
+the snapshot lists every server's stickers; else from the default pack it
+is in, by name; else from a server "either invite-only or unavailable"
+(Discord's client asks `GET /stickers/{id}` first; Yapfast doesn't). A Discord link this
 account can follow stays in the app, as the core's `discord_route` reads
 it: an invite opens its Join dialog, an app's authorization, a gift and
 an event their dialogs (see [dialogs](dialogs.md)), a server, channel or

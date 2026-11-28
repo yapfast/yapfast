@@ -418,8 +418,8 @@ impl Chat {
         self.voice_message = Some(player);
     }
 
-    /// Plays an attachment's video in place of its poster, as it downloads,
-    /// in place of any other.
+    /// Plays an attachment's video in place of its poster, or a sound
+    /// file in its card, as it downloads, in place of any other.
     fn play_video(
         &mut self,
         room: String,
@@ -434,7 +434,9 @@ impl Chat {
             room,
             item,
             index,
+            audio: false,
             frames: None,
+            played_ms: None,
             duration_ms: None,
             size: None,
             loading: true,
@@ -445,17 +447,26 @@ impl Chat {
             volume: self.video_sound.0,
             error: None,
         };
+        // A sound file plays from the file itself, as a video does.
         let found = self
             .channels
             .shown_mut(&video.room)
             .and_then(|channel| channel.attachment(&video.item, index))
-            .and_then(|attachment| Some((attachment.video_url.clone()?, attachment.size)));
-        let Some((url, size)) = found else {
+            .and_then(|attachment| {
+                let url = match &attachment.video_url {
+                    Some(url) => url.clone(),
+                    None if attachment.audio => attachment.url.to_string(),
+                    None => return None,
+                };
+                Some((url, attachment.size, attachment.audio))
+            });
+        let Some((url, size, audio)) = found else {
             video.loading = false;
             video.error = Some("This video is no longer available.".into());
             let _ = events.send(Event::Video(Some(video)));
             return;
         };
+        video.audio = audio;
         let directory = yapfast_discord::cache::videos()
             .unwrap_or_else(|| std::env::temp_dir().join("yapfast-videos"));
         let discord = self.discord.clone();
@@ -467,7 +478,7 @@ impl Chat {
             video.clone(),
             &directory,
             size,
-            frame,
+            if audio { None } else { Some(frame) },
             speakers,
             fetch,
         ) {
@@ -478,7 +489,11 @@ impl Chat {
             Err(error) => {
                 tracing::warn!(error = format!("{error:#}"), "could not play a video");
                 video.loading = false;
-                video.error = Some("Yapfast couldn't play this video.".into());
+                video.error = Some(if audio {
+                    "Yapfast couldn't play this file.".into()
+                } else {
+                    "Yapfast couldn't play this video.".into()
+                });
                 let _ = events.send(Event::Video(Some(video)));
             }
         }

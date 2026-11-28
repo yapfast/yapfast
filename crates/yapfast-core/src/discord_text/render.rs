@@ -130,6 +130,7 @@ pub(super) fn found(
                 placement: Placement::Message,
                 spoiler: attachment.spoiler,
                 video: attachment.video_url.is_some(),
+                audio: attachment.audio,
                 gif: super::gifs::favorite_gif(attachment),
                 url: Some(
                     attachment

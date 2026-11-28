@@ -224,6 +224,11 @@ pub fn corner_view(app: &App) -> Option<Element<'_, Message>> {
             .center(Length::Fill)
             .into()
     });
+    let content = if pip == Pip::Shared && live && !app.shell.focused {
+        crate::call::stage::paused_share_preview(content)
+    } else {
+        content
+    };
     let mut base = stack![content].width(size.width).height(size.height);
     if live {
         let activity_themed = app

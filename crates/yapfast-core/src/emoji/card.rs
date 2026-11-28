@@ -70,10 +70,20 @@ pub const SERVER_EMOJI: &str = "This emoji is from one of your servers.";
 /// with no count of who's online and no separator, since Discord tells it
 /// nothing.
 pub const OTHER_EMOJI: &str = "Invite-Only Server";
-/// A default sticker's card: Discord's own packs are usable anywhere.
-pub const DEFAULT_STICKER: &str = "This is a default sticker. It can be used anywhere.";
-/// A server's sticker's card, when the server is one this account can reach.
+/// A server's sticker's card, as Discord's says it: one from the server of
+/// the room it shows in, with Nitro and without.
+pub const HERE_STICKER: &str = "This sticker is from this server. You can use it everywhere.";
+pub const HERE_STICKER_NO_NITRO: &str =
+    "This sticker is from this server. Get Nitro to use it everywhere.";
+/// One from another of this account's servers. Discord's adds "Type its
+/// name in the chat bar to use it." with Nitro; Yapfast's composer doesn't
+/// suggest stickers, so its card stops before it.
 pub const SERVER_STICKER: &str = "This sticker is from one of your servers.";
+pub const SERVER_STICKER_NO_NITRO: &str =
+    "This sticker is from one of your servers. Get Nitro to use it everywhere.";
+/// One neither in this account's servers nor in Discord's packs.
+pub const OTHER_STICKER: &str =
+    "This sticker is from a server that is either invite-only or unavailable.";
 /// The heading over the server, on each card.
 pub const EMOJI_FROM: &str = "This emoji is from";
 pub const STICKER_FROM: &str = "This sticker is from";
@@ -85,7 +95,7 @@ pub struct Card {
     /// as the message names it ("sob"); empty for a custom emoji no message
     /// on screen shows.
     pub name: String,
-    pub description: &'static str,
+    pub description: String,
     /// A custom emoji's or a sticker's picture, by address.
     pub picture: Option<String>,
     /// A custom emoji whose picture moves.
@@ -140,7 +150,7 @@ pub fn emoji(target: &Target, server: Option<&ChatServer>, state: &AppState) -> 
         Target::Unicode(emoji) => {
             return Card {
                 name: super::shortcode(emoji),
-                description: DEFAULT_EMOJI,
+                description: DEFAULT_EMOJI.into(),
                 ..Card::default()
             };
         }
@@ -172,7 +182,8 @@ pub fn emoji(target: &Target, server: Option<&ChatServer>, state: &AppState) -> 
             SERVER_EMOJI
         } else {
             OTHER_EMOJI
-        },
+        }
+        .into(),
         picture: listed.map(|emoji| emoji.picture.clone()),
         animated: listed.is_some_and(|emoji| emoji.animated),
         server,
@@ -196,26 +207,50 @@ fn sticker_id(url: &str) -> Option<&str> {
     name.split(['.', '?']).next().filter(|id| !id.is_empty())
 }
 
+/// What a default sticker's card says, naming its pack as Discord's does.
+pub fn pack_sticker(pack: &str) -> String {
+    format!("This is a {pack} sticker.")
+}
+
 /// The card of message `item`'s attachment `index`, a sticker: its name as
-/// the message names it, and the server it is from when one of this
-/// account's lists it. None when the message or attachment is gone.
-pub fn sticker(state: &AppState, item: &str, index: usize) -> Option<Card> {
+/// the message names it, and what it is as Discord's card says. A message's
+/// sticker names no server, so it's looked for among this account's
+/// servers, then in Discord's packs; one in neither is from a server out of
+/// reach. None when the message or attachment is gone.
+pub fn sticker(app: &Application, item: &str, index: usize) -> Option<Card> {
+    let state = &app.state;
     let attachment = state.message(item)?.attachments.get(index)?;
     let url = attachment.url.as_deref().unwrap_or_default();
-    // Which server lists it: Discord's packs are nobody's, and a message's
-    // sticker names no server itself.
-    let server = sticker_id(url)
-        .and_then(|id| {
-            state
-                .stickers
-                .servers
-                .iter()
-                .find(|server| server.stickers.iter().any(|sticker| sticker.id == id))
-        })
-        .and_then(|server| {
-            let id = crate::discord::server_id(&server.id);
-            state.servers.iter().find(|known| known.id == id)
-        });
+    let id = sticker_id(url);
+    let server = id
+        .and_then(|id| app.sticker_server(id))
+        .and_then(|server| state.servers.iter().find(|known| known.id == server))
+        .filter(|server| !server.unavailable);
+    let description = match server {
+        Some(server) => {
+            let here = state
+                .selected
+                .as_deref()
+                .and_then(crate::discord::parse_room)
+                .is_some_and(|(guild, _)| crate::discord::server_id(guild) == server.id);
+            match (here, app.discord_nitro()) {
+                (true, true) => HERE_STICKER,
+                (true, false) => HERE_STICKER_NO_NITRO,
+                (false, true) => SERVER_STICKER,
+                (false, false) => SERVER_STICKER_NO_NITRO,
+            }
+            .to_owned()
+        }
+        None => id
+            .and_then(|id| {
+                state
+                    .stickers
+                    .packs
+                    .iter()
+                    .find(|pack| pack.stickers.iter().any(|sticker| sticker.id == id))
+            })
+            .map_or_else(|| OTHER_STICKER.to_owned(), |pack| pack_sticker(&pack.name)),
+    };
     let server = server.map(|server| {
         let preview = state.server_previews.get(&server.id);
         let discoverable = preview.map_or(server.community, |preview| preview.discoverable);
@@ -223,11 +258,7 @@ pub fn sticker(state: &AppState, item: &str, index: usize) -> Option<Card> {
     });
     Some(Card {
         name: attachment.name.clone(),
-        description: if server.is_some() {
-            SERVER_STICKER
-        } else {
-            DEFAULT_STICKER
-        },
+        description,
         picture: (!url.is_empty()).then(|| url.to_owned()),
         animated: false,
         server,
