@@ -303,6 +303,7 @@ impl App {
             self.timeline.latest_due = false;
             self.timeline.left_at = None;
             // The composer shows the room's own draft.
+            crate::composer::close_preview(&mut self.composer, crate::composer::Writing::Draft);
             self.composer.draft.reset(state.draft());
             self.composer.draft_known = state.draft().to_owned();
             self.timeline.selection = None;
@@ -326,6 +327,7 @@ impl App {
             if self.composer.draft_known != self.composer.draft.text() {
                 self.composer.draft.reset(&self.composer.draft_known);
             }
+            crate::composer::update_preview(self, crate::composer::Writing::Draft);
         }
         let seen = {
             let state = self.client.state();
@@ -635,9 +637,15 @@ impl App {
                     return old_looks[before].body.clone();
                 }
                 let message = &messages[index];
-                Arc::new(timeline::body_of(message, mention, ink, muted, |spoiler| {
-                    revealed.contains(&format!("{}/{spoiler}", message.item))
-                }))
+                Arc::new(timeline::body_of(
+                    message,
+                    mention,
+                    ink,
+                    muted,
+                    self.timeline
+                        .shows_markup(&message.item, prefs.message_markup),
+                    |spoiler| revealed.contains(&format!("{}/{spoiler}", message.item)),
+                ))
             },
         );
         // A log's text column, which its rows' text wraps from.

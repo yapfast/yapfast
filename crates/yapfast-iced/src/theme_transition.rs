@@ -150,6 +150,7 @@ fn timeline_copy(timeline: &Timeline) -> Timeline {
         edge: timeline.edge.clone(),
         found: timeline.found.clone(),
         revealed: timeline.revealed.clone(),
+        markup: Default::default(),
         jumped: timeline.jumped.clone(),
         unread_jumped: timeline.unread_jumped,
         jump_lit: timeline.jump_lit.clone(),

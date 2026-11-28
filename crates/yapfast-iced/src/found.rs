@@ -60,6 +60,7 @@ pub fn found_marked(
         crate::theme::rgb(app.theme.mention),
         crate::theme::rgb(app.theme.text),
         crate::theme::rgb(app.theme.muted),
+        true,
         |spoiler| revealed.contains(&format!("{}/{spoiler}", message.item)),
     );
     crate::markdown::highlight(&mut body.body, words);
@@ -110,16 +111,28 @@ pub fn found_view<'a>(
     .spacing(2)
     .width(Length::Fill);
     if !message.body.trim().is_empty() {
-        let body = ctx.body_view(
-            &found.body.body,
-            NO_ROW,
-            FIRST_PART,
-            Look {
-                size: 15.0,
-                line_height: LINE_HEIGHT,
-                ink: theme.text,
-            },
-        );
+        let body = if message.notice.is_some()
+            || ctx
+                .lanes
+                .timeline
+                .shows_markup(&message.item, ctx.layout.prefs.message_markup)
+        {
+            ctx.body_view(
+                &found.body.body,
+                NO_ROW,
+                FIRST_PART,
+                Look {
+                    size: 15.0,
+                    line_height: LINE_HEIGHT,
+                    ink: theme.text,
+                },
+            )
+        } else {
+            iced::widget::text(message.body.as_str())
+                .size(15.0)
+                .color(theme.text)
+                .into()
+        };
         words = words.push(container(body).max_height(LINE_HEIGHT * LINES).clip(true));
     }
     // Its stickers: each picture, small, when it's already here, or else

@@ -267,6 +267,7 @@ pub fn forum_sync(app: &mut App) {
                 app.forum_post.body.reset("");
                 app.forum_post.body_known.clear();
             }
+            crate::composer::close_preview(&mut app.composer, crate::composer::Writing::NewPost);
             app.forum_post.tags_menu = false;
             app.forum_post.guidelines = None;
         }

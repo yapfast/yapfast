@@ -175,6 +175,7 @@ pub enum MenuAct {
     Reply,
     Forward,
     CopyText,
+    ToggleMarkup,
     CopySelection,
     EndPoll,
     /// Pin, or unpin.
@@ -463,6 +464,17 @@ pub fn open_menu(app: &mut App, index: usize, at: Point) -> Task<Message> {
     }
     if !message.body.is_empty() {
         rows.push(row(MenuAct::CopyText, "Copy text", Icon::Copy));
+        if message.formatted && message.notice.is_none() {
+            let (label, icon) = if app
+                .timeline
+                .shows_markup(&message.item, app.layout.prefs.message_markup)
+            {
+                ("Show source", Icon::EyeOff)
+            } else {
+                ("Show formatting", Icon::Eye)
+            };
+            rows.push(row(MenuAct::ToggleMarkup, label, icon));
+        }
     }
     if crate::timeline::selection::copied_selection(app).is_some() {
         rows.push(row(
@@ -903,6 +915,10 @@ pub fn act(
         MenuAct::Reply => {
             app.client.dispatch(Action::Reply(item));
             Task::batch([app.sync(), focus])
+        }
+        MenuAct::ToggleMarkup => {
+            crate::timeline::toggle_markup(app, item);
+            focus
         }
         MenuAct::CopyText => {
             let body = app

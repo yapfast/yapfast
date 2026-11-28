@@ -250,7 +250,10 @@ the core's blocks (headings, subtext, quotes, fenced code) apart, and in
 each the inline styles as runs, with mentions of people, roles and
 everyone on pills of their colour (a channel's and a notice's coloured text
 in its colour alone),
-links, and spoilers covered until clicked. A web address opens the browser; a
+links, and spoilers covered until clicked. Message bodies also render
+standard Markdown and basic HTML. Images in markup show their alt text.
+The message menu offers Show source and Show formatting for that message.
+A web address opens the browser; a
 mention or a notice's name opens the person's card, and a role's mention
 the role's card beside it (`info_cards.rs`):
 the role in its colour, then who Yapfast has seen with it, each opening

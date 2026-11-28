@@ -10928,6 +10928,7 @@ dependencies = [
  "bytes",
  "chrono",
  "emojis",
+ "html5ever",
  "iced",
  "iced_runtime",
  "iced_test",
