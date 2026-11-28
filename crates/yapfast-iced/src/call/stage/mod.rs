@@ -335,12 +335,21 @@ pub fn frame<'a>(
     })
 }
 
-/// Holds the last frame under a note while the outgoing preview is paused.
+/// Holds the last frame under a note while the outgoing preview is paused,
+/// in the words of Discord's client.
 pub(super) fn paused_share_preview(content: Element<'_, Message>) -> Element<'_, Message> {
-    let note = text("Preview paused. Your stream is still live.")
-        .size(13)
-        .color(NOTE)
-        .align_x(Alignment::Center);
+    let note = column![
+        text("Your stream is still running!")
+            .size(14)
+            .color(Color::WHITE)
+            .align_x(Alignment::Center),
+        text("We’ve paused this preview to save your resources.")
+            .size(13)
+            .color(NOTE)
+            .align_x(Alignment::Center),
+    ]
+    .spacing(4)
+    .align_x(Alignment::Center);
     stack![
         content,
         container(note)
